@@ -12,11 +12,14 @@ enum class UiEventType : uint8_t {
   ClockAlert,     // alarm / countdown fired: wake, show `text`, start the ring melody
   ClockRingEnded, // ring window elapsed with no dismiss: stop melody, clear alert
   LiveShareEnded, // live-share session reached its duration and switched itself off
+  LocatorCrossed, // geofence crossing: show `text`; flag = arrived (else left)
+  LocatorBeep,    // one proximity-beeper tick
 };
 
 struct UiEvent {
   UiEventType type;
-  char        text[20];
+  bool        flag;
+  char        text[24];
 };
 
 class UiEventQueue {
@@ -25,11 +28,12 @@ public:
 
   UiEventQueue() : _head(0), _count(0) {}
 
-  void push(UiEventType type, const char* text = nullptr) {
+  void push(UiEventType type, const char* text = nullptr, bool flag = false) {
     int pos;
     if (_count < SIZE) { pos = (_head + _count) % SIZE; _count++; }
     else               { pos = _head; _head = (_head + 1) % SIZE; }   // drop oldest
     _q[pos].type = type;
+    _q[pos].flag = flag;
     if (text) {
       strncpy(_q[pos].text, text, sizeof(_q[pos].text) - 1);
       _q[pos].text[sizeof(_q[pos].text) - 1] = '\0';

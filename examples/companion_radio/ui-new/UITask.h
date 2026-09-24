@@ -127,21 +127,6 @@ class UITask : public AbstractUITask {
   bool     _trail_pause_has_ref = false;
   uint32_t _trail_last_move_ms = 0;
 
-  // Locator engine state. _locator_known guards the first evaluation after
-  // arming (initialise inside/outside silently, fire only on later crossings).
-  uint32_t _next_locator_ms = 0;
-  bool     _locator_inside = false;
-  bool     _locator_known = false;
-  // Proximity beeper: ticks while inside the radius, faster the nearer the
-  // target. _locator_beep_check_ms throttles the distance poll; _locator_beep_next_ms
-  // is when the next tick is due.
-  uint32_t _locator_beep_check_ms = 0;
-  uint32_t _locator_beep_next_ms = 0;
-  bool locatorDistance(float& dist_m, float& radius_m) const;
-  void evaluateLocator();
-  void fireLocator(bool arrived);
-  void locatorProximityBeeper();
-
   // Runs the UI Core engines and reacts to their events (alert overlay, buzzer,
   // display wake). Driven from loop() regardless of the current screen.
   void     tickCore();
@@ -301,7 +286,7 @@ public:
   // Re-arm the locator state machine so the next evaluation initialises
   // silently (called by the Locator tool after the target/radius changes,
   // so re-entering the zone doesn't fire on a stale inside/outside state).
-  void resetLocator() { _locator_known = false; }
+  void resetLocator();
   // The one "active target" the device tracks — shared by the Locator geofence,
   // the Nav bearing/ETA view and (future) the map focus, so every entry point
   // sets the same thing. kind 0 = waypoint (key ignored), 1 = person (key
@@ -335,13 +320,13 @@ public:
   // prefers an active [LOC] live share, falls back to their last-advertised
   // GPS fix. Returns false when neither is known. Optional live/ts report
   // freshness for the picker's age tag. One precedence, used by both the
-  // Locator engine (locatorDistance) and the target picker.
+  // Locator engine (ui-core/LocatorEngine.h) and the target picker.
   bool resolvePersonPos(const uint8_t* key, int32_t& lat, int32_t& lon,
                         bool* live = nullptr, uint32_t* ts = nullptr) const;
   // Resolved position of the active target — a waypoint's coords, or a person
   // via resolvePersonPos(). Gated only on a target being set, independent of
   // whether the Locator alert is enabled, so a destination you set still shows
-  // on the map. Used by locatorDistance() and the map renderers.
+  // on the map. Used by the Locator engine and the map renderers.
   bool activeTargetPos(int32_t& lat, int32_t& lon) const;
   void gotoTrailScreen();
   void gotoMapScreen();   // opens the Trail screen directly in its Map view

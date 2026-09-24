@@ -14,6 +14,7 @@
 #include "PingEngine.h"
 #include "CourseEngine.h"
 #include "LiveShareEngine.h"
+#include "LocatorEngine.h"
 
 class UiCore {
 public:
@@ -22,6 +23,7 @@ public:
     ping.begin(prefs);
     course.begin(sensors);
     live_share.begin(prefs, &course, &events);
+    locator.begin(prefs, &course, &live_share, &events);
   }
 
   // Driven from the frontend's loop(), before it drains `events`.
@@ -29,6 +31,7 @@ public:
     clock.loop();
     course.loop();
     live_share.loop();
+    locator.loop();
   }
 
   UiEventQueue events;      // Core → frontend; drained by the frontend's loop()
@@ -38,6 +41,7 @@ public:
   PingEngine  ping;         // single in-flight ping + last result
   CourseEngine course;      // GPS position + course-over-ground ring
   LiveShareEngine live_share; // [LOC] auto-share session + peers' shared positions
+  LocatorEngine locator;    // active target, geofence crossings, proximity beeper
 
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread

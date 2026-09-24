@@ -1745,6 +1745,14 @@ void UITask::tickCore() {
     case UiEventType::LiveShareEnded:
       showAlert("Live share ended", 2500);
       break;
+    case UiEventType::LocatorCrossed:
+      showAlert(ev.text, 3000);
+      if (!isBuzzerQuiet())
+        playMelody(ev.flag ? "locarr:d=8,o=6,b=140:c,e,g" : "loclv:d=8,o=6,b=140:g,e,c");
+      break;
+    case UiEventType::LocatorBeep:
+      playMelody("locp:d=32,o=7,b=200:c");
+      break;
     default:
       break;
     }
@@ -2745,9 +2753,6 @@ void UITask::loop() {
 
   if (curr) curr->poll();
 
-  // UI Core engines (alarm + countdown, …) run regardless of the current screen
-  // / display state, so they're driven here (not via the current screen's poll()).
-  tickCore();
 
   if (_display != NULL && _display->isOn()) {
     if (_locked && (int32_t)(millis() - _lock_wake_until) >= 0) {
@@ -2925,114 +2930,22 @@ void UITask::loop() {
     }
   }
 
-  // Locator — beep + alert when the device crosses into / out of the armed
-  // geofence. Cheap; a few seconds of latency at the boundary is fine.
-  if ((int32_t)(millis() - _next_locator_ms) >= 0) {
-    _next_locator_ms = millis() + 3000UL;
-    evaluateLocator();
-  }
 
-  // Locator proximity beeper — ticks faster the closer to the target. Runs on
-  // its own short cadence (the crossing check above is too coarse for this).
-  locatorProximityBeeper();
+  // UI Core engines (alarm + countdown, COG, live share, locator, …) run
+  // regardless of the current screen / display state. Last in the loop, after
+  // the GPS keep-awake check above (a fresh GPS wake re-seeds the locator first).
+  tickCore();
 }
 
-// Evaluate the single geofence against the current GPS fix. Crossing the radius
-// fires fireLocator() according to the configured mode; a hysteresis band on
-// the "leave" edge stops it chattering at the boundary, and the first reading
-// after arming only seeds the inside/outside state (no spurious alert).
-// Distance (m) from the current GPS fix to the locator target, plus the
-// configured radius (m). Returns false when no target is set or there's no fix
-// — the single place the target-distance maths lives, shared by the crossing
-// evaluator and the proximity beeper.
-// One precedence for a person's position — an active [LOC] live share wins,
-// else the last-advertised GPS fix. Not everyone keeps live-sharing on, so the
-// fallback lets a rarely-updating but stationary node (a repeater, or someone
-// who shared a fix once) still work as a target.
+// Locator (engine in ui-core/LocatorEngine.h).
+void UITask::resetLocator() { _core->locator.reset(); }
 bool UITask::resolvePersonPos(const uint8_t* key, int32_t& lat, int32_t& lon,
                               bool* live, uint32_t* ts) const {
-  if (live) *live = false;
-  if (ts)   *ts   = 0;
-  if (!key) return false;
-  const LiveTrackStore::Entry* e =
-      _core->live_share.track().activeByKey(key, (uint32_t)rtc_clock.getCurrentTime());
-  if (e) {
-    lat = e->lat_1e6; lon = e->lon_1e6;
-    if (live) *live = true;
-    if (ts)   *ts   = e->ts;
-    return true;
-  }
-  ContactInfo* c = the_mesh.lookupContactByPubKey(key, NodePrefs::FAVOURITE_PREFIX_LEN);
-  if (c && (c->gps_lat != 0 || c->gps_lon != 0)) {
-    lat = c->gps_lat; lon = c->gps_lon;
-    if (ts) *ts = c->lastmod;
-    return true;
-  }
-  return false;
+  return _core->locator.resolvePersonPos(key, lat, lon, live, ts);
 }
-
-bool UITask::activeTargetPos(int32_t& lat, int32_t& lon) const {
-  if (!_node_prefs || !_node_prefs->locator_has_target) return false;
-  if (_node_prefs->locator_target_kind == 1)
-    return resolvePersonPos(_node_prefs->locator_key, lat, lon);
-  lat = _node_prefs->locator_lat_1e6;
-  lon = _node_prefs->locator_lon_1e6;
-  return true;
-}
-
-bool UITask::locatorDistance(float& dist_m, float& radius_m) const {
-  int32_t tlat, tlon;
-  if (!activeTargetPos(tlat, tlon)) return false;
-  int32_t lat, lon;
-  if (!currentLocation(lat, lon)) return false;
-  dist_m   = geo::haversineKm(lat, lon, tlat, tlon) * 1000.0f;
-  radius_m = (float)NodePrefs::locatorRadiusMeters(_node_prefs->locator_radius_idx);
-  return true;
-}
-
-void UITask::evaluateLocator() {
-  if (!_node_prefs || !_node_prefs->locator_enabled || !_node_prefs->locator_has_target) {
-    _locator_known = false;
-    return;
-  }
-  float dist, r;
-  if (!locatorDistance(dist, r)) return;   // armed but no fix yet — keep state
-  bool inside;
-  if (!_locator_known)        inside = dist <= r;            // seed state
-  else if (_locator_inside)   inside = dist <= r * 1.25f;    // leave past band
-  else                          inside = dist <= r;            // arrive at edge
-
-  if (_locator_known && inside != _locator_inside) {
-    uint8_t mode = _node_prefs->locator_mode;  // 0=arrive,1=leave,2=both
-    bool fire = inside ? (mode == 0 || mode == 2) : (mode == 1 || mode == 2);
-    if (fire) fireLocator(inside);
-  }
-  _locator_inside = inside;
-  _locator_known  = true;
-}
-
-void UITask::fireLocator(bool arrived) {
-  const char* lbl = _node_prefs->locator_label[0] ? _node_prefs->locator_label : "target";
-  bool person = _node_prefs->locator_target_kind == 1;
-  char msg[40];
-  // "Near/Away" reads naturally for a moving person; "Arrived/Left" for a place.
-  snprintf(msg, sizeof(msg),
-           arrived ? (person ? "Near: %s"  : "Arrived: %s")
-                   : (person ? "Away: %s"  : "Left: %s"), lbl);
-  showAlert(msg, 3000);
-  if (!isBuzzerQuiet())
-    playMelody(arrived ? "locarr:d=8,o=6,b=140:c,e,g" : "loclv:d=8,o=6,b=140:g,e,c");
-}
-
+bool UITask::activeTargetPos(int32_t& lat, int32_t& lon) const { return _core->locator.activeTargetPos(lat, lon); }
 void UITask::setTarget(uint8_t kind, const uint8_t* key, int32_t lat, int32_t lon, const char* name) {
-  if (!_node_prefs) return;
-  _node_prefs->locator_target_kind = kind;
-  if (kind == 1 && key) memcpy(_node_prefs->locator_key, key, NodePrefs::FAVOURITE_PREFIX_LEN);
-  _node_prefs->locator_lat_1e6 = lat;
-  _node_prefs->locator_lon_1e6 = lon;
-  snprintf(_node_prefs->locator_label, sizeof(_node_prefs->locator_label), "%s", name);
-  _node_prefs->locator_has_target = 1;
-  resetLocator();   // re-seed the crossing engine so the change can't fire on a stale state
+  _core->locator.setTarget(kind, key, lat, lon, name);
 }
 
 void UITask::setTargetNow(uint8_t kind, const uint8_t* key, int32_t lat, int32_t lon, const char* name) {
@@ -3042,18 +2955,8 @@ void UITask::setTargetNow(uint8_t kind, const uint8_t* key, int32_t lat, int32_t
   showAlert("Target set", 1200);
 }
 
-void UITask::clearTarget() {
-  if (!_node_prefs) return;
-  _node_prefs->locator_has_target = 0;
-  resetLocator();
-}
-
-void UITask::clearTargetIfWaypoint(int32_t lat_1e6, int32_t lon_1e6) {
-  if (!_node_prefs || !_node_prefs->locator_has_target || _node_prefs->locator_target_kind != 0) return;
-  if (_node_prefs->locator_lat_1e6 != lat_1e6 || _node_prefs->locator_lon_1e6 != lon_1e6) return;
-  clearTarget();
-  the_mesh.savePrefs();
-}
+void UITask::clearTarget() { _core->locator.clearTarget(); }
+void UITask::clearTargetIfWaypoint(int32_t lat_1e6, int32_t lon_1e6) { _core->locator.clearTargetIfWaypoint(lat_1e6, lon_1e6); }
 
 // CONTRACT: every NodePrefs field that keys on a contact pubkey/prefix is
 // cleared here, so a removed contact can't leave a dangling reference. If you
@@ -3073,11 +2976,7 @@ void UITask::onContactRemoved(const uint8_t* pub_key) {
   int slot = findFavouriteSlot(pub_key);
   if (slot >= 0) { clearFavouriteSlot(slot); changed = true; }
 
-  if (_node_prefs->locator_has_target && _node_prefs->locator_target_kind == 1
-      && memcmp(_node_prefs->locator_key, pub_key, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {
-    clearTarget();
-    changed = true;
-  }
+  if (_core->locator.onContactRemoved(pub_key)) changed = true;
   // Fail closed rather than guess a new recipient: a contact target that's
   // gone just turns auto-share off, it doesn't fall back to some other target.
   if (_node_prefs->loc_share_target_type == 1
@@ -3163,30 +3062,6 @@ void UITask::onChannelRemoved(uint8_t channel_idx) {
 // radius. The beeper has its own toggle (locator_beeper), so turning it on is
 // an explicit "I want to hear this" — it deliberately overrides the global
 // buzzer mute (playMelody → buzzer.playForced ignores the quiet flag).
-void UITask::locatorProximityBeeper() {
-  static const uint32_t BEEP_MIN_MS = 150;    // fastest cadence (at the target)
-  static const uint32_t BEEP_MAX_MS = 2000;   // slowest cadence (at the edge)
-  if (!_node_prefs || !_node_prefs->locator_enabled || !_node_prefs->locator_beeper
-      || !_node_prefs->locator_has_target || _node_prefs->locator_mode == 1) {  // leave-only mode: no homing
-    return;
-  }
-  if ((int32_t)(millis() - _locator_beep_check_ms) < 0) return;
-  _locator_beep_check_ms = millis() + 250UL;
-
-  float dist, r;
-  if (!locatorDistance(dist, r)) return;
-  if (dist > r) {                       // outside the zone: stay quiet, beep on re-entry
-    _locator_beep_next_ms = millis();
-    return;
-  }
-  if ((int32_t)(millis() - _locator_beep_next_ms) < 0) return;
-  float frac = (r > 0) ? dist / r : 0;  // 0 at centre, 1 at edge
-  if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
-  uint32_t interval = BEEP_MIN_MS + (uint32_t)(frac * (BEEP_MAX_MS - BEEP_MIN_MS));
-  playMelody("locp:d=32,o=7,b=200:c");
-  _locator_beep_next_ms = millis() + interval;
-}
-
 bool UITask::currentCourse(int& deg_out) const { return _core->course.currentCourse(deg_out); }
 bool UITask::currentLocation(int32_t& lat, int32_t& lon) const { return _core->course.currentLocation(lat, lon); }
 

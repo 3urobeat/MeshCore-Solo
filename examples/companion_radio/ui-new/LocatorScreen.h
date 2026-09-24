@@ -5,7 +5,7 @@
 // When armed the device beeps / alerts as it crosses into (arrive/near) or out
 // of (leave/away) the radius. A waypoint target is snapshotted (coord + label);
 // a person target follows their latest shared position. The crossing engine
-// lives in UITask::evaluateLocator(). The Target row's Enter opens a picker
+// lives in the UI Core (ui-core/LocatorEngine.h). The Target row's Enter opens a picker
 // ("None" first — the only way to unset a target once chosen — then your
 // favourites, offered even with no known position yet so you can arm ahead
 // of time, then any other contact with a currently-known position:
@@ -167,7 +167,7 @@ public:
   // Add a person candidate to _targets, deduped by pubkey prefix. Freshness is
   // resolved here for display only: an active [LOC] share wins (live=true),
   // else the contact's last-advertised position if it has one — the same
-  // precedence UITask::locatorDistance() uses at evaluation time. When
+  // precedence LocatorEngine uses at evaluation time. When
   // `require_position` is false (favourites), a contact with neither is still
   // added with no position — "arm ahead of time", per the existing feature.
   bool addPersonTarget(const uint8_t* key, const char* name, bool require_position, bool fav) {
