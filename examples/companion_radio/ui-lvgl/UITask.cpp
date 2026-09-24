@@ -9,6 +9,8 @@
 #include "../ui-core/UiCore.h"   // shared UI Core (header-only, this TU)
 #include "Theme.h"
 #include "LvglPort.h"
+#include "../ui-core/KeyboardData.h"
+#include "Keyboard.h"
 
 // ui-lvgl skeleton (docs/development/ui-core.md, step 5): status bar, home,
 // conversation list, contact picker, conversation view with compose. Every
@@ -353,6 +355,7 @@ void UITask::back() {
   switch (_screen) {
     case SCR_THREAD:   showChats(); break;
     case SCR_CONTACTS: showChats(); break;
+    case SCR_SETTINGS: showHome(); break;
     case SCR_CHATS:    showHome(); break;
     default:           break;
   }
@@ -361,6 +364,24 @@ void UITask::back() {
 // ── Home ──────────────────────────────────────────────────────────────────────
 
 static void onOpenChats(lv_event_t* e) { (void)e; s_ui->showChats(); }
+static void onOpenSettings(lv_event_t* e) { (void)e; s_ui->showSettings(); }
+
+// Wide home tile: icon + label left, optional value label right.
+static lv_obj_t* homeTile(lv_obj_t* parent, const char* text, lv_event_cb_t cb, lv_obj_t** value_out) {
+  lv_obj_t* tile = lv_button_create(parent);
+  lv_obj_set_size(tile, LV_PCT(100), 42);
+  lv_obj_set_style_bg_color(tile, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_set_style_radius(tile, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(tile, 0, 0);
+  lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* tl = label(tile, text, THEME_FONT_TITLE, theme::TEXT);
+  lv_obj_align(tl, LV_ALIGN_LEFT_MID, theme::PAD, 0);
+  if (value_out) {
+    *value_out = label(tile, "", THEME_FONT_TITLE, theme::ACCENT);
+    lv_obj_align(*value_out, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+  }
+  return tile;
+}
 
 void UITask::showHome() {
   _screen = SCR_HOME;
@@ -373,21 +394,12 @@ void UITask::buildHome() {
   lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   _home_clock = label(body, "--:--", THEME_FONT_CLOCK, theme::TEXT);
-  lv_obj_set_style_pad_top(_home_clock, 10, 0);
   _home_date = label(body, "", THEME_FONT_BODY, theme::TEXT_MUTED);
   lv_obj_t* name = label(body, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
-  lv_obj_set_style_pad_bottom(name, 8, 0);
+  lv_obj_set_style_pad_bottom(name, 4, 0);
 
-  lv_obj_t* tile = lv_button_create(body);
-  lv_obj_set_size(tile, LV_PCT(100), 56);
-  lv_obj_set_style_bg_color(tile, lv_color_hex(theme::SURFACE), 0);
-  lv_obj_set_style_radius(tile, theme::RADIUS, 0);
-  lv_obj_set_style_shadow_width(tile, 0, 0);
-  lv_obj_add_event_cb(tile, onOpenChats, LV_EVENT_CLICKED, NULL);
-  lv_obj_t* tl = label(tile, LV_SYMBOL_ENVELOPE "  Messages", THEME_FONT_TITLE, theme::TEXT);
-  lv_obj_align(tl, LV_ALIGN_LEFT_MID, theme::PAD, 0);
-  _home_unread = label(tile, "", THEME_FONT_TITLE, theme::ACCENT);
-  lv_obj_align(_home_unread, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+  homeTile(body, LV_SYMBOL_ENVELOPE "  Messages", onOpenChats, &_home_unread);
+  homeTile(body, LV_SYMBOL_SETTINGS "  Settings", onOpenSettings, NULL);
 }
 
 void UITask::refreshHome() {
@@ -547,6 +559,18 @@ static void onKeyboard(lv_event_t* e) {
   else if (code == LV_EVENT_CANCEL) lv_obj_add_flag((lv_obj_t*)lv_event_get_user_data(e), LV_OBJ_FLAG_HIDDEN);
 }
 
+// Compose limit is in UTF-8 bytes (the over-the-air limit), not characters:
+// Cyrillic / Greek / accented letters take two bytes each. Leaves room for the
+// "Name: " prefix a channel send adds.
+static const size_t COMPOSE_MAX_BYTES = MAX_TEXT_LEN - 40;
+
+static void onComposeInsert(lv_event_t* e) {
+  lv_obj_t* ta = (lv_obj_t*)lv_event_get_target(e);
+  const char* ins = (const char*)lv_event_get_param(e);
+  if (ins && strlen(lv_textarea_get_text(ta)) + strlen(ins) > COMPOSE_MAX_BYTES)
+    lv_textarea_set_insert_replace(ta, "");   // reject: would exceed the byte limit
+}
+
 static void onComposeClicked(lv_event_t* e) {
   lv_obj_t* kb = (lv_obj_t*)lv_event_get_user_data(e);
   lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
@@ -606,13 +630,13 @@ void UITask::buildThread() {
     _compose_ta = lv_textarea_create(bar);
     lv_textarea_set_one_line(_compose_ta, true);
     lv_textarea_set_placeholder_text(_compose_ta, "Message");
-    lv_textarea_set_max_length(_compose_ta, MAX_TEXT_LEN - 40);
+    lv_obj_add_event_cb(_compose_ta, onComposeInsert, LV_EVENT_INSERT, NULL);
     lv_obj_set_size(_compose_ta, LV_PCT(100), 36);
     lv_obj_align(_compose_ta, LV_ALIGN_LEFT_MID, 0, 0);
 
     // In the body's flex column below the compose bar: showing it shrinks the
     // message list, so the text field stays visible just above the keys.
-    _keyboard = lv_keyboard_create(body);
+    _keyboard = kb::create(body, _prefs);   // phone-style, scripts from prefs, hold for accents (Keyboard.h)
     lv_obj_set_size(_keyboard, LV_PCT(100), 130);
     lv_keyboard_set_textarea(_keyboard, _compose_ta);
     lv_obj_add_event_cb(_keyboard, onKeyboard, LV_EVENT_READY, _keyboard);
@@ -755,4 +779,59 @@ void UITask::sendFromCompose() {
   } else {
     showToast("Send failed");
   }
+}
+
+// ── Settings (first rows; the declarative schema replaces this later) ────────
+
+static lv_obj_t* s_kb_main_dd = nullptr;
+static lv_obj_t* s_kb_alt_dd = nullptr;
+
+static void onKeyboardAlphabet(lv_event_t* e) {
+  (void)e;
+  s_ui->setKeyboardAlphabets(lv_dropdown_get_selected(s_kb_main_dd), lv_dropdown_get_selected(s_kb_alt_dd));
+}
+
+// One settings row: label left, dropdown right.
+static lv_obj_t* dropdownRow(lv_obj_t* parent, const char* text, const char* options, int sel) {
+  lv_obj_t* row = lv_obj_create(parent);
+  styleSurface(row, theme::SURFACE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
+  lv_obj_set_style_radius(row, theme::RADIUS, 0);
+  lv_obj_t* l = label(row, text, THEME_FONT_BODY, theme::TEXT);
+  lv_obj_align(l, LV_ALIGN_LEFT_MID, theme::PAD, 0);
+  lv_obj_t* dd = lv_dropdown_create(row);
+  lv_dropdown_set_options_static(dd, options);
+  lv_dropdown_set_selected(dd, sel);
+  lv_obj_set_width(dd, 130);
+  lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_add_event_cb(dd, onKeyboardAlphabet, LV_EVENT_VALUE_CHANGED, NULL);
+  return dd;
+}
+
+void UITask::showSettings() {
+  _screen = SCR_SETTINGS;
+  buildSettings();
+}
+
+void UITask::buildSettings() {
+  lv_obj_t* body = newScreen("Settings", true);
+  sectionTitle(body, "KEYBOARD");
+  uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
+  uint8_t alt_a  = _prefs ? _prefs->keyboard_alt_alphabet : 0;
+  if (main_a >= NodePrefs::KB_ALPHABET_COUNT) main_a = 0;
+  if (alt_a >= NodePrefs::KB_ALPHABET_COUNT) alt_a = main_a;
+  // Order matches NodePrefs::KB_ALPHABET_* (Latin, Cyrillic, Greek).
+  s_kb_main_dd = dropdownRow(body, "Main", "Latin\nCyrillic\nGreek", main_a);
+  // "None" = no second script (stored as alt == main, as ui-new does).
+  s_kb_alt_dd  = dropdownRow(body, "Additional", "None\nLatin\nCyrillic\nGreek",
+                             alt_a == main_a ? 0 : alt_a + 1);
+  label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+}
+
+void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
+  if (!_prefs) return;
+  _prefs->keyboard_main_alphabet = (uint8_t)main_idx;
+  _prefs->keyboard_alt_alphabet  = (uint8_t)(alt_sel == 0 ? main_idx : alt_sel - 1);
+  the_mesh.savePrefs();
 }

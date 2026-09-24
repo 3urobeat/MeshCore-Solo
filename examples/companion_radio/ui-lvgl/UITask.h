@@ -36,6 +36,8 @@ public:
   void showHome();
   void showChats();
   void showContacts();
+  void showSettings();
+  void setKeyboardAlphabets(int main_idx, int alt_sel);
   void openChannel(uint8_t channel_idx);
   void openDM(const uint8_t* pub_key);
   void back();
@@ -47,7 +49,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -56,6 +58,7 @@ private:
   void refreshHome();
   void buildChats();
   void buildContacts();
+  void buildSettings();
   void buildThread();
   void refreshThread();
   uint32_t threadSignature() const;

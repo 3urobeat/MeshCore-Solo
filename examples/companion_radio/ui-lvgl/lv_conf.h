@@ -26,14 +26,14 @@
 #define LV_USE_ASSERT_NULL      1
 #define LV_USE_ASSERT_MALLOC    1
 
-// Fonts. Montserrat is ASCII + a few symbols only -- Polish / Cyrillic
-// coverage needs a generated font (lv_font_conv), planned with the theme work.
-#define LV_FONT_MONTSERRAT_12   1
-#define LV_FONT_MONTSERRAT_14   1
-#define LV_FONT_MONTSERRAT_16   1
-#define LV_FONT_MONTSERRAT_20   1
-#define LV_FONT_MONTSERRAT_40   1
-#define LV_FONT_DEFAULT         &lv_font_montserrat_14
+// Fonts: generated Noto Sans (European Latin, Greek, Cyrillic + LV_SYMBOL_*),
+// see fonts/generate.sh. LVGL's built-in Montserrat (ASCII only) is off.
+#define LV_FONT_MONTSERRAT_14   0
+#define LV_FONT_CUSTOM_DECLARE  LV_FONT_DECLARE(ui_font_12) LV_FONT_DECLARE(ui_font_14) \
+                                LV_FONT_DECLARE(ui_font_16) LV_FONT_DECLARE(ui_font_20) \
+                                LV_FONT_DECLARE(ui_font_40)
+#define LV_FONT_DEFAULT         &ui_font_14
+#define LV_USE_FONT_COMPRESSED  1      // generated fonts are RLE-compressed (without this every glyph draws as a box)
 
 #define LV_USE_THEME_DEFAULT    1
 #define LV_THEME_DEFAULT_DARK   1

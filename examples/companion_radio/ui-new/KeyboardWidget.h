@@ -5,6 +5,7 @@
 #include "PopupMenu.h"
 #include "icons.h"   // mini-icons for the special-key row (⇧ ⌫ ⎵ ✓)
 #include "../NodePrefs.h"
+#include "../ui-core/KeyboardData.h"   // shared long-press variants + case table
 
 // Layout constants shared by all keyboard users.
 // Two pages: letters (page 0) and symbols (page 1), toggled by the "#@"/"abc"
@@ -147,30 +148,12 @@ static const int KB_PREVIEW_BYTES = KB_PREVIEW_CAP * 2;
 static void kbApplyCapsUtf8(const char* in, bool caps, char* out, size_t out_size) {
   size_t o = 0;
   const uint8_t* p = (const uint8_t*)in;
-  while (*p && o + 2 < out_size) {
+  while (*p && o + 4 < out_size) {
     uint32_t cp = DisplayDriver::decodeCodepoint(p);
-    if (caps) {
-      if (cp == 0x0451)                                    cp = 0x0401;  // ё -> Ё
-      else if (cp == 0x03C2)                               cp = 0x03A3;  // ς -> Σ
-      else if (cp == 0x00FF)                               cp = 0x0178;  // ÿ -> Ÿ (French; breaks the à-þ flat -0x20 rule below — Ÿ sits outside Latin-1 Supplement entirely)
-      else if (cp >= 0x0430 && cp <= 0x044F)                cp -= 0x20;   // а-я -> А-Я
-      else if (cp >= 0x03B1 && cp <= 0x03C9)                cp -= 0x20;   // α-ω -> Α-Ω
-      else if (cp >= 0x00E0 && cp <= 0x00FE && cp != 0x00F7) cp -= 0x20;  // à-þ -> À-Þ
-      // ą-ż (Latin Extended-A): pairing parity flips around the unpaired
-      // codepoints ĸ (U+0138), ŉ (U+0149), Ÿ (U+0178) -- verified exhaustively
-      // over the whole U+0100-U+017F block, resolves ł ń ź ż + ĺ ľ ň ž too.
-      else if (cp >= 0x0100 && cp <= 0x0137 && (cp & 1) == 1) cp -= 1;     // odd=lower
-      else if (cp >= 0x0139 && cp <= 0x0148 && (cp & 1) == 0) cp -= 1;     // even=lower
-      else if (cp >= 0x014A && cp <= 0x0177 && (cp & 1) == 1) cp -= 1;     // odd=lower
-      else if (cp >= 0x0179 && cp <= 0x017E && (cp & 1) == 0) cp -= 1;     // even=lower
-      else if (cp >= 'a' && cp <= 'z')                      cp -= 0x20;   // a-z -> A-Z
-    }
-    if (cp < 0x80) {
-      out[o++] = (char)cp;
-    } else {
-      out[o++] = (char)(0xC0 | (cp >> 6));
-      out[o++] = (char)(0x80 | (cp & 0x3F));
-    }
+    // Shared case table (ui-core/KeyboardData.h). ß stays ß here: its
+    // uppercase ẞ (U+1E9E) is outside the misc-fixed font's U+0020-04FF.
+    if (caps && cp != 0x00DF) cp = kbd::toUpper(cp);
+    o += kbd::encode(cp, out + o);
   }
   out[o] = '\0';
 }
@@ -239,28 +222,9 @@ static int kbUtf8CharBytesAt(const char* buf, int pos, int len) {
 // Ligature/non-diacritic letters are filed under their conventional key, same
 // as a phone keyboard's long-press: ß (German) -> s, œ (French) -> o. ĺ/ŕ
 // (Slovak) are l/r with an acute, not i/e variants, so they're filed there.
-static const char KB_ACCENT_BASES[] = "acdeilnorstuyz";
-static const char* const KB_ACCENT_VARIANTS[] = {
-  "áàâãäåą",  // a
-  "çćč",      // c
-  "ď",        // d
-  "éèêëěę",   // e
-  "íîï",      // i
-  "łĺľ",      // l
-  "ñńň",      // n
-  "óòôõöøœ",  // o
-  "řŕ",       // r
-  "śšß",      // s
-  "ť",        // t
-  "úùûüů",    // u
-  "ýÿ",       // y
-  "źżž",      // z
-};
-static const int KB_ACCENT_COUNT = sizeof(KB_ACCENT_BASES) - 1;   // exclude the trailing NUL
-static int findAccentGroup(char base) {
-  for (int i = 0; i < KB_ACCENT_COUNT; i++) if (KB_ACCENT_BASES[i] == base) return i;
-  return -1;
-}
+// The table itself is shared with every frontend (ui-core/KeyboardData.h).
+static const char* const* const KB_ACCENT_VARIANTS = kbd::LATIN_VARIANTS;
+static int findAccentGroup(char base) { return kbd::latinGroup(base); }
 
 static const int KB_PH_MAX     = 20;  // max placeholders in list (PopupMenu::PM_MAX_ITEMS=24 is the hard ceiling)
 static const int KB_PH_LEN     = 30;  // max placeholder string length incl. null -- sized for the longest
