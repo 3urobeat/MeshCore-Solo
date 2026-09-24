@@ -136,12 +136,13 @@ class MessagesScreen : public UIScreen {
   bool      _pick_bot_room = false;
 
   // The message-history rings (channel + DM), their per-entry delivery state and
-  // per-channel unread counters live in this store (see MessageHistory.h). The
+  // per-channel unread counters live in the UI Core's store (ui-core/
+  // MessageHistory.h); this screen binds to it by reference. The
   // phase machine below keeps only the view state — selection, scroll, the
   // fullscreen readers — and reaches entries through _history's accessors. The
   // shared types (AckState, ChHistEntry, DmHistEntry, MSG_TEXT_BUF) are file-
   // scope, so they're still referred to unqualified throughout this screen.
-  MessageHistory _history;
+  MessageHistory& _history;
 
   // DM_HIST view state (the ring itself is in _history).
   int _dm_hist_sel, _dm_hist_scroll;
@@ -942,10 +943,11 @@ public:
       _msg_sel(0), _msg_scroll(0), _active_msg_count(0),
       _hist_sel(0), _hist_scroll(0),
       _unread_at_entry(0), _viewing_max_seen(0),
+      _history(task->core().history),
       _dm_hist_sel(-1), _dm_hist_scroll(0),
       _ctx_dirty(false), _pin_picker_active(false), _direct_entry(false), _reply_mode(false),
       _ch_view(task) {
-    // The history rings + per-channel unread counters init in MessageHistory.
+    // The history rings + per-channel unread counters live in UiCore.
   }
 
   // Forwarded to UITask's GPS duty-cycle hold — true while showing the
@@ -1111,7 +1113,7 @@ public:
   bool anyChannelUnreadOverflow() const { return _history.anyChannelUnreadOverflow(); }
 
   // How many DM ring entries this contact/room currently holds -- lets UITask
-  // clamp its separate _dm_unread_table counters to what the shared 32-slot DM
+  // clamp the Core's separate DM unread counters to what the shared 32-slot DM
   // ring actually still has, the same self-healing shape as the channel fix.
   int dmHistCountForContact(const uint8_t* pub_key) const { return _history.dmHistCountForContact(pub_key); }
 

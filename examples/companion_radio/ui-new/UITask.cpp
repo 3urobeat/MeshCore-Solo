@@ -160,7 +160,7 @@ static const int QUICK_MSGS_MAX = 10;
 #include "FullscreenMsgView.h"
 #include "SensorPlaceholders.h"
 #include "SettingsScreen.h"
-#include "MessageHistory.h"   // RAM history rings (DM + channel) used by MessagesScreen
+#include "../ui-core/UiCore.h"   // shared UI Core: history rings + unread models (MessagesScreen views them)
 #include "MessagesScreen.h"
 
 // ── Custom screens (separate files to ease upstream merges) ───────────────────
@@ -1654,6 +1654,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _ping_snr_back_x4 = 0;
   _ping_rtt_ms = 0;
 
+  _core = new UiCore();   // before any screen -- MessagesScreen binds to its history
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   syncLockToHome();   // booted locked (e.g. cover closed) → home starts on the LOCK page
@@ -2010,53 +2011,15 @@ void UITask::addDMMsg(const uint8_t* pub_key, bool outgoing, const char* text, u
                       uint32_t ack_tag, uint32_t ack_deadline_ms, uint8_t resends,
                       const uint8_t* path, uint8_t path_len) {
   ((MessagesScreen*)messages_screen)->addDMMsg(pub_key, outgoing, text, sender_timestamp, ack_tag, ack_deadline_ms, resends, path, path_len);
-  // The DM ring (unlike the channel ring) doesn't proactively decrement the
-  // unread counters as it evicts old entries, so catch it here, right after
-  // the insert: a raw count claiming more unread than the ring still holds
-  // for that contact means one of their unread entries was just evicted. Any
-  // contact can lose one -- not just this sender -- so check every slot.
-  // Clamp back to the honest value and flag it (mirrors MessageHistory's
-  // channel-side fix). Must run after the insert, not in newMsg() (called
-  // before it), or the new message itself reads as evicted.
-  for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++) {
-    if (_dm_unread_table[i].count == 0) continue;
-    int held = ((MessagesScreen*)messages_screen)->dmHistCountForContact(_dm_unread_table[i].prefix);
-    if (_dm_unread_table[i].count > held) {
-      _dm_unread_table[i].count = (uint8_t)held;
-      _dm_unread_table[i].overflow = held > 0;   // held == 0 frees the slot -- nothing left to flag
-    }
-  }
+  _core->afterDMInsert();
 }
 
-int UITask::getDMUnreadTotal() const {
-  int total = 0;
-  for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++) {
-    if (_dm_unread_table[i].count == 0) continue;
-    int held = ((MessagesScreen*)messages_screen)->dmHistCountForContact(_dm_unread_table[i].prefix);
-    total += (_dm_unread_table[i].count < held) ? _dm_unread_table[i].count : held;
-  }
-  return total;
-}
-
-uint8_t UITask::getDMUnread(const uint8_t* pub_key) const {
-  for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++) {
-    if (_dm_unread_table[i].count > 0 && memcmp(_dm_unread_table[i].prefix, pub_key, 4) == 0) {
-      int held = ((MessagesScreen*)messages_screen)->dmHistCountForContact(pub_key);
-      return _dm_unread_table[i].count < held ? _dm_unread_table[i].count : (uint8_t)held;
-    }
-  }
-  return 0;
-}
-
-void UITask::reconcileDMUnread() {
-  for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++) {
-    if (_dm_unread_table[i].count == 0) continue;
-    if (((MessagesScreen*)messages_screen)->dmHistCountForContact(_dm_unread_table[i].prefix) == 0) {
-      _dm_unread_table[i].count = 0;   // ring no longer holds anything for this sender -- free the slot
-      _dm_unread_table[i].overflow = false;
-    }
-  }
-}
+int UITask::getDMUnreadTotal() const { return _core->dmUnreadTotal(); }
+uint8_t UITask::getDMUnread(const uint8_t* pub_key) const { return _core->dmUnread(pub_key); }
+bool UITask::getDMUnreadOverflow(const uint8_t* pub_key) const { return _core->dmUnreadOverflow(pub_key); }
+bool UITask::getAnyDMUnreadOverflow() const { return _core->anyDMUnreadOverflow(); }
+void UITask::clearDMUnread(const uint8_t* pub_key) { _core->clearDMUnread(pub_key); }
+void UITask::clearAllDMUnread() { _core->clearAllDMUnread(); }
 
 void UITask::showAlert(const char* text, int duration_millis) {
   snprintf(_alert, sizeof(_alert), "%s", text);
@@ -2108,8 +2071,7 @@ void UITask::msgRead(int msgcount) {
   _msgcount = msgcount;
   if (msgcount == 0) {
     _room_unread = 0;
-    memset(_dm_unread_table, 0, sizeof(_dm_unread_table));
-    ((MessagesScreen*)messages_screen)->clearAllChannelUnread();
+    _core->clearAllUnread();
   }
 }
 
@@ -2119,19 +2081,7 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
   if (contact_type == ADV_TYPE_CHAT && pub_key != nullptr) {
     memcpy(_last_notif_dm_prefix, pub_key, 4);
     _last_notif_dm_valid = true;
-    int slot = -1, empty_slot = -1;
-    for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++) {
-      if (_dm_unread_table[i].count > 0 && memcmp(_dm_unread_table[i].prefix, pub_key, 4) == 0) { slot = i; break; }
-      if (empty_slot < 0 && _dm_unread_table[i].count == 0) empty_slot = i;
-    }
-    if (slot >= 0) {
-      if (_dm_unread_table[slot].count < 99) _dm_unread_table[slot].count++;
-    } else if (empty_slot >= 0) {
-      memcpy(_dm_unread_table[empty_slot].prefix, pub_key, 4);
-      _dm_unread_table[empty_slot].count = 1;
-      _dm_unread_table[empty_slot].overflow = false;   // fresh contact -- don't inherit a stale flag from whoever held this slot before
-    }
-    // Eviction/overflow is checked in addDMMsg(), after the ring insert.
+    _core->noteIncomingDM(pub_key);   // eviction/overflow is checked in addDMMsg(), after the ring insert
   }
 
   char alert_buf[80];
@@ -2646,7 +2596,7 @@ void UITask::loop() {
   // Background delivery: resend pending on-device DMs whose ACK timed out, and
   // finalise the ✗ marker — runs regardless of which screen is active.
   ((MessagesScreen*)messages_screen)->tickDmResends();
-  reconcileDMUnread();
+  _core->reconcileDMUnread();
 #if UI_HAS_JOYSTICK
   uint8_t joy_rot = _node_prefs ? _node_prefs->joystick_rotation : JOYSTICK_ROTATION;
   int ev = user_btn.check();
@@ -3273,7 +3223,7 @@ void UITask::clearTargetIfWaypoint(int32_t lat_1e6, int32_t lon_1e6) {
 // cleared here, so a removed contact can't leave a dangling reference. If you
 // add such a field, add its cleanup below (and mark the field in NodePrefs.h).
 // Currently covered: favourite_contacts, locator_key, loc_share_dm_prefix,
-// dm_notif[], dm_melody[]. Also clears _dm_unread_table (RAM-only, not a
+// dm_notif[], dm_melody[]. Also clears the DM unread table (RAM-only, not a
 // NodePrefs field, so no savePrefs() needed for it) -- same 4-byte-prefix
 // shape and same 16-slot starvation risk as dm_notif/dm_melody above. Called
 // for both explicit removal and silent auto-eviction (see MyMesh

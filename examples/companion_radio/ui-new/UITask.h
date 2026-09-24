@@ -42,6 +42,8 @@
 #include "../LiveTrack.h"
 #include "KeyboardWidget.h"
 
+class UiCore;
+
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
   SensorManager* _sensors;
@@ -71,12 +73,9 @@ class UITask : public AbstractUITask {
   int _last_notif_ch_idx;
   uint8_t _last_notif_dm_prefix[4];
   bool _last_notif_dm_valid;
-  // overflow: an unread entry for this contact was evicted off the DM ring
-  // before ever being seen (see newMsg()) -- count is honest but understates
-  // the real total. Cleared with the slot (memset) or on a read back to 0.
-  struct DMUnreadEntry { uint8_t prefix[4]; uint8_t count; bool overflow; };
-  static const int DM_UNREAD_TABLE_SIZE = 16;
-  DMUnreadEntry _dm_unread_table[DM_UNREAD_TABLE_SIZE];
+  // Shared UI Core (../ui-core): message history + unread models. Heap-allocated
+  // in begin(), before any screen, like the screens themselves.
+  UiCore* _core = nullptr;
   unsigned long ui_started_at, next_batt_chck;
   uint16_t _batt_mv;  // EMA-filtered battery voltage
   unsigned long next_backlight_btn_check = 0;
@@ -307,7 +306,6 @@ public:
     _last_notif_ch_idx = -1;
     _last_notif_dm_valid = false;
     memset(_last_notif_dm_prefix, 0, sizeof(_last_notif_dm_prefix));
-    memset(_dm_unread_table, 0, sizeof(_dm_unread_table));
     curr = NULL;
   }
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
@@ -457,35 +455,17 @@ public:
   bool getAnyChannelUnreadOverflow() const;
   int  getRoomUnreadCount() const { return _room_unread; }
   void clearRoomUnread() { _room_unread = 0; }
-  // Clamped to the DM ring's actual occupancy for this contact -- defined in
-  // UITask.cpp (needs MessagesScreen to be a complete type). Same self-healing
-  // shape as MessageHistory::chUnread() for channels.
+  // Clamped to the DM ring's actual occupancy for this contact (UiCore).
   uint8_t getDMUnread(const uint8_t* pub_key) const;
-  bool getDMUnreadOverflow(const uint8_t* pub_key) const {
-    for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++)
-      if (_dm_unread_table[i].count > 0 && memcmp(_dm_unread_table[i].prefix, pub_key, 4) == 0)
-        return _dm_unread_table[i].overflow;
-    return false;
-  }
-  bool getAnyDMUnreadOverflow() const {
-    for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++)
-      if (_dm_unread_table[i].count > 0 && _dm_unread_table[i].overflow) return true;
-    return false;
-  }
+  bool getDMUnreadOverflow(const uint8_t* pub_key) const;
+  bool getAnyDMUnreadOverflow() const;
   // Aggregate for the clock/lock dashboard's single "Msgs" field -- true if
   // ANY channel or DM contact has permanently lost an unread entry to its
   // ring cap (rooms have no local ring to overflow the same way).
   bool getAnyUnreadOverflow() const;
-  void clearDMUnread(const uint8_t* pub_key) {
-    for (int i = 0; i < DM_UNREAD_TABLE_SIZE; i++)
-      if (_dm_unread_table[i].count > 0 && memcmp(_dm_unread_table[i].prefix, pub_key, 4) == 0)
-        { _dm_unread_table[i].count = 0; _dm_unread_table[i].overflow = false; return; }
-  }
-  void clearAllDMUnread() { memset(_dm_unread_table, 0, sizeof(_dm_unread_table)); }
-  // Frees any table slot whose ring occupancy has dropped to zero (evicted or
-  // deduped-away messages) so a genuinely new sender isn't starved once the
-  // fixed 16-slot table fills with stale entries. Called once per loop().
-  void reconcileDMUnread();
+  void clearDMUnread(const uint8_t* pub_key);
+  void clearAllDMUnread();
+  UiCore& core() { return *_core; }
   bool hasDisplay() const { return _display != NULL; }
   DisplayDriver* getDisplay() const { return _display; }
 

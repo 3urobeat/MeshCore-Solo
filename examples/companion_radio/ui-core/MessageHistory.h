@@ -6,7 +6,8 @@
 // scroll, the unread "viewing session" bookkeeping, the room-login table, and
 // all rendering, and reaches entries through the accessors below.
 //
-// Single-TU fragment: included by UITask.cpp before MessagesScreen.h. AckState,
+// UI Core model, owned by UiCore (UiCore.h). Single-TU fragment: reached from
+// the frontend's UITask.cpp via UiCore.h, before MessagesScreen.h. AckState,
 // MSG_TEXT_BUF and the two entry structs are file-scope (not nested) so the
 // phase machine in MessagesScreen keeps referring to them unqualified.
 
