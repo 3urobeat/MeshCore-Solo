@@ -156,17 +156,6 @@ class UITask : public AbstractUITask {
   // display wake). Driven from loop() regardless of the current screen.
   void     tickCore();
 
-  // Course-over-ground ring — a heading source independent of trail recording.
-  // Filled from the same periodic GPS poll regardless of _trail.isActive().
-  // Heading = bearing across the window (oldest→newest) once the cumulative
-  // movement clears COG_MIN_MOVE_M; gross GPS jumps are rejected on insert.
-  static const int COG_RING = 5;
-  struct CogFix { int32_t lat, lon; uint32_t ms; };
-  CogFix   _cog[COG_RING];
-  uint8_t  _cog_head = 0, _cog_count = 0;
-  int      _cog_deg = -1;            // last good heading, -1 = none yet
-  uint32_t _next_cog_sample_ms = 0;
-  void pushCogFix(int32_t lat, int32_t lon);
 
 
   void userLedHandler();
@@ -396,12 +385,9 @@ public:
   // full" alert. Returns true on success. The ts-less overload uses current RTC time.
   bool addWaypoint(int32_t lat, int32_t lon, uint32_t ts, const char* label);
   bool addWaypoint(int32_t lat, int32_t lon, const char* label);
-  // Current course over ground in degrees (0..359), or false if not enough
-  // recent movement to derive a stable heading. Independent of trail logging.
+  // Position / course over ground (ui-core/CourseEngine.h) — shared by the nav
+  // / compass / map screens. Course is independent of trail logging.
   bool currentCourse(int& deg_out) const;
-  // Current GPS position (1e6-scaled degrees), false when there's no usable
-  // fix. Single source of truth for "where am I", shared by the nav / compass
-  // / map screens so the LocationProvider lookup isn't duplicated per screen.
   bool currentLocation(int32_t& lat, int32_t& lon) const;
   void playMelody(const char* melody);
   void stopMelody();

@@ -1647,7 +1647,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   }
 
   _core = new UiCore();   // before any screen -- MessagesScreen binds to its history
-  _core->begin(node_prefs);
+  _core->begin(node_prefs, sensors);
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   syncLockToHome();   // booted locked (e.g. cover closed) → home starts on the LOCK page
@@ -2974,16 +2974,6 @@ void UITask::loop() {
     _loc_share_was_enabled = false;
   }
 
-  // Course-over-ground sampling — every ~1 s regardless of trail state, so the
-  // heading is available to navigation even when not recording a trail.
-  if ((int32_t)(millis() - _next_cog_sample_ms) >= 0) {
-    _next_cog_sample_ms = millis() + 1000UL;
-    LocationProvider* loc = _sensors ? _sensors->getLocationProvider() : nullptr;
-    if (loc && loc->isValid()) {
-      pushCogFix((int32_t)loc->getLatitude(), (int32_t)loc->getLongitude());
-    }
-  }
-
   // Locator — beep + alert when the device crosses into / out of the armed
   // geofence. Cheap; a few seconds of latency at the boundary is fine.
   if ((int32_t)(millis() - _next_locator_ms) >= 0) {
@@ -3246,60 +3236,8 @@ void UITask::locatorProximityBeeper() {
   _locator_beep_next_ms = millis() + interval;
 }
 
-// Insert a GPS fix into the course-over-ground ring, rejecting gross outliers
-// (a jump implying an impossible speed) so one bad fix can't swing the heading.
-void UITask::pushCogFix(int32_t lat, int32_t lon) {
-  static const uint32_t COG_MAX_GAP_MS = 15000;  // GPS gap longer than this → window is stale
-  uint32_t now = millis();
-  if (_cog_count > 0) {
-    const CogFix& prev = _cog[(_cog_head + _cog_count - 1) % COG_RING];
-    uint32_t dt = now - prev.ms;
-    if (dt > COG_MAX_GAP_MS) {
-      // GPS was lost for a while: the old fixes are far in the past, so a
-      // window spanning them would imply a bogus "teleport" heading. Restart
-      // the ring from this fix (the last-good _cog_deg is kept for display).
-      _cog_head = 0; _cog_count = 0;
-    } else if (dt > 0) {
-      float dist_m = geo::haversineKm(prev.lat, prev.lon, lat, lon) * 1000.0f;
-      float speed  = dist_m / (dt / 1000.0f);   // m/s
-      if (speed > 50.0f) return;                 // > 180 km/h between fixes → reject
-    }
-  }
-  int pos;
-  if (_cog_count < COG_RING) { pos = (_cog_head + _cog_count) % COG_RING; _cog_count++; }
-  else { pos = _cog_head; _cog_head = (_cog_head + 1) % COG_RING; }
-  _cog[pos].lat = lat; _cog[pos].lon = lon; _cog[pos].ms = now;
-}
-
-bool UITask::currentCourse(int& deg_out) const {
-  static const float COG_MIN_MOVE_M = 6.0f;   // window must span ≥ this to be a real heading
-  if (_cog_count < 2) {
-    if (_cog_deg >= 0) { deg_out = _cog_deg; return true; }  // hold last good
-    return false;
-  }
-  const CogFix& oldest = _cog[_cog_head];
-  const CogFix& newest = _cog[(_cog_head + _cog_count - 1) % COG_RING];
-  float span_m = geo::haversineKm(oldest.lat, oldest.lon, newest.lat, newest.lon) * 1000.0f;
-  if (span_m < COG_MIN_MOVE_M) {
-    if (_cog_deg >= 0) { deg_out = _cog_deg; return true; }  // standing still → hold last
-    return false;
-  }
-  // Cache as last-good (mutable-free: recompute is cheap, but keep _cog_deg fresh).
-  const_cast<UITask*>(this)->_cog_deg =
-      geo::bearingDeg(oldest.lat, oldest.lon, newest.lat, newest.lon);
-  deg_out = _cog_deg;
-  return true;
-}
-
-bool UITask::currentLocation(int32_t& lat, int32_t& lon) const {
-  LocationProvider* loc = _sensors ? _sensors->getLocationProvider() : nullptr;
-  if (loc && loc->isValid()) {
-    lat = (int32_t)loc->getLatitude();
-    lon = (int32_t)loc->getLongitude();
-    return true;
-  }
-  return false;
-}
+bool UITask::currentCourse(int& deg_out) const { return _core->course.currentCourse(deg_out); }
+bool UITask::currentLocation(int32_t& lat, int32_t& lon) const { return _core->course.currentLocation(lat, lon); }
 
 // A peer broadcast its position via a [LOC] message (parsed in MyMesh). Record
 // it in the live-track table for the Nearby "Live" view / map. Gated on the

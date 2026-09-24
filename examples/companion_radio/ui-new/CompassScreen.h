@@ -8,7 +8,7 @@
 // A linear tape (no trig) reads well in the short vertical space of the OLED,
 // where a circular dial leaves only a few-pixel needle.
 //
-// Reuses UITask's COG ring (currentCourse) — works whether or not a trail is
+// Reuses the UI Core's COG ring (currentCourse) — works whether or not a trail is
 // being recorded.
 
 #include "../GeoUtils.h"
