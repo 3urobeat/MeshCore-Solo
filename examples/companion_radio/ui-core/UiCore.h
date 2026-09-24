@@ -9,9 +9,25 @@
 
 #include "MessageHistory.h"
 #include "DmUnreadTable.h"
+#include "UiEvents.h"
+#include "ClockEngine.h"
 
 class UiCore {
 public:
+  void begin(NodePrefs* prefs) {
+    clock.begin(prefs, &events);
+  }
+
+  // Driven from the frontend's loop(), before it drains `events`.
+  void loop() {
+    clock.loop();
+  }
+
+  UiEventQueue events;      // Core → frontend; drained by the frontend's loop()
+
+  // ── Engines ───────────────────────────────────────────────────────────────
+  ClockEngine clock;        // alarm / countdown / ring
+
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread
   DmUnreadTable  dm_unread; // per-contact DM unread counters

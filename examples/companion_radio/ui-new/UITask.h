@@ -152,24 +152,9 @@ class UITask : public AbstractUITask {
   void fireLocator(bool arrived);
   void locatorProximityBeeper();
 
-  // Clock tools engine — owned here (not by ClockToolsScreen) so the one-shot
-  // alarm and the countdown timer fire every loop regardless of the current
-  // screen / display state. ClockToolsScreen is pure UI over this state. The
-  // alarm is scheduled as an ABSOLUTE wall instant, recomputed from the stored
-  // time-of-day, so it survives RTC re-syncs (mesh/app/GPS/CLI all jump the
-  // clock) — small corrections still fire on time, a jump over the target still
-  // fires (late). See evaluateAlarm(). Timer + ring are millis-based.
-  uint32_t _alarm_next_fire = 0;   // unix; 0 = (re)compute lazily once time is valid
-  uint32_t _alarm_check_ms  = 0;   // throttle the wall-clock read to ~2 Hz
-  bool     _timer_running = false;
-  uint32_t _timer_deadline_ms = 0;
-  bool     _ringing = false;
-  uint32_t _ring_until_ms = 0;
-  char     _ring_label[20] = {0};
-  uint32_t computeAlarmNextFire(uint32_t now_wall) const;
-  void     evaluateAlarm();                    // alarm scheduling + fire detection
-  void     fireClockAlert(const char* label);  // wake + alert + melody + start ring
-  void     tickClockTools();                   // driven from loop(): ring + timer + alarm
+  // Runs the UI Core engines and reacts to their events (alert overlay, buzzer,
+  // display wake). Driven from loop() regardless of the current screen.
+  void     tickCore();
 
   // Course-over-ground ring — a heading source independent of trail recording.
   // Filled from the same periodic GPS poll regardless of _trail.isActive().
@@ -399,22 +384,15 @@ public:
   void wakeForAlarm();
   // Clear any active alert overlay early (alarm dismiss).
   void clearAlert() { _alert_expiry = 0; }
-  // Clock tools engine API — ClockToolsScreen drives these; the engine itself
-  // runs in tickClockTools() from loop() so it fires regardless of the screen.
-  void onAlarmChanged() { _alarm_next_fire = 0; }   // re-schedule after an alarm edit
-  void startTimer(uint32_t duration_ms) { _timer_running = true; _timer_deadline_ms = millis() + duration_ms; }
-  void stopTimer() { _timer_running = false; }
-  bool isTimerRunning() const { return _timer_running; }
-  uint32_t timerRemainingMs() const {
-    if (!_timer_running) return 0;
-    uint32_t now = millis();
-    // Signed-difference compare so a deadline that lands past the millis()
-    // rollover (~49.7 days) doesn't read as already elapsed.
-    if ((int32_t)(now - _timer_deadline_ms) >= 0) return 0;
-    return _timer_deadline_ms - now;
-  }
-  bool isRinging() const { return _ringing; }
-  void dismissRing() { stopMelody(); _ringing = false; clearAlert(); }
+  // Clock tools engine API (ui-core/ClockEngine.h) — ClockToolsScreen drives
+  // these; the engine runs from tickCore() so it fires regardless of the screen.
+  void onAlarmChanged();
+  void startTimer(uint32_t duration_ms);
+  void stopTimer();
+  bool isTimerRunning() const;
+  uint32_t timerRemainingMs() const;
+  bool isRinging() const;
+  void dismissRing();
   TrailStore& trail() { return _trail; }
   WaypointStore& waypoints() { return _waypoints; }
   LiveTrackStore& liveTrack() { return _livetrack; }

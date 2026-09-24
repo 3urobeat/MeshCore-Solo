@@ -1655,6 +1655,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _ping_rtt_ms = 0;
 
   _core = new UiCore();   // before any screen -- MessagesScreen binds to its history
+  _core->begin(node_prefs);
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   syncLockToHome();   // booted locked (e.g. cover closed) → home starts on the LOCK page
@@ -1712,13 +1713,10 @@ void UITask::gotoGpioScreen() {
 }
 void UITask::gotoLiveShareScreen() { setCurrScreen(live_share_screen); }
 
-// ── Clock tools engine (alarm / countdown / ring) ───────────────────────────
-// Lives here, not in ClockToolsScreen, so it fires regardless of the current
-// screen. The melody overrides mute (playMelody → buzzer.playForced); the ring
-// auto-stops after CLOCK_RING_MS if no key dismisses it (see UITask::loop).
-static const char*    CLOCK_ALARM_MELODY       = "alarm:d=8,o=6,b=125:c,c,c,c,p,c,c,c,c,p";
-static const uint32_t CLOCK_RING_MS            = 60000;
-static const uint32_t CLOCK_ALARM_CATCHUP_SECS = 6 * 3600;  // fire late up to 6 h, else reschedule
+// ── Clock tools (engine in ui-core/ClockEngine.h) ───────────────────────────
+// The melody overrides mute (playMelody → buzzer.playForced); the ring
+// auto-stops after ClockEngine::RING_MS if no key dismisses it (see loop()).
+static const char* CLOCK_ALARM_MELODY = "alarm:d=8,o=6,b=125:c,c,c,c,p,c,c,c,c,p";
 
 void UITask::wakeForAlarm() {
   if (_display != NULL) _display->turnOn();
@@ -1726,92 +1724,38 @@ void UITask::wakeForAlarm() {
   // back off once _lock_wake_until is in the past — which it always is by the
   // time an alarm fires. Hold the wake window open for the whole ring so the
   // lock screen (and its alert overlay) stays visible while ringing.
-  if (_locked) _lock_wake_until = millis() + CLOCK_RING_MS;
+  if (_locked) _lock_wake_until = millis() + ClockEngine::RING_MS;
   _next_refresh = 0;   // draw the alert overlay immediately
 }
 
-// Next absolute wall instant matching alarm_hour:alarm_min in local time,
-// strictly after now_wall (an alarm set to the current minute waits a day).
-// With alarm_repeat_mask == 0 that's just tomorrow's occurrence (one-shot).
-// With a repeat mask set, scan today..+6 days for the next weekday whose bit
-// is set (struct tm's tm_wday convention, same as the mask) — today counts
-// only if its time hasn't already passed.
-uint32_t UITask::computeAlarmNextFire(uint32_t now_wall) const {
-  int tz = _node_prefs ? _node_prefs->tz_offset_hours : 0;
-  int64_t now_local = (int64_t)now_wall + (int64_t)tz * 3600;
-  time_t t = (time_t)now_local;
-  struct tm* ti = gmtime(&t);
-  int64_t sod = ti->tm_hour * 3600 + ti->tm_min * 60 + ti->tm_sec;  // secs since local midnight
-  int64_t midnight = now_local - sod;
-  int64_t time_of_day = (int64_t)_node_prefs->alarm_hour * 3600 + (int64_t)_node_prefs->alarm_min * 60;
-  uint8_t mask = _node_prefs->alarm_repeat_mask;
-  if (mask != 0) {
-    for (int d = 0; d < 7; d++) {
-      if (mask & (1 << ((ti->tm_wday + d) % 7))) {
-        int64_t target = midnight + (int64_t)d * 86400 + time_of_day;
-        if (target > now_local) return (uint32_t)(target - (int64_t)tz * 3600);
-      }
+void UITask::onAlarmChanged()                 { _core->clock.onAlarmChanged(); }
+void UITask::startTimer(uint32_t duration_ms) { _core->clock.startTimer(duration_ms); }
+void UITask::stopTimer()                      { _core->clock.stopTimer(); }
+bool UITask::isTimerRunning() const           { return _core->clock.isTimerRunning(); }
+uint32_t UITask::timerRemainingMs() const     { return _core->clock.timerRemainingMs(); }
+bool UITask::isRinging() const                { return _core->clock.isRinging(); }
+void UITask::dismissRing()                    { stopMelody(); _core->clock.dismissRing(); clearAlert(); }
+
+void UITask::tickCore() {
+  _core->loop();
+  UiEvent ev;
+  while (_core->events.pop(ev)) {
+    switch (ev.type) {
+    case UiEventType::ClockAlert:
+      wakeForAlarm();
+      showAlert(ev.text, ClockEngine::RING_MS);
+      playMelody(CLOCK_ALARM_MELODY);
+      break;
+    case UiEventType::ClockRingEnded:
+      stopMelody();
+      clearAlert();
+      break;
+    default:
+      break;
     }
-    // Mask had no bit set (shouldn't happen — the UI only offers non-empty
-    // presets) — fall through to the one-shot calculation so it still fires.
   }
-  int64_t target = midnight + time_of_day;
-  if (target <= now_local) target += 86400;
-  return (uint32_t)(target - (int64_t)tz * 3600);
-}
-
-void UITask::fireClockAlert(const char* label) {
-  snprintf(_ring_label, sizeof(_ring_label), "%s", label);
-  _ringing = true;
-  _ring_until_ms = millis() + CLOCK_RING_MS;
-  wakeForAlarm();
-  showAlert(label, CLOCK_RING_MS);
-  playMelody(CLOCK_ALARM_MELODY);
-}
-
-void UITask::evaluateAlarm() {
-  if (!_node_prefs || !_node_prefs->alarm_on) return;
-  uint32_t now_ms = millis();
-  if (now_ms - _alarm_check_ms < 500) return;   // ~2 Hz is plenty for a minute alarm
-  _alarm_check_ms = now_ms;
-  uint32_t now_wall = rtc_clock.getCurrentTime();
-  if (now_wall < 1000000000UL) return;           // need a real time sync first
-  if (_alarm_next_fire == 0) _alarm_next_fire = computeAlarmNextFire(now_wall);
-  if (now_wall < _alarm_next_fire) return;
-  if (now_wall - _alarm_next_fire < CLOCK_ALARM_CATCHUP_SECS) {
-    char lbl[20];
-    snprintf(lbl, sizeof(lbl), "Alarm %02d:%02d", _node_prefs->alarm_hour, _node_prefs->alarm_min);
-    if (_node_prefs->alarm_repeat_mask == 0) {
-      _node_prefs->alarm_on = 0;                  // one-shot
-      bool dirty = true; savePrefsIfDirty(dirty);
-    }
-    // Repeating: alarm_on stays set: computeAlarmNextFire() re-arms it for the
-    // next matching weekday below.
-    _alarm_next_fire = 0;
-    fireClockAlert(lbl);
-  } else {
-    // Clock jumped implausibly far past the target — reschedule rather than
-    // ringing absurdly late.
-    _alarm_next_fire = computeAlarmNextFire(now_wall);
-  }
-}
-
-void UITask::tickClockTools() {
-  uint32_t now_ms = millis();
-  // Ring maintenance: repeat the melody until dismissed or the window elapses.
-  // Signed-difference compares (like the trail/loc-share timers) so deadlines
-  // landing past the millis() rollover don't read as already elapsed.
-  if (_ringing) {
-    if ((int32_t)(now_ms - _ring_until_ms) >= 0) { stopMelody(); _ringing = false; clearAlert(); }
-    else if (!isMelodyPlaying())  playMelody(CLOCK_ALARM_MELODY);
-  }
-  // Countdown timer (millis — sync-immune).
-  if (_timer_running && (int32_t)(now_ms - _timer_deadline_ms) >= 0) {
-    _timer_running = false;
-    fireClockAlert("Timer done");
-  }
-  // Alarm (wall clock — absolute schedule for sync robustness).
-  evaluateAlarm();
+  // Repeat the ring melody until dismissed or the ring window elapses.
+  if (_core->clock.isRinging() && !isMelodyPlaying()) playMelody(CLOCK_ALARM_MELODY);
 }
 
 // Ringtone takes a slot argument that onShow() can't carry — pass it after the
@@ -2847,9 +2791,9 @@ void UITask::loop() {
 
   if (curr) curr->poll();
 
-  // Alarm + countdown run regardless of the current screen / display state, so
-  // they're driven here (not via the current screen's poll()).
-  tickClockTools();
+  // UI Core engines (alarm + countdown, …) run regardless of the current screen
+  // / display state, so they're driven here (not via the current screen's poll()).
+  tickCore();
 
   if (_display != NULL && _display->isOn()) {
     if (_locked && (int32_t)(millis() - _lock_wake_until) >= 0) {

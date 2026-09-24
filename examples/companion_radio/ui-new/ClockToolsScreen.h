@@ -3,12 +3,13 @@
 // Entered with Enter on the home CLOCK page. A small top menu picks one of the
 // three tools; Cancel backs out a level (tool → menu → home).
 //
-// This screen is pure UI. The time-critical machinery lives in UITask, which
-// drives it every loop regardless of the current screen:
-//   • Alarm   — UITask schedules an absolute fire instant from NodePrefs'
+// This screen is pure UI. The time-critical machinery lives in the UI Core's
+// ClockEngine (ui-core/ClockEngine.h), which UITask drives every loop
+// regardless of the current screen:
+//   • Alarm   — the engine schedules an absolute fire instant from NodePrefs'
 //     alarm_hour/min (robust to RTC re-syncs) and rings. Here we just edit the
 //     persisted fields and call onAlarmChanged() to re-schedule.
-//   • Timer   — UITask owns the running countdown (startTimer / stopTimer /
+//   • Timer   — the engine owns the running countdown (startTimer / stopTimer /
 //     isTimerRunning / timerRemainingMs). It rings even when off-screen.
 //   • Stopwatch — purely a display utility with no background action, so its
 //     millis() state lives here; it keeps counting while you're elsewhere.
