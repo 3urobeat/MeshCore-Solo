@@ -1088,9 +1088,6 @@ public:
     _phase = DM_HIST;
   }
 
-  // Background tick (called every UI loop, regardless of the active screen) that
-  // drives auto-resend of on-device DMs — forwarded to the history store.
-  void tickDmResends() { _history.tickDmResends(); }
 
   int getDMUnreadTotal() const {
     return _task->getDMUnreadTotal();

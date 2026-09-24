@@ -27,6 +27,7 @@ class UiCore : public MyMesh::Listener {
 public:
   void begin(NodePrefs* prefs, SensorManager* sensors, UiCoreHost* host) {
     _host = host;
+    _prefs = prefs;
     clock.begin(prefs, &events);
     ping.begin(prefs);
     course.begin(sensors);
@@ -37,6 +38,10 @@ public:
 
   // Driven from the frontend's loop(), before it drains `events`.
   void loop() {
+    // Background delivery: resend pending on-device DMs whose ACK timed out,
+    // and finalise the ✗ marker; free DM unread slots the ring no longer backs.
+    history.tickDmResends();
+    dm_unread.reconcile(history);
     clock.loop();
     course.loop();
     live_share.loop();
@@ -71,6 +76,40 @@ public:
   void    clearDMUnread(const uint8_t* pub_key)   { dm_unread.clear(pub_key); }
   void    clearAllDMUnread()                      { dm_unread.clearAll(); }
   void    reconcileDMUnread()                     { dm_unread.reconcile(history); }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  // Send a DM composed on the device and file it (with end-to-end ACK tracking
+  // and auto-resend) into the history. False if it couldn't be sent.
+  bool sendDirectText(const ContactInfo& to, const char* text) {
+    uint32_t send_ts = rtc_clock.getCurrentTime();
+    uint32_t expected_ack = 0, est_timeout = 0;
+    if (the_mesh.sendMessage(to, send_ts, 0, text, expected_ack, est_timeout) <= 0) return false;
+    uint32_t tag = 0, deadline = 0;
+    if (expected_ack) {
+      tag = expected_ack;
+      // Generous margin over the base estimate so a slow multi-hop ACK isn't
+      // prematurely shown as failed.
+      deadline = millis() + est_timeout + 4000;
+    }
+    history.storeDMMsg(to.id.pub_key, true, text, tag, deadline, tag ? send_ts : 0,
+                       _prefs ? _prefs->dm_resend_count : 0);
+    return true;
+  }
+
+  // Send a channel post composed on the device, file it as "Me: …" with the
+  // relay marker armed, and treat the channel as read. False if not sent.
+  bool sendChannelText(uint8_t channel_idx, const char* text) {
+    ChannelDetails ch;
+    if (!the_mesh.getChannel(channel_idx, ch)) return false;
+    if (!the_mesh.sendGroupMessage(rtc_clock.getCurrentTime(), ch.channel,
+                                   the_mesh.getNodeName(), text, strlen(text))) return false;
+    char entry[MSG_TEXT_BUF];
+    snprintf(entry, sizeof(entry), "Me: %s", text);
+    int pos = addChannelMsg(channel_idx, entry, 0, nullptr, 0, true);
+    if (pos >= 0) history.armChannelRelay(pos, the_mesh.lastChannelRelaySeq());
+    history.setChUnread(channel_idx, 0);
+    return true;
+  }
 
   // ════ MyMesh::Listener ════════════════════════════════════════════════════
 
@@ -188,6 +227,7 @@ private:
   }
 
   UiCoreHost* _host = nullptr;
+  NodePrefs*  _prefs = nullptr;
   int _queue_len = 0;     // last onQueueSizeChanged()
   int _room_unread = 0;
 };

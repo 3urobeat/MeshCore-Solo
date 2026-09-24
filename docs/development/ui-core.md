@@ -159,7 +159,7 @@ checked in the sim plus on L1 hardware before the next one.
 2. **Engines, one per commit.** Clock tools ✅ (also introduced `ui-core/UiEvents.h`, the Core → frontend event queue; `UITask::tickCore()` runs `UiCore::loop()` and drains it) → ping ✅ → course-over-ground ✅ → live share ✅ → locator ✅ → trail ✅ → notifications ✅ (with step 3). `UITask` shrinks to screen management + drawing.
 3. **Flip the interface** ✅. `UiCore` is `MyMesh::Listener`; `ui-new`'s `UITask` derives `UITaskBase` + `UiCoreHost` and is fed by events, drained at the start (mesh-originated) and end (engines) of its `loop()`. Mesh callbacks no longer touch the display or buzzer directly.
 4. **Settings schema.** Convert `SettingsScreen` section by section.
-5. **`ui-lvgl` skeleton** for L2 + sim target: boot, home, message list/conversation, keyboard. Then screens by priority.
+5. **`ui-lvgl` skeleton** ✅ on L2 hardware (env `Wio_Tracker_L2_companion_solo_lvgl`, LVGL 9.2.2): status bar, home, conversation list, contact picker, conversation with keyboard, toasts, display sleep/wake. The Core gained the first actions (`sendDirectText`, `sendChannelText`) and runs DM resends itself. Still to do: sim target at 320×240, a font with Polish/Cyrillic coverage, then screens by priority.
 6. Contacts/Nearby, Admin, Bot logic extraction as the LVGL screens for them are built.
 
 ## Decisions

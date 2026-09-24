@@ -1,0 +1,30 @@
+#pragma once
+// Design tokens for ui-lvgl — the one place colours, spacing and type live.
+// First colour take on the "Amber Trace" direction: amber on near-black.
+
+namespace theme {
+  // Colours (0xRRGGBB)
+  static const uint32_t BG        = 0x0B0B0D;   // screen background
+  static const uint32_t SURFACE   = 0x17171B;   // cards, rows, bubbles (incoming)
+  static const uint32_t SURFACE_2 = 0x222228;   // pressed / raised
+  static const uint32_t ACCENT    = 0xFFB000;   // amber: focus, badges, own bubbles
+  static const uint32_t ACCENT_DIM= 0x6B4A00;   // own bubble fill
+  static const uint32_t TEXT      = 0xF2EEE6;
+  static const uint32_t TEXT_MUTED= 0x9A958C;
+  static const uint32_t OK        = 0x6FCF6F;   // delivered / relayed
+  static const uint32_t FAIL      = 0xE5534B;   // not delivered
+
+  // Spacing (px)
+  static const int PAD     = 8;
+  static const int GAP     = 6;
+  static const int RADIUS  = 10;
+  static const int STATUS_H = 22;   // top status bar
+  static const int ROW_H   = 44;    // list row (touch target)
+
+  // Type
+  #define THEME_FONT_SMALL  (&lv_font_montserrat_12)
+  #define THEME_FONT_BODY   (&lv_font_montserrat_14)
+  #define THEME_FONT_TITLE  (&lv_font_montserrat_16)
+  #define THEME_FONT_LARGE  (&lv_font_montserrat_20)
+  #define THEME_FONT_CLOCK  (&lv_font_montserrat_40)
+}

@@ -2485,10 +2485,6 @@ void UITask::pollHallSensor() {
 void UITask::loop() {
   pollConnection();   // BLE link state -> hasConnection() (see UITaskBase)
   drainCoreEvents();  // react to what the Core filed during mesh processing (alerts, wake, sounds)
-  // Background delivery: resend pending on-device DMs whose ACK timed out, and
-  // finalise the ✗ marker — runs regardless of which screen is active.
-  ((MessagesScreen*)messages_screen)->tickDmResends();
-  _core->reconcileDMUnread();
 #if UI_HAS_JOYSTICK
   uint8_t joy_rot = _node_prefs ? _node_prefs->joystick_rotation : JOYSTICK_ROTATION;
   int ev = user_btn.check();

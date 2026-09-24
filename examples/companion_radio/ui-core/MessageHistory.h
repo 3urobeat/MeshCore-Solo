@@ -424,9 +424,12 @@ public:
   DmHistEntry&       dmAtPos(int pos)       { return _dm_hist[pos]; }
   const DmHistEntry& dmAtPos(int pos) const { return _dm_hist[pos]; }
 
-private:
+  // Whole DM ring, newest first (j = 0 newest) -- for "recent conversations".
+  int dmHistCount() const { return _dm_hist_count; }
+  int dmHistPosNewest(int j) const { return (_dm_hist_head + _dm_hist_count - 1 - j) % DM_HIST_MAX; }
+
   // Look up a contact by 4-byte pub_key prefix (as stored in DmHistEntry).
-  bool contactByPrefix(const uint8_t* prefix, ContactInfo& out) const {
+  static bool contactByPrefix(const uint8_t* prefix, ContactInfo& out) {
     int total = the_mesh.getNumContacts();
     // +MAX_ANON_CONTACTS: see MessagesScreen.h's buildContactList() for why
     // getContactByIdx() needs this offset (raw table index, not the
@@ -439,6 +442,7 @@ private:
     return false;
   }
 
+private:
   ChHistEntry _hist[CH_HIST_MAX];
   int _hist_head, _hist_count;
   uint8_t _ch_unread[MAX_GROUP_CHANNELS];
