@@ -39,7 +39,7 @@ interleaved. Classified:
 - Trail — sampling, auto-pause, low-battery auto-save.
 - Course over ground — `pushCogFix`, `currentCourse`, `currentLocation`.
 - Clock tools — alarm / countdown / ring ✅ `ui-core/ClockEngine.h`.
-- Ping — `startPing`, `handlePingResult`.
+- Ping ✅ `ui-core/PingEngine.h` (timeout still decided by `NearbyScreen`).
 - Device controls — GPS on/off, GPIO (`setGpioMode`, bot GPIO), buzzer mode/volume, brightness, radio apply (`applyTxPower`, `applyApc`, `applyRadioParams`, …).
 - Bot hooks — `botSetGPS`, `botBuzz`, `botSetGPIO`, …
 
@@ -151,7 +151,7 @@ checked in the sim plus on L1 hardware before the next one.
 
 0. **Listener boundary** ✅ (upstream `MyMesh::Listener` ported; `MyMesh` has no UI calls left).
 1. **Skeleton** ✅. `examples/companion_radio/ui-core/` with `UiCore.h` (facade), `MessageHistory.h`, `DmUnreadTable.h`. Header-only for now, reached from `ui-new/UITask.cpp` by relative include, so none of the 66 variant `platformio.ini` files that build `ui-new` change. `UITask` heap-allocates one `UiCore` in `begin()` (before the screens, as `MessagesScreen` used to own the history on the heap); `MessagesScreen` binds to `core().history` by reference. When the Core grows real `.cpp` files, compile them through a unity `.cpp` inside each frontend directory.
-2. **Engines, one per commit.** Clock tools ✅ (also introduced `ui-core/UiEvents.h`, the Core → frontend event queue; `UITask::tickCore()` runs `UiCore::loop()` and drains it) → ping → course-over-ground → live share → locator → trail → notifications. `UITask` shrinks to screen management + drawing.
+2. **Engines, one per commit.** Clock tools ✅ (also introduced `ui-core/UiEvents.h`, the Core → frontend event queue; `UITask::tickCore()` runs `UiCore::loop()` and drains it) → ping ✅ → course-over-ground → live share → locator → trail → notifications. `UITask` shrinks to screen management + drawing.
 3. **Flip the interface.** `UiCore` implements `AbstractUITask`; `ui-new`'s `UITask` becomes a frontend fed by events.
 4. **Settings schema.** Convert `SettingsScreen` section by section.
 5. **`ui-lvgl` skeleton** for L2 + sim target: boot, home, message list/conversation, keyboard. Then screens by priority.

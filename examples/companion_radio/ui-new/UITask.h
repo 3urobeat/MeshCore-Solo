@@ -168,13 +168,6 @@ class UITask : public AbstractUITask {
   uint32_t _next_cog_sample_ms = 0;
   void pushCogFix(int32_t lat, int32_t lon);
 
-  // Ping state
-  bool _ping_active = false;
-  uint32_t _ping_tag = 0;
-  unsigned long _ping_sent_ms = 0;
-  int16_t _ping_snr_out_x4 = 0;
-  int16_t _ping_snr_back_x4 = 0;
-  uint32_t _ping_rtt_ms = 0;
 
   void userLedHandler();
 
@@ -447,16 +440,11 @@ public:
   bool hasDisplay() const { return _display != NULL; }
   DisplayDriver* getDisplay() const { return _display; }
 
-  // Ping helpers
+  // Ping helpers (engine in ui-core/PingEngine.h)
   bool startPing(const uint8_t* pub_key);
-  bool isPingActive() const { return _ping_active; }
-  void getPingResult(int16_t& snr_out_x4, int16_t& snr_back_x4, uint32_t& rtt_ms) const {
-    snr_out_x4 = _ping_snr_out_x4;
-    snr_back_x4 = _ping_snr_back_x4;
-    rtt_ms = _ping_rtt_ms;
-  }
+  bool isPingActive() const;
+  void getPingResult(int16_t& snr_out_x4, int16_t& snr_back_x4, uint32_t& rtt_ms) const;
   void clearPing();
-  void handlePingResult(uint32_t tag, int16_t snr_out_x4, int16_t snr_back_x4, uint32_t rtt_ms);
 
   // Favourites dial helpers. Slot index 0..FAVOURITES_COUNT-1. A slot holds
   // either a contact/room (pubkey prefix) or a channel (index), per

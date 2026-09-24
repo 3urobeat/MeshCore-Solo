@@ -11,11 +11,13 @@
 #include "DmUnreadTable.h"
 #include "UiEvents.h"
 #include "ClockEngine.h"
+#include "PingEngine.h"
 
 class UiCore {
 public:
   void begin(NodePrefs* prefs) {
     clock.begin(prefs, &events);
+    ping.begin(prefs);
   }
 
   // Driven from the frontend's loop(), before it drains `events`.
@@ -27,6 +29,7 @@ public:
 
   // ── Engines ───────────────────────────────────────────────────────────────
   ClockEngine clock;        // alarm / countdown / ring
+  PingEngine  ping;         // single in-flight ping + last result
 
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread

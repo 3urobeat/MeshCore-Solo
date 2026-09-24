@@ -1646,14 +1646,6 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
     }
   }
 
-  // Initialize ping state
-  _ping_active = false;
-  _ping_tag = 0;
-  _ping_sent_ms = 0;
-  _ping_snr_out_x4 = 0;
-  _ping_snr_back_x4 = 0;
-  _ping_rtt_ms = 0;
-
   _core = new UiCore();   // before any screen -- MessagesScreen binds to its history
   _core->begin(node_prefs);
   splash = new SplashScreen(this);
@@ -1775,57 +1767,16 @@ void UITask::gotoMapScreen() {
 void UITask::gotoLocatorScreen()    { setCurrScreen(locator_screen); }
 void UITask::gotoAutoAdvertScreen() { setCurrScreen(auto_advert_screen); }
 
-// Public method to handle ping result callback
-void UITask::handlePingResult(uint32_t tag, int16_t snr_out_x4, int16_t snr_back_x4, uint32_t rtt_ms) {
-  if (_ping_active && _ping_tag == tag) {
-    _ping_snr_out_x4 = snr_out_x4;
-    _ping_snr_back_x4 = snr_back_x4;
-    _ping_rtt_ms = rtt_ms;
-    // Release the in-flight slot immediately; the UI keeps the result values.
-    clearPing();
-  }
-}
-
-// Static ping callback (for MyMesh)
-static void onPingResult(uint32_t tag, int16_t snr_out_x4, int16_t snr_back_x4, uint32_t rtt_ms) {
-  MyMesh::Listener* ui = the_mesh.getListener();
-  if (ui) {
-    UITask* task = static_cast<UITask*>(ui);
-    task->handlePingResult(tag, snr_out_x4, snr_back_x4, rtt_ms);
-  }
-}
-
-void UITask::clearPing() {
-  if (_ping_tag != 0) {
-    the_mesh.clearPingResult(_ping_tag);
-  }
-  _ping_active = false;
-  _ping_tag = 0;
-}
-
 bool UITask::startPing(const uint8_t* pub_key) {
-  if (_ping_active || !pub_key) return false;
-  if (_node_prefs && _node_prefs->path_hash_mode > 1) {
-    showAlert("Ping not supported with 3-byte path hashes", 3000);
-    return false;
-  }
-
-  _ping_active = true;
-  _ping_tag = 0;
-  _ping_sent_ms = millis();
-  _ping_snr_out_x4 = 0;
-  _ping_snr_back_x4 = 0;
-  _ping_rtt_ms = 0;
-
-  // Always install the callback before sending so the response cannot race it.
-  the_mesh.setPingCallback(onPingResult, NULL);
-  _ping_tag = the_mesh.sendPing(pub_key, _node_prefs ? _node_prefs->path_hash_mode + 1 : 1);
-  if (_ping_tag == 0) {
-    clearPing();
-    return false;
-  }
-  return true;
+  PingEngine::StartResult r = _core->ping.start(pub_key);
+  if (r == PingEngine::UNSUPPORTED) showAlert("Ping not supported with 3-byte path hashes", 3000);
+  return r == PingEngine::STARTED;
 }
+bool UITask::isPingActive() const { return _core->ping.isActive(); }
+void UITask::getPingResult(int16_t& snr_out_x4, int16_t& snr_back_x4, uint32_t& rtt_ms) const {
+  _core->ping.getResult(snr_out_x4, snr_back_x4, rtt_ms);
+}
+void UITask::clearPing() { _core->ping.clear(); }
 
 void UITask::playMelody(const char* melody) {
 #ifdef PIN_BUZZER
