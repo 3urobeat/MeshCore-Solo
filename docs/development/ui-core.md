@@ -33,7 +33,7 @@ interleaved. Classified:
 
 **Engines — logic living inside `UITask.cpp` / `UITask.h`**
 - Unread tracking — DM unread table ✅ (`ui-core/DmUnreadTable.h`), room unread (still in `UITask`).
-- Notifications — `showAlert`, `notify`, `SoundNotifier`, LED (`userLedHandler`), wake-on-message (`checkDisplayOn`, auto-off).
+- Notifications ✅ split: the Core decides *what* happened (`MessageArrived` with kind / DM sender / channel slot, `AdvertHeard`); the frontend decides *how* to show it (`showAlert`, `SoundNotifier`, vibration, LED, wake-on-message) — those are platform services.
 - Live share ✅ `ui-core/LiveShareEngine.h` — session timer, movement/heartbeat gate, send + scope guard, peers' `LiveTrackStore` + expiry.
 - Locator ✅ `ui-core/LocatorEngine.h` — active target, geofence state machine, proximity beeper.
 - Trail ✅ `ui-core/TrailEngine.h` — store, sampling, auto-pause, low-battery auto-save.
@@ -70,11 +70,16 @@ fork's extensions (own-send mirroring, relay echoes, room login/admin replies,
 `[LOC]` shares, contact/channel removal, bot device actions,
 `requestShutdown`), each defaulting to a no-op.
 
-Today `AbstractUITask` is the Listener and carries the glue `MyMesh` used to
-run for the UI (display filter, room-post labelling, notifications). In the
-target design `UiCore` becomes the Listener instead: it updates models/engines
-and emits events, and the frontends no longer implement it at all. This is the
-single point that makes both frontends receive identical behaviour.
+For `ui-new`, `UiCore` is the Listener (`UITaskBase::meshListener()` hands it
+to `MyMesh::setListener()`): it applies the display filter, labels room posts,
+files history, keeps unread counters, runs the engines and emits events. The
+frontend implements `UiCoreHost` (`ui-core/UiCoreHost.h`) for what the Core
+still asks of it synchronously: "is this conversation on screen", "keep the
+selection after an insert", and forwarding for not-yet-extracted parts (room
+login / admin sessions, bot device actions, prefs cleanup on contact/channel
+removal, shutdown). `ui-orig` / `ui-tiny` keep `AbstractUITask`, which is
+`UITaskBase` + the Listener glue, unchanged. This is the single point that
+makes both frontends receive identical behaviour.
 
 ### 2. Engines
 
@@ -151,8 +156,8 @@ checked in the sim plus on L1 hardware before the next one.
 
 0. **Listener boundary** ✅ (upstream `MyMesh::Listener` ported; `MyMesh` has no UI calls left).
 1. **Skeleton** ✅. `examples/companion_radio/ui-core/` with `UiCore.h` (facade), `MessageHistory.h`, `DmUnreadTable.h`. Header-only for now, reached from `ui-new/UITask.cpp` by relative include, so none of the 66 variant `platformio.ini` files that build `ui-new` change. `UITask` heap-allocates one `UiCore` in `begin()` (before the screens, as `MessagesScreen` used to own the history on the heap); `MessagesScreen` binds to `core().history` by reference. When the Core grows real `.cpp` files, compile them through a unity `.cpp` inside each frontend directory.
-2. **Engines, one per commit.** Clock tools ✅ (also introduced `ui-core/UiEvents.h`, the Core → frontend event queue; `UITask::tickCore()` runs `UiCore::loop()` and drains it) → ping ✅ → course-over-ground ✅ → live share ✅ → locator ✅ → trail ✅ → notifications. `UITask` shrinks to screen management + drawing.
-3. **Flip the interface.** `UiCore` implements `AbstractUITask`; `ui-new`'s `UITask` becomes a frontend fed by events.
+2. **Engines, one per commit.** Clock tools ✅ (also introduced `ui-core/UiEvents.h`, the Core → frontend event queue; `UITask::tickCore()` runs `UiCore::loop()` and drains it) → ping ✅ → course-over-ground ✅ → live share ✅ → locator ✅ → trail ✅ → notifications ✅ (with step 3). `UITask` shrinks to screen management + drawing.
+3. **Flip the interface** ✅. `UiCore` is `MyMesh::Listener`; `ui-new`'s `UITask` derives `UITaskBase` + `UiCoreHost` and is fed by events, drained at the start (mesh-originated) and end (engines) of its `loop()`. Mesh callbacks no longer touch the display or buzzer directly.
 4. **Settings schema.** Convert `SettingsScreen` section by section.
 5. **`ui-lvgl` skeleton** for L2 + sim target: boot, home, message list/conversation, keyboard. Then screens by priority.
 6. Contacts/Nearby, Admin, Bot logic extraction as the LVGL screens for them are built.

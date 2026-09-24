@@ -26,19 +26,16 @@ enum class UIEventType {
     ack
 };
 
-// Every on-device UI (ui-new / ui-orig / ui-tiny) is MyMesh's Listener. The
-// glue MyMesh used to run for the UI itself -- which message types show on
-// screen, how a room post is labelled, which notification plays -- lives here
-// now, so each UI variant keeps receiving the same newMsg()/addDMMsg()/
-// notify() calls it always did.
-class AbstractUITask : public MyMesh::Listener {
+// What every on-device UI (ui-new / ui-orig / ui-tiny) offers main.cpp and
+// MyMesh: lifecycle, the companion-link state, board/serial helpers, and the
+// object MyMesh should talk to (meshListener()).
+class UITaskBase {
 protected:
   mesh::MainBoard* _board;
   BaseSerialInterface* _serial;
   bool _connected;
-  int  _queue_len = 0;   // last onQueueSizeChanged() -- newMsg()'s msgcount
 
-  AbstractUITask(mesh::MainBoard* board, BaseSerialInterface* serial) : _board(board), _serial(serial) {
+  UITaskBase(mesh::MainBoard* board, BaseSerialInterface* serial) : _board(board), _serial(serial) {
     _connected = false;
   }
 
@@ -58,9 +55,6 @@ public:
   }
   bool hasConnection() const { return _connected; }
   virtual void onBLEDisconnected() {}
-  // An end-to-end ACK (CRC) arrived for one of our sent messages — drives the
-  // DM delivery-status marker. Default no-op for UIs that don't track it.
-  virtual void onMsgAck(uint32_t ack_crc) { (void)ack_crc; }
   // True only when a BLE central is actually bonded/connected. On a dual
   // (BLE+USB) interface hasConnection() is always true (USB counts), so use
   // this for BLE-specific UI like the pairing-PIN prompt.
@@ -72,8 +66,6 @@ public:
   bool isSerialEnabled() const { return _serial->isEnabled(); }
   void enableSerial() { _serial->enable(); }
   void disableSerial() { _serial->disable(); }
-  virtual void msgRead(int msgcount) = 0;
-  virtual void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount, uint8_t contact_type = 0, const uint8_t* pub_key = nullptr) = 0;
   virtual void notify(UIEventType t = UIEventType::none) = 0;
   // Single choke point for every controlled power-down (low-battery auto-off,
   // long-press power-off, and every board.reboot() caller too): flush
@@ -83,6 +75,31 @@ public:
   // this the same way -- see each's UITask::shutdown().
   virtual void shutdown(bool restart = false) = 0;
   virtual void loop() = 0;
+
+  // What main.cpp hands to MyMesh::setListener(): the UI itself (ui-orig /
+  // ui-tiny, via AbstractUITask below) or the object it delegates mesh events
+  // to (ui-new: the UI Core).
+  virtual MyMesh::Listener* meshListener() = 0;
+};
+
+// A UI that is MyMesh's Listener itself (ui-orig / ui-tiny). The glue MyMesh
+// used to run for the UI -- which message types show on screen, how a room post
+// is labelled, which notification plays -- lives here, so each of those UIs
+// keeps receiving the same newMsg()/addDMMsg()/notify() calls it always did.
+// (ui-new instead hands MyMesh the UI Core, which does the same job.)
+class AbstractUITask : public MyMesh::Listener, public UITaskBase {
+protected:
+  int  _queue_len = 0;   // last onQueueSizeChanged() -- newMsg()'s msgcount
+
+  AbstractUITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial) { }
+
+public:
+  // An end-to-end ACK (CRC) arrived for one of our sent messages — drives the
+  // DM delivery-status marker. Default no-op for UIs that don't track it.
+  virtual void onMsgAck(uint32_t ack_crc) { (void)ack_crc; }
+  virtual void msgRead(int msgcount) = 0;
+  virtual void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount, uint8_t contact_type = 0, const uint8_t* pub_key = nullptr) = 0;
+  MyMesh::Listener* meshListener() override { return this; }
 
   // ---- MyMesh::Listener ----
   void onQueueSizeChanged(int msgcount) override {

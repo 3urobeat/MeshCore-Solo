@@ -553,10 +553,10 @@ class MessagesScreen : public UIScreen {
     if (ok && _sending_to_channel) {
       _hist_sel = 0;
       _hist_scroll = 0;
-      _phase = CHANNEL_HIST;  // set before addChannelMsg so viewing=true, no unread bump
+      _phase = CHANNEL_HIST;  // set before filing so the Core sees viewing=true, no unread bump
       char entry[sizeof(ChHistEntry::text)];
       snprintf(entry, sizeof(entry), "Me: %s", msg);
-      int pos = addChannelMsg(_sel_channel_idx, entry);
+      int pos = _task->core().addChannelMsg(_sel_channel_idx, entry);
       // Arm the "relayed into mesh" marker on this exact entry — MyMesh tracked
       // the flood it just originated and reports a heard repeater echo by seq.
       if (pos >= 0) _history.armChannelRelay(pos, the_mesh.lastChannelRelaySeq());
@@ -967,37 +967,24 @@ public:
   // (suppressed while picking a channel for the bot).
   int channelPickTotal() const { return _num_channels + (_pick_bot_channel ? 0 : 1); }
 
-  // Public entry points (routed from MyMesh / the bot via UITask) — thin
-  // forwarders to the history store. addChannelMsg computes the "viewing" flag
-  // (a phase-machine fact the store can't see) and returns the ring position so
-  // the outgoing path can attach a relay seq to that exact entry.
-  int addChannelMsg(uint8_t ch_idx, const char* text, uint32_t timestamp = 0,
-                    const uint8_t* path = nullptr, uint8_t path_len = 0,
-                    bool own_message = false) {
-    bool viewing = (_phase == CHANNEL_HIST && _sel_channel_idx == (int)ch_idx);
-    int pos = _history.addChannelMsg(ch_idx, text, viewing, timestamp, path, path_len, own_message);
-    // Ring entries are numbered newest-first (0 == newest), so a new insert
-    // shifts every older message's index up by one. If the user has scrolled
-    // up to an older message (_hist_sel > 0), re-point the selection at that
-    // same message instead of silently relabeling a different one in under
-    // them. At _hist_sel <= 0 (already at newest, or -1 == compose button
-    // focused) there's nothing to preserve.
-    if (viewing && _hist_sel > 0) { _hist_sel++; _hist_scroll++; }
-    return pos;
+  // View state the UI Core consults while filing a message (via UiCoreHost):
+  // a conversation open on screen doesn't count the message unread, and after
+  // the insert the selection is kept on the same message. Ring entries are
+  // numbered newest-first (0 == newest), so a new insert shifts every older
+  // message's index up by one; if the user has scrolled up to an older message
+  // (sel > 0), re-point the selection at that same message instead of silently
+  // relabeling a different one in under them. At sel <= 0 (already at newest,
+  // or -1 == compose button focused) there's nothing to preserve.
+  bool isViewingChannel(uint8_t ch_idx) const {
+    return _phase == CHANNEL_HIST && _sel_channel_idx == (int)ch_idx;
   }
-  void markChannelRelayed(uint32_t seq, const uint8_t* repeater_hash = nullptr, uint8_t hash_size = 0) {
-    _history.markChannelRelayed(seq, repeater_hash, hash_size);
+  bool isViewingDM(const uint8_t* pub_key) const {
+    return _phase == DM_HIST && memcmp(_sel_contact.id.pub_key, pub_key, 4) == 0;
   }
-  void armChannelRelay(int pos, uint32_t seq) { _history.armChannelRelay(pos, seq); }
-  void addDMMsg(const uint8_t* pub_key, bool outgoing, const char* text,
-                uint32_t sender_timestamp = 0, uint32_t ack_tag = 0,
-                uint32_t ack_deadline_ms = 0, uint8_t resends = 0,
-                const uint8_t* path = nullptr, uint8_t path_len = 0) {
-    bool viewing = (_phase == DM_HIST && memcmp(_sel_contact.id.pub_key, pub_key, 4) == 0);
-    _history.addDMMsg(pub_key, outgoing, text, sender_timestamp, ack_tag, ack_deadline_ms, resends, path, path_len);
-    if (viewing && _dm_hist_sel > 0) { _dm_hist_sel++; _dm_hist_scroll++; }   // see addChannelMsg
+  void onViewedHistoryGrew(bool channel) {
+    if (channel) { if (_hist_sel > 0)    { _hist_sel++; _hist_scroll++; } }
+    else         { if (_dm_hist_sel > 0) { _dm_hist_sel++; _dm_hist_scroll++; } }
   }
-  void markDmDelivered(uint32_t ack_crc) { _history.markDmDelivered(ack_crc); }
 
   // Rooms successfully logged in to this power-on session. RAM-only — the
   // server's ACL (see ClientACL) is the real permission store and survives
@@ -1066,7 +1053,7 @@ public:
   }
 
   // Result of an on-device sendRoomLogin() (MyMesh::onContactResponse(), routed
-  // via AbstractUITask::onRoomLoginResult()). Surfaces as a transient alert.
+  // via the UI Core and UITask::onRoomLoginResult()). Surfaces as a transient alert.
   void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) {
     (void)permissions;
     if (success) {

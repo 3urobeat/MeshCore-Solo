@@ -41,10 +41,14 @@
 #include "../Waypoint.h"
 #include "../LiveTrack.h"
 #include "KeyboardWidget.h"
+#include "../ui-core/UiCoreHost.h"
 
 class UiCore;
+struct UiEvent;
 
-class UITask : public AbstractUITask {
+// ui-new is the lite frontend of the UI Core: MyMesh talks to the Core (see
+// meshListener()), the Core calls back through UiCoreHost and UiEventQueue.
+class UITask : public UITaskBase, public UiCoreHost {
   DisplayDriver* _display;
   SensorManager* _sensors;
 #ifdef PIN_BUZZER
@@ -68,8 +72,6 @@ class UITask : public AbstractUITask {
   char _bot_buzz_buf[400];
   KeyboardWidget _kb;        // shared across all screens — only one active at a time
   unsigned long _alert_expiry;
-  int _msgcount;
-  int _room_unread;
   int _last_notif_ch_idx;
   uint8_t _last_notif_dm_prefix[4];
   bool _last_notif_dm_valid;
@@ -121,6 +123,8 @@ class UITask : public AbstractUITask {
   // Runs the UI Core engines and reacts to their events (alert overlay, buzzer,
   // display wake). Driven from loop() regardless of the current screen.
   void     tickCore();
+  void     drainCoreEvents();
+  void     onMessageArrived(const UiEvent& ev);   // alert + wake + sound for an incoming message
 
 
 
@@ -228,11 +232,10 @@ private:
 
 public:
 
-  UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : AbstractUITask(board, serial), _display(NULL), _sensors(NULL), _node_prefs(NULL) {
+  UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial), _display(NULL), _sensors(NULL), _node_prefs(NULL) {
     next_batt_chck = _next_refresh = 0;
     ui_started_at = 0;
     _batt_mv = 0;
-    _msgcount = _room_unread = 0;
     _locked = false;
     _lock_wake_until = 0;
     _lock_seq_count = 0; _lock_seq_ms = 0; _lock_seq_used = false;
@@ -247,7 +250,7 @@ public:
   NodePrefs* getNodePrefs() const { return _node_prefs; }
   // Global metric/imperial preference for distance/speed display.
   bool useImperial() const { return _node_prefs && _node_prefs->units_imperial; }
-  uint16_t getBattMilliVolts() const { return _batt_mv > 0 ? _batt_mv : AbstractUITask::getBattMilliVolts(); }
+  uint16_t getBattMilliVolts() const { return _batt_mv > 0 ? _batt_mv : UITaskBase::getBattMilliVolts(); }
   void gotoHomeScreen() { setCurrScreen(home); }
   void gotoSettingsScreen();
   void gotoMessagesScreen();
@@ -357,25 +360,21 @@ public:
   void stopMelody();
   bool isMelodyPlaying();
   void showAlert(const char* text, int duration_millis);
-  int  addChannelMsg(uint8_t channel_idx, const char* text, uint32_t timestamp = 0,
-                     const uint8_t* path = nullptr, uint8_t path_len = 0,
-                     bool own_message = false) override;
-  void armChannelRelay(int pos, uint32_t seq) override;
-  void addDMMsg(const uint8_t* pub_key, bool outgoing, const char* text, uint32_t sender_timestamp = 0,
-               uint32_t ack_tag = 0, uint32_t ack_deadline_ms = 0, uint8_t resends = 0,
-               const uint8_t* path = nullptr, uint8_t path_len = 0) override;
-  void onMsgAck(uint32_t ack_crc) override;
-  void onChannelRelayed(uint32_t seq, const uint8_t* repeater_hash = nullptr, uint8_t hash_size = 0) override;
+  MyMesh::Listener* meshListener() override;   // MyMesh talks to the UI Core, not to UITask
+  // UiCoreHost
+  bool isViewingChannel(uint8_t channel_idx) override;
+  bool isViewingDM(const uint8_t* pub_key) override;
+  void onViewedHistoryGrew(bool channel) override;
   void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) override;
   void onAdminReply(const uint8_t* pub_key, const char* text) override;
   int  getDMUnreadTotal() const;
-  int  getMsgCount() const { return _msgcount; }
+  int  getMsgCount() const;
   int  getChannelUnreadCount() const;
   uint8_t getChannelUnread(uint8_t channel_idx) const;
   bool getChannelUnreadOverflow(uint8_t channel_idx) const;
   bool getAnyChannelUnreadOverflow() const;
-  int  getRoomUnreadCount() const { return _room_unread; }
-  void clearRoomUnread() { _room_unread = 0; }
+  int  getRoomUnreadCount() const;
+  void clearRoomUnread();
   // Clamped to the DM ring's actual occupancy for this contact (UiCore).
   uint8_t getDMUnread(const uint8_t* pub_key) const;
   bool getDMUnreadOverflow(const uint8_t* pub_key) const;
@@ -512,13 +511,8 @@ public:
   }
 
 
-  // from AbstractUITask
-  void msgRead(int msgcount) override;
-  void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount, uint8_t contact_type = 0, const uint8_t* pub_key = nullptr) override;
+  // from UITaskBase
   void notify(UIEventType t = UIEventType::none) override;
-  void onSharedLocation(const uint8_t* pub_key, const char* name,
-                        int32_t lat_1e6, int32_t lon_1e6,
-                        uint32_t ts, bool verified) override;
   void loop() override;
   // Send one [LOC] message to the configured live-share target. Returns false
   // if the target can't be resolved (no such channel / contact).

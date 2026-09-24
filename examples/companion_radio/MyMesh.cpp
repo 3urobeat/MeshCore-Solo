@@ -3124,13 +3124,13 @@ void MyMesh::handleCmdFrame(size_t len) {
 #ifdef ENABLE_SCREENSHOT
 void MyMesh::handleScreenshotRequest() {
     #ifdef DISPLAY_CLASS
-    UITask* ui_task = static_cast<UITask*>(getListener());
-    if (!ui_task || !ui_task->hasDisplay()) {
+    extern UITask ui_task;   // main.cpp -- the Listener may be the UI Core, not UITask
+    if (!ui_task.hasDisplay()) {
         writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
         return;
     }
 
-    DisplayDriver* display = ui_task->getDisplay();
+    DisplayDriver* display = ui_task.getDisplay();
     if (!display) {
         writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
         return;

@@ -14,32 +14,44 @@ enum class UiEventType : uint8_t {
   LiveShareEnded, // live-share session reached its duration and switched itself off
   LocatorCrossed, // geofence crossing: show `text`; flag = arrived (else left)
   LocatorBeep,    // one proximity-beeper tick
+  MessageArrived, // incoming text: text = sender / channel name; `kind` = contact /
+                  // room / channel message; `key` (flag = valid) = DM sender prefix
+                  // for per-contact sounds; `idx` = channel slot (-1 = unknown)
+  AdvertHeard,    // an advert was heard; flag = flood (else zero-hop)
 };
 
 struct UiEvent {
   UiEventType type;
   bool        flag;
+  UIEventType kind;       // MessageArrived: which notification (AbstractUITask.h)
+  int16_t     idx;
+  uint8_t     key[4];
   char        text[24];
 };
 
 class UiEventQueue {
 public:
-  static const int SIZE = 8;
+  static const int SIZE = 12;
 
   UiEventQueue() : _head(0), _count(0) {}
 
-  void push(UiEventType type, const char* text = nullptr, bool flag = false) {
+  // Returns the queued event so a caller can fill the optional fields.
+  UiEvent& push(UiEventType type, const char* text = nullptr, bool flag = false) {
     int pos;
     if (_count < SIZE) { pos = (_head + _count) % SIZE; _count++; }
     else               { pos = _head; _head = (_head + 1) % SIZE; }   // drop oldest
     _q[pos].type = type;
     _q[pos].flag = flag;
+    _q[pos].kind = UIEventType::none;
+    _q[pos].idx  = -1;
+    memset(_q[pos].key, 0, sizeof(_q[pos].key));
     if (text) {
       strncpy(_q[pos].text, text, sizeof(_q[pos].text) - 1);
       _q[pos].text[sizeof(_q[pos].text) - 1] = '\0';
     } else {
       _q[pos].text[0] = '\0';
     }
+    return _q[pos];
   }
 
   bool pop(UiEvent& out) {

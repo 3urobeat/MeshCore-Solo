@@ -1635,7 +1635,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
   ui_started_at = millis();
   _alert_expiry = 0;
-  _batt_mv = AbstractUITask::getBattMilliVolts();  // seed EMA with first reading
+  _batt_mv = UITaskBase::getBattMilliVolts();  // seed EMA with first reading
 
   // Load persisted waypoints (table survives reboots, unlike the RAM trail).
   {
@@ -1647,7 +1647,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   }
 
   _core = new UiCore();   // before any screen -- MessagesScreen binds to its history
-  _core->begin(node_prefs, sensors);
+  _core->begin(node_prefs, sensors, this);
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   syncLockToHome();   // booted locked (e.g. cover closed) → home starts on the LOCK page
@@ -1730,6 +1730,12 @@ void UITask::dismissRing()                    { stopMelody(); _core->clock.dismi
 
 void UITask::tickCore() {
   _core->loop();
+  drainCoreEvents();
+  // Repeat the ring melody until dismissed or the ring window elapses.
+  if (_core->clock.isRinging() && !isMelodyPlaying()) playMelody(CLOCK_ALARM_MELODY);
+}
+
+void UITask::drainCoreEvents() {
   UiEvent ev;
   while (_core->events.pop(ev)) {
     switch (ev.type) {
@@ -1753,12 +1759,16 @@ void UITask::tickCore() {
     case UiEventType::LocatorBeep:
       playMelody("locp:d=32,o=7,b=200:c");
       break;
+    case UiEventType::MessageArrived:
+      onMessageArrived(ev);
+      break;
+    case UiEventType::AdvertHeard:
+      notify(ev.flag ? UIEventType::advertReceivedFlood : UIEventType::advertReceivedZeroHop);
+      break;
     default:
       break;
     }
   }
-  // Repeat the ring melody until dismissed or the ring window elapses.
-  if (_core->clock.isRinging() && !isMelodyPlaying()) playMelody(CLOCK_ALARM_MELODY);
 }
 
 // Ringtone takes a slot argument that onShow() can't carry — pass it after the
@@ -1857,15 +1867,22 @@ void UITask::pickBotRoomTarget() {
   setCurrScreen(messages_screen);
 }
 
-int UITask::addChannelMsg(uint8_t channel_idx, const char* text, uint32_t timestamp,
-                          const uint8_t* path, uint8_t path_len, bool own_message) {
-  _last_notif_ch_idx = (int)channel_idx;
-  return ((MessagesScreen*)messages_screen)->addChannelMsg(channel_idx, text, timestamp, path, path_len, own_message);
+// ── UI Core wiring ──────────────────────────────────────────────────────────
+MyMesh::Listener* UITask::meshListener() { return _core; }
+
+bool UITask::isViewingChannel(uint8_t channel_idx) {
+  return ((MessagesScreen*)messages_screen)->isViewingChannel(channel_idx);
+}
+bool UITask::isViewingDM(const uint8_t* pub_key) {
+  return ((MessagesScreen*)messages_screen)->isViewingDM(pub_key);
+}
+void UITask::onViewedHistoryGrew(bool channel) {
+  ((MessagesScreen*)messages_screen)->onViewedHistoryGrew(channel);
 }
 
-void UITask::armChannelRelay(int pos, uint32_t seq) {
-  ((MessagesScreen*)messages_screen)->armChannelRelay(pos, seq);
-}
+int  UITask::getMsgCount() const        { return _core->msgCount(); }
+int  UITask::getRoomUnreadCount() const { return _core->roomUnread(); }
+void UITask::clearRoomUnread()          { _core->clearRoomUnread(); }
 
 int UITask::getChannelUnreadCount() const {
   return ((MessagesScreen*)messages_screen)->getTotalChannelUnread();
@@ -1887,14 +1904,6 @@ bool UITask::getAnyUnreadOverflow() const {
   return getAnyChannelUnreadOverflow() || getAnyDMUnreadOverflow();
 }
 
-void UITask::onMsgAck(uint32_t ack_crc) {
-  ((MessagesScreen*)messages_screen)->markDmDelivered(ack_crc);
-}
-
-void UITask::onChannelRelayed(uint32_t seq, const uint8_t* repeater_hash, uint8_t hash_size) {
-  ((MessagesScreen*)messages_screen)->markChannelRelayed(seq, repeater_hash, hash_size);
-}
-
 void UITask::onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) {
   // Only one on-device login can be in flight at a time (MyMesh::ui_pending_login
   // is a single slot) -- route the result to whichever of the two screens that
@@ -1911,13 +1920,6 @@ void UITask::onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t per
 void UITask::onAdminReply(const uint8_t* pub_key, const char* text) {
   ((AdminScreen*)admin_screen)->onAdminReply(pub_key, text);
   _next_refresh = 0;   // same reasoning as onRoomLoginResult above
-}
-
-void UITask::addDMMsg(const uint8_t* pub_key, bool outgoing, const char* text, uint32_t sender_timestamp,
-                      uint32_t ack_tag, uint32_t ack_deadline_ms, uint8_t resends,
-                      const uint8_t* path, uint8_t path_len) {
-  ((MessagesScreen*)messages_screen)->addDMMsg(pub_key, outgoing, text, sender_timestamp, ack_tag, ack_deadline_ms, resends, path, path_len);
-  _core->afterDMInsert();
 }
 
 int UITask::getDMUnreadTotal() const { return _core->dmUnreadTotal(); }
@@ -1973,25 +1975,17 @@ void UITask::notify(UIEventType t) {
 }
 
 
-void UITask::msgRead(int msgcount) {
-  _msgcount = msgcount;
-  if (msgcount == 0) {
-    _room_unread = 0;
-    _core->clearAllUnread();
-  }
-}
-
-void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount, uint8_t contact_type, const uint8_t* pub_key) {
-  _msgcount = msgcount;
-  if (contact_type == ADV_TYPE_ROOM && _room_unread < _msgcount) _room_unread++;
-  if (contact_type == ADV_TYPE_CHAT && pub_key != nullptr) {
-    memcpy(_last_notif_dm_prefix, pub_key, 4);
+// Incoming message (UiEventType::MessageArrived, filed by the Core already):
+// alert overlay, wake the display, and the per-contact / per-channel sound.
+void UITask::onMessageArrived(const UiEvent& ev) {
+  if (ev.kind == UIEventType::contactMessage && ev.flag) {
+    memcpy(_last_notif_dm_prefix, ev.key, 4);
     _last_notif_dm_valid = true;
-    _core->noteIncomingDM(pub_key);   // eviction/overflow is checked in addDMMsg(), after the ring insert
   }
+  if (ev.kind == UIEventType::channelMessage) _last_notif_ch_idx = ev.idx;
 
   char alert_buf[80];
-  snprintf(alert_buf, sizeof(alert_buf), "Msg: %.20s", from_name);
+  snprintf(alert_buf, sizeof(alert_buf), "Msg: %.20s", ev.text);
   showAlert(alert_buf, 3000);
 
   if (_display != NULL && !_locked) {
@@ -2005,6 +1999,7 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
       _next_refresh = 100;
     }
   }
+  notify(ev.kind);
 }
 
 void UITask::userLedHandler() {
@@ -2013,7 +2008,7 @@ void UITask::userLedHandler() {
   if (cur_time > next_led_change) {
     if (led_state == 0) {
       led_state = 1;
-      if (_msgcount > 0) {
+      if (_core->msgCount() > 0) {
         last_led_increment = LED_ON_MSG_MILLIS;
       } else {
         last_led_increment = LED_ON_MILLIS;
@@ -2488,7 +2483,8 @@ void UITask::pollHallSensor() {
 }
 
 void UITask::loop() {
-  pollConnection();   // BLE link state -> hasConnection() (see AbstractUITask)
+  pollConnection();   // BLE link state -> hasConnection() (see UITaskBase)
+  drainCoreEvents();  // react to what the Core filed during mesh processing (alerts, wake, sounds)
   // Background delivery: resend pending on-device DMs whose ACK timed out, and
   // finalise the ✗ marker — runs regardless of which screen is active.
   ((MessagesScreen*)messages_screen)->tickDmResends();
@@ -2807,7 +2803,7 @@ void UITask::loop() {
 #endif
 
   if ((int32_t)(millis() - next_batt_chck) >= 0) {
-    uint16_t raw = AbstractUITask::getBattMilliVolts();
+    uint16_t raw = UITaskBase::getBattMilliVolts();
     if (raw > 0) {
 #ifdef SIM_PLATFORM
       // SimMainBoard::getBattMilliVolts() returns exactly whatever value the
@@ -3016,12 +3012,6 @@ TrailStore& UITask::trail() { return _core->trail.store(); }
 
 bool UITask::currentCourse(int& deg_out) const { return _core->course.currentCourse(deg_out); }
 bool UITask::currentLocation(int32_t& lat, int32_t& lon) const { return _core->course.currentLocation(lat, lon); }
-
-void UITask::onSharedLocation(const uint8_t* pub_key, const char* name,
-                              int32_t lat_1e6, int32_t lon_1e6,
-                              uint32_t ts, bool verified) {
-  _core->live_share.onSharedLocation(pub_key, name, lat_1e6, lon_1e6, ts, verified);
-}
 
 bool UITask::sendLocationShare(int32_t lat, int32_t lon) { return _core->live_share.send(lat, lon); }
 void UITask::restartLocShareSession() { _core->live_share.restartSession(); }

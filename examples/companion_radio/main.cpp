@@ -326,7 +326,7 @@ void setup() {
   if (disp && the_mesh.getNodePrefs())
     disp->setBrightness(the_mesh.getNodePrefs()->display_brightness);
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
-  the_mesh.setListener(&ui_task);
+  the_mesh.setListener(ui_task.meshListener());
 #ifdef DISPLAY_HAS_BUSY_PUMP
   if (disp) disp->setBusyPumpFn(pumpRadioDuringDisplayBusyWait, nullptr);
 #endif
