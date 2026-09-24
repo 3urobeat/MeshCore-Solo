@@ -15,6 +15,7 @@
 #include "CourseEngine.h"
 #include "LiveShareEngine.h"
 #include "LocatorEngine.h"
+#include "TrailEngine.h"
 
 class UiCore {
 public:
@@ -24,6 +25,7 @@ public:
     course.begin(sensors);
     live_share.begin(prefs, &course, &events);
     locator.begin(prefs, &course, &live_share, &events);
+    trail.begin(prefs, &course);
   }
 
   // Driven from the frontend's loop(), before it drains `events`.
@@ -32,6 +34,7 @@ public:
     course.loop();
     live_share.loop();
     locator.loop();
+    trail.loop();
   }
 
   UiEventQueue events;      // Core → frontend; drained by the frontend's loop()
@@ -42,6 +45,7 @@ public:
   CourseEngine course;      // GPS position + course-over-ground ring
   LiveShareEngine live_share; // [LOC] auto-share session + peers' shared positions
   LocatorEngine locator;    // active target, geofence crossings, proximity beeper
+  TrailEngine  trail;       // GPS trail store, sampling, auto-pause, shutdown save
 
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread

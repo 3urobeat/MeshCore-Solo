@@ -1662,7 +1662,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   auto_advert_screen = new AutoAdvertScreen(this, node_prefs);
   live_share_screen = new LiveShareScreen(this, node_prefs);
   locator_screen  = new LocatorScreen(this, node_prefs);
-  trail_screen       = new TrailScreen(this, &_trail);
+  trail_screen       = new TrailScreen(this, &_core->trail.store());
   compass_screen     = new CompassScreen(this);
   diag_screen        = new DiagnosticsScreen(this);
   repeater_screen    = new RepeaterScreen(this);
@@ -2095,18 +2095,8 @@ void UITask::shutdown(bool restart){
   the_mesh.saveRTCTime();
   the_mesh.flushDirtyContacts();
 
-  // Auto-save the live GPS trail before power-off when the user enabled it
-  // (Tools › Trail › Settings › Auto-save). This covers the low-battery
-  // auto-shutdown, which otherwise loses the whole route. Overwrites /trail
-  // (same file as the manual Trail › Save); guarded on count()>0 so an empty
-  // trail can't wipe a previously saved one.
-  if (_node_prefs && _node_prefs->trail_autosave_lowbatt && _trail.count() > 0) {
-    DataStore* ds = the_mesh.getDataStore();
-    if (ds) {
-      File f = ds->openWrite("/trail");
-      if (f) { _trail.writeTo(f); f.close(); }
-    }
-  }
+  // Auto-save the live GPS trail if enabled (covers low-battery auto-shutdown).
+  _core->trail.onShutdown();
 
   #ifdef PIN_BUZZER
   /* note: we have a choice here -
@@ -2876,7 +2866,7 @@ void UITask::loop() {
   // and catches up whenever GPS is awake for any other reason.
   if (_sensors) {
     bool gps_needed_live =
-        (_trail.isActive() && !_trail.isPaused())
+        _core->trail.isRecording()
         || (_node_prefs && _node_prefs->loc_share_enabled)
         || (_node_prefs && _node_prefs->locator_enabled && _node_prefs->locator_has_target)
         || curr == compass_screen
@@ -2891,47 +2881,7 @@ void UITask::loop() {
     if (_sensors->consumeGpsWakeEvent()) resetLocator();
   }
 
-  // GPS trail sampling — runs in the background while the trail is
-  // active, independent of which screen is shown. Skips silently if no GPS
-  // fix; min-delta gate inside addPoint() avoids near-stationary spam.
-  if (!_trail.isActive()) _trail_pause_has_ref = false;   // fresh ref on next start
-  if (_trail.isActive() && _node_prefs != NULL
-      && (int32_t)(millis() - _next_trail_sample_ms) >= 0) {
-    _next_trail_sample_ms = millis() + (uint32_t)TrailStore::SAMPLING_SECS * 1000UL;
-    LocationProvider* loc = _sensors ? _sensors->getLocationProvider() : nullptr;
-    if (loc && loc->isValid()) {
-      int32_t la = (int32_t)loc->getLatitude();
-      int32_t lo = (int32_t)loc->getLongitude();
-      uint16_t md = TrailStore::minDeltaMeters(_node_prefs->trail_min_delta_idx,
-                                                _node_prefs->units_imperial);
-      // Auto-pause: freeze the trail once the device has stayed within
-      // TRAIL_AUTOPAUSE_MOVE_M of one spot for the configured delay; resume on
-      // the next real move. Its own coarse gate (not the trail min-delta) so
-      // GPS jitter while parked doesn't keep the idle timer alive.
-      uint16_t ap = NodePrefs::trailAutoPauseSecs(_node_prefs->trail_autopause_idx);
-      if (ap > 0) {
-        uint32_t now = millis();
-        float moved = _trail_pause_has_ref
-            ? geo::haversineKm(_trail_pause_ref_lat, _trail_pause_ref_lon, la, lo) * 1000.0f
-            : 1e9f;
-        if (!_trail_pause_has_ref || moved >= (float)NodePrefs::TRAIL_AUTOPAUSE_MOVE_M) {
-          _trail_pause_ref_lat = la; _trail_pause_ref_lon = lo;
-          _trail_pause_has_ref = true;
-          _trail_last_move_ms  = now;
-          if (_trail.isPaused()) _trail.setPaused(false);
-        } else if (!_trail.isPaused() && (now - _trail_last_move_ms) >= (uint32_t)ap * 1000UL) {
-          _trail.setPaused(true);
-        }
-      } else if (_trail.isPaused()) {
-        _trail.setPaused(false);   // feature turned off → resume
-      }
-      if (!_trail.isPaused())
-        _trail.addPoint(la, lo, (uint32_t)rtc_clock.getCurrentTime(), md);
-    }
-  }
-
-
-  // UI Core engines (alarm + countdown, COG, live share, locator, …) run
+  // UI Core engines (alarm + countdown, COG, live share, locator, trail, …) run
   // regardless of the current screen / display state. Last in the loop, after
   // the GPS keep-awake check above (a fresh GPS wake re-seeds the locator first).
   tickCore();
@@ -3062,6 +3012,8 @@ void UITask::onChannelRemoved(uint8_t channel_idx) {
 // radius. The beeper has its own toggle (locator_beeper), so turning it on is
 // an explicit "I want to hear this" — it deliberately overrides the global
 // buzzer mute (playMelody → buzzer.playForced ignores the quiet flag).
+TrailStore& UITask::trail() { return _core->trail.store(); }
+
 bool UITask::currentCourse(int& deg_out) const { return _core->course.currentCourse(deg_out); }
 bool UITask::currentLocation(int32_t& lat, int32_t& lon) const { return _core->course.currentLocation(lat, lon); }
 

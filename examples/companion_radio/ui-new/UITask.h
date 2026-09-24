@@ -116,16 +116,7 @@ class UITask : public AbstractUITask {
   UIScreen* gpio_screen = nullptr;
 #endif
   UIScreen* curr = nullptr;
-  TrailStore _trail;
   WaypointStore _waypoints;
-  uint32_t _next_trail_sample_ms = 0;
-
-  // Trail auto-pause engine state. _trail_pause_ref is the last position the
-  // device was considered "at"; if it doesn't move beyond the trail min-delta
-  // gate for the configured delay, the trail is auto-paused.
-  int32_t  _trail_pause_ref_lat = 0, _trail_pause_ref_lon = 0;
-  bool     _trail_pause_has_ref = false;
-  uint32_t _trail_last_move_ms = 0;
 
   // Runs the UI Core engines and reacts to their events (alert overlay, buzzer,
   // display wake). Driven from loop() regardless of the current screen.
@@ -348,7 +339,7 @@ public:
   uint32_t timerRemainingMs() const;
   bool isRinging() const;
   void dismissRing();
-  TrailStore& trail() { return _trail; }
+  TrailStore& trail();
   WaypointStore& waypoints() { return _waypoints; }
   LiveTrackStore& liveTrack();
   // Shared on-screen keyboard — only one screen drives it at a time.
