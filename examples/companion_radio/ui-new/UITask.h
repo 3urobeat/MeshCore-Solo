@@ -118,17 +118,7 @@ class UITask : public AbstractUITask {
   UIScreen* curr = nullptr;
   TrailStore _trail;
   WaypointStore _waypoints;
-  LiveTrackStore _livetrack;
   uint32_t _next_trail_sample_ms = 0;
-  uint32_t _next_livetrack_expire_ms = 0;
-
-  // Live location sharing engine state (auto [LOC] broadcast while moving).
-  uint32_t _next_loc_share_check_ms = 0;
-  uint32_t _loc_share_last_ms = 0;
-  int32_t  _loc_share_last_lat = 0, _loc_share_last_lon = 0;
-  bool     _loc_share_has_last = false;
-  bool     _loc_share_was_enabled = false;
-  uint32_t _loc_share_session_ms = 0;   // when the current auto-share session began (RAM only)
 
   // Trail auto-pause engine state. _trail_pause_ref is the last position the
   // device was considered "at"; if it doesn't move beyond the trail min-delta
@@ -303,12 +293,10 @@ public:
   void gotoDashboardConfig();
   void gotoAutoAdvertScreen();
   void gotoLiveShareScreen();
-  // Start the auto-share session clock afresh (next engine tick treats it as a new enable).
-  void restartLocShareSession() { _loc_share_was_enabled = false; }
-  // Restart only the session's duration clock -- unlike restartLocShareSession(),
-  // no re-announce. For a changed "Stop after" length, where position hasn't
-  // changed. No-op before the engine has started a session (it sets the clock then).
-  void restartLocShareClock() { if (_loc_share_was_enabled) _loc_share_session_ms = millis(); }
+  // Live share session control (ui-core/LiveShareEngine.h): restart = new
+  // session (re-announce + fresh clock); clock-only = changed "Stop after".
+  void restartLocShareSession();
+  void restartLocShareClock();
   void gotoLocatorScreen();
   // Re-arm the locator state machine so the next evaluation initialises
   // silently (called by the Locator tool after the target/radius changes,
@@ -377,7 +365,7 @@ public:
   void dismissRing();
   TrailStore& trail() { return _trail; }
   WaypointStore& waypoints() { return _waypoints; }
-  LiveTrackStore& liveTrack() { return _livetrack; }
+  LiveTrackStore& liveTrack();
   // Shared on-screen keyboard — only one screen drives it at a time.
   KeyboardWidget& keyboard() { return _kb; }
   void saveWaypoints();

@@ -1742,6 +1742,9 @@ void UITask::tickCore() {
       stopMelody();
       clearAlert();
       break;
+    case UiEventType::LiveShareEnded:
+      showAlert("Live share ended", 2500);
+      break;
     default:
       break;
     }
@@ -2922,58 +2925,6 @@ void UITask::loop() {
     }
   }
 
-  // Live-track housekeeping — drop shared positions that have gone stale, so
-  // the Nearby "Live" view / map don't show ghosts. Cheap; once a minute.
-  if ((int32_t)(millis() - _next_livetrack_expire_ms) >= 0) {
-    _next_livetrack_expire_ms = millis() + 60000UL;
-    _livetrack.expire((uint32_t)rtc_clock.getCurrentTime());
-  }
-
-  // A session always ends: switch off once the chosen duration has run out.
-  // Counted from enable / boot (RAM only), so a reboot starts a fresh session.
-  if (_node_prefs && _node_prefs->loc_share_enabled && _loc_share_was_enabled
-      && (uint32_t)(millis() - _loc_share_session_ms)
-         >= (uint32_t)NodePrefs::locShareDurationMins(_node_prefs->loc_share_duration_idx) * 60000UL) {
-    _node_prefs->loc_share_enabled = 0;
-    _loc_share_was_enabled = false;
-    the_mesh.savePrefs();
-    showAlert("Live share ended", 2500);
-  }
-  // Live location sharing — periodically broadcast my [LOC] to the configured
-  // target while moving (Map › Live share). Movement-gated so a stationary
-  // device stays quiet unless a heartbeat is configured.
-  if (_node_prefs && _node_prefs->loc_share_enabled
-      && (int32_t)(millis() - _next_loc_share_check_ms) >= 0) {
-    _next_loc_share_check_ms = millis() + 2000UL;
-    if (!_loc_share_was_enabled) {
-      _loc_share_has_last = false;   // re-announce on enable
-      _loc_share_session_ms = millis();
-    }
-    _loc_share_was_enabled = true;
-    int32_t lat, lon;
-    if (currentLocation(lat, lon)) {
-      uint16_t move_m = NodePrefs::locShareMoveMeters(_node_prefs->loc_share_move_idx);
-      uint16_t gap_s  = NodePrefs::locShareIntervalSecs(_node_prefs->loc_share_interval_idx);
-      uint16_t hb_s   = NodePrefs::locShareHeartbeatSecs(_node_prefs->loc_share_heartbeat_idx);
-      uint32_t now = millis();
-      bool first = !_loc_share_has_last;
-      float moved = first ? 1e9f
-                          : geo::haversineKm(_loc_share_last_lat, _loc_share_last_lon, lat, lon) * 1000.0f;
-      bool gap_ok = first || (now - _loc_share_last_ms) >= (uint32_t)gap_s * 1000UL;
-      bool hb_due = (hb_s > 0) && !first && (now - _loc_share_last_ms) >= (uint32_t)hb_s * 1000UL;
-      if ((moved >= (float)move_m && gap_ok) || first || hb_due) {
-        if (sendLocationShare(lat, lon)) {
-          _loc_share_last_lat = lat;
-          _loc_share_last_lon = lon;
-          _loc_share_last_ms  = now;
-          _loc_share_has_last = true;
-        }
-      }
-    }
-  } else if (_node_prefs && !_node_prefs->loc_share_enabled) {
-    _loc_share_was_enabled = false;
-  }
-
   // Locator — beep + alert when the device crosses into / out of the armed
   // geofence. Cheap; a few seconds of latency at the boundary is fine.
   if ((int32_t)(millis() - _next_locator_ms) >= 0) {
@@ -3004,7 +2955,7 @@ bool UITask::resolvePersonPos(const uint8_t* key, int32_t& lat, int32_t& lon,
   if (ts)   *ts   = 0;
   if (!key) return false;
   const LiveTrackStore::Entry* e =
-      _livetrack.activeByKey(key, (uint32_t)rtc_clock.getCurrentTime());
+      _core->live_share.track().activeByKey(key, (uint32_t)rtc_clock.getCurrentTime());
   if (e) {
     lat = e->lat_1e6; lon = e->lon_1e6;
     if (live) *live = true;
@@ -3239,51 +3190,16 @@ void UITask::locatorProximityBeeper() {
 bool UITask::currentCourse(int& deg_out) const { return _core->course.currentCourse(deg_out); }
 bool UITask::currentLocation(int32_t& lat, int32_t& lon) const { return _core->course.currentLocation(lat, lon); }
 
-// A peer broadcast its position via a [LOC] message (parsed in MyMesh). Record
-// it in the live-track table for the Nearby "Live" view / map. Gated on the
-// user preference so it stays opt-in.
 void UITask::onSharedLocation(const uint8_t* pub_key, const char* name,
                               int32_t lat_1e6, int32_t lon_1e6,
                               uint32_t ts, bool verified) {
-  if (!_node_prefs || !_node_prefs->track_shared_loc) return;
-  _livetrack.update(pub_key, name, lat_1e6, lon_1e6, ts, verified);
+  _core->live_share.onSharedLocation(pub_key, name, lat_1e6, lon_1e6, ts, verified);
 }
 
-bool UITask::sendLocationShare(int32_t lat, int32_t lon) {
-  if (!_node_prefs) return false;
-  // Live Share's own scope, if set: applies to these sends only (0 = follow the
-  // target's usual scope). The sends below are synchronous, so bracketing works.
-  // A value past the list's end (list shrunk other than via removeScope())
-  // follows the target, as LiveShareScreen shows it -- ScopeList::key() would
-  // otherwise clamp it to "*" and send unscoped.
-  struct ScopeGuard {
-    bool on;
-    explicit ScopeGuard(uint8_t v) : on(v != 0 && v <= the_mesh.scopeList().count + 1) {
-      if (on) the_mesh.setOneShotScope(v - 1);
-    }
-    ~ScopeGuard() { if (on) the_mesh.clearOneShotScope(); }
-  } scope_guard(_node_prefs->loc_share_scope);
-  char text[80];
-  if (_node_prefs->loc_share_target_type == 0) {
-    // Channel: sendGroupMessage prepends "<name>: ", so the payload already
-    // names the sender — keep the [LOC] text bare.
-    snprintf(text, sizeof(text), LOCATION_MSG_TAG "%.5f,%.5f", lat / 1e6, lon / 1e6);
-    ChannelDetails ch;
-    if (!the_mesh.getChannel(_node_prefs->loc_share_channel_idx, ch)) return false;
-    return the_mesh.sendGroupMessage(rtc_clock.getCurrentTime(), ch.channel,
-                                     the_mesh.getNodeName(), text, strlen(text));
-  }
-  // DM carries no per-message sender prefix, so embed the name in the text — the
-  // share is then self-describing in any chat client (a trailing token after the
-  // coordinate, which parseLocShare ignores on the receiving side).
-  ContactInfo* c = the_mesh.lookupContactByPubKey(_node_prefs->loc_share_dm_prefix,
-                                                  NodePrefs::FAVOURITE_PREFIX_LEN);
-  if (!c) return false;
-  snprintf(text, sizeof(text), LOCATION_MSG_TAG "%.5f,%.5f %s",
-           lat / 1e6, lon / 1e6, the_mesh.getNodeName());
-  uint32_t expected_ack = 0, est_timeout = 0;
-  return the_mesh.sendMessage(*c, rtc_clock.getCurrentTime(), 0, text, expected_ack, est_timeout) > 0;
-}
+bool UITask::sendLocationShare(int32_t lat, int32_t lon) { return _core->live_share.send(lat, lon); }
+void UITask::restartLocShareSession() { _core->live_share.restartSession(); }
+void UITask::restartLocShareClock()   { _core->live_share.restartClock(); }
+LiveTrackStore& UITask::liveTrack()   { return _core->live_share.track(); }
 
 // One-shot "share my position" from the home Map page (Hold Enter). When live
 // sharing is already on, push an immediate [LOC] to the same target; otherwise

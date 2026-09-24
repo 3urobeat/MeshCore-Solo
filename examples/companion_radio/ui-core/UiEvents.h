@@ -11,6 +11,7 @@ enum class UiEventType : uint8_t {
   None = 0,
   ClockAlert,     // alarm / countdown fired: wake, show `text`, start the ring melody
   ClockRingEnded, // ring window elapsed with no dismiss: stop melody, clear alert
+  LiveShareEnded, // live-share session reached its duration and switched itself off
 };
 
 struct UiEvent {

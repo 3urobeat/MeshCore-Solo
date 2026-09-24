@@ -13,6 +13,7 @@
 #include "ClockEngine.h"
 #include "PingEngine.h"
 #include "CourseEngine.h"
+#include "LiveShareEngine.h"
 
 class UiCore {
 public:
@@ -20,12 +21,14 @@ public:
     clock.begin(prefs, &events);
     ping.begin(prefs);
     course.begin(sensors);
+    live_share.begin(prefs, &course, &events);
   }
 
   // Driven from the frontend's loop(), before it drains `events`.
   void loop() {
     clock.loop();
     course.loop();
+    live_share.loop();
   }
 
   UiEventQueue events;      // Core → frontend; drained by the frontend's loop()
@@ -34,6 +37,7 @@ public:
   ClockEngine clock;        // alarm / countdown / ring
   PingEngine  ping;         // single in-flight ping + last result
   CourseEngine course;      // GPS position + course-over-ground ring
+  LiveShareEngine live_share; // [LOC] auto-share session + peers' shared positions
 
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread
