@@ -198,16 +198,19 @@ static void openPopup(lv_obj_t* kbd, const char* variants, bool upper) {
   lv_obj_set_style_radius(m, theme::RADIUS, 0);
   lv_obj_set_style_text_font(m, THEME_FONT_LARGE, LV_PART_ITEMS);
 
-  // Above the pressed key, clamped to the screen.
+  // Above the pressed key, but never above the keyboard's own top edge: the
+  // compose field sits right there and must stay readable while picking.
   lv_point_t pt = { 0, 0 };
   lv_indev_t* indev = lv_indev_active();
   if (indev) lv_indev_get_point(indev, &pt);
+  lv_area_t kb_area;
+  lv_obj_get_coords(kbd, &kb_area);
   int scr_w = lv_display_get_horizontal_resolution(NULL);
   int x = pt.x - w / 2;
   if (x < 2) x = 2;
   if (x + w > scr_w - 2) x = scr_w - 2 - w;
-  int y = pt.y - 70;
-  if (y < theme::STATUS_H) y = theme::STATUS_H;
+  int y = pt.y - 60;
+  if (y < kb_area.y1) y = kb_area.y1;
   lv_obj_set_pos(m, x, y);
   lv_obj_add_event_cb(m, onPopupPick, LV_EVENT_VALUE_CHANGED, NULL);
 }

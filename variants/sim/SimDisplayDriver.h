@@ -360,4 +360,88 @@ public:
   // (see the class comment) -- nothing left to flush.
   void endFrame() override { }
 };
+
+// 320x240 colour touch LCD for the ui-lvgl frontend (Wio Tracker L2 shape).
+// LVGL renders everything itself; this driver only owns the canvas and power
+// state. blit() takes an RGB565 area straight from LVGL's flush callback
+// (ui-lvgl/LvglPort.h) and putImageData()s it. The DisplayDriver text/shape
+// API is a no-op -- only main.cpp's "Loading..." splash calls it.
+//
+// Touch comes from the host page: sim_lcd_touch(x, y, down) on mouse/pointer
+// events, read back by LvglPort.h through touchState().
+class SimLcdDisplay : public DisplayDriver {
+  bool _on = false;
+public:
+  static const int W = 320, H = 240;
+  SimLcdDisplay() : DisplayDriver(W, H) { }
+
+  struct Touch { int x, y; bool down; };
+  static Touch& touchState() { static Touch t = {0, 0, false}; return t; }
+
+  bool begin() {
+    _on = true;
+    EM_ASM({
+      var tag = (typeof Module !== 'undefined' && Module['simInstanceTag']) ? Module['simInstanceTag'] : '';
+      var id = tag ? ('sim-canvas-' + tag) : 'sim-canvas';
+      var c = document.getElementById(id);
+      if (!c) { console.error('[sim] #' + id + ' not found in the host page'); return; }
+      Module.__simCtx = c.getContext('2d');
+      Module.__simCtx.fillStyle = '#000';
+      Module.__simCtx.fillRect(0, 0, $0, $1);
+    }, W, H);
+    return true;
+  }
+
+  // RGB565 (little-endian, as LVGL renders it) -> RGBA -> canvas.
+  void blit(int x, int y, int w, int h, const uint16_t* px) {
+    if (!_on) return;
+    EM_ASM({
+      if (!Module.__simCtx) return;
+      // (no bare commas: EM_ASM is a macro)
+      var src = $4 >> 1;
+      var n = $2 * $3;
+      var img = Module.__simCtx.createImageData($2, $3);
+      var d = img.data;
+      for (var i = 0; i < n; i++) {
+        var c = HEAPU16[src + i];
+        var r = (c >> 11) & 0x1F;
+        var g = (c >> 5) & 0x3F;
+        var b = c & 0x1F;
+        var o = i * 4;
+        d[o] = (r << 3) | (r >> 2);
+        d[o + 1] = (g << 2) | (g >> 4);
+        d[o + 2] = (b << 3) | (b >> 2);
+        d[o + 3] = 255;
+      }
+      Module.__simCtx.putImageData(img, $0, $1);
+    }, x, y, w, h, px);
+  }
+
+  bool isOn() override { return _on; }
+  void turnOn() override { _on = true; }
+  void turnOff() override {
+    _on = false;
+    EM_ASM({
+      if (!Module.__simCtx) return;
+      Module.__simCtx.fillStyle = '#000';
+      Module.__simCtx.fillRect(0, 0, $0, $1);
+    }, W, H);
+  }
+  void clear() override { }
+  void startFrame(Color bkg = DARK) override { (void)bkg; }
+  void setTextSize(int sz) override { (void)sz; }
+  void setColor(Color c) override { (void)c; }
+  void setCursor(int x, int y) override { (void)x; (void)y; }
+  void print(const char* str) override { (void)str; }
+  void fillRect(int x, int y, int w, int h) override { (void)x; (void)y; (void)w; (void)h; }
+  void drawRect(int x, int y, int w, int h) override { (void)x; (void)y; (void)w; (void)h; }
+  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override { (void)x; (void)y; (void)bits; (void)w; (void)h; }
+  uint16_t getTextWidth(const char* str) override { return str ? strlen(str) * 6 : 0; }
+  void endFrame() override { }
+};
+
+extern "C" EMSCRIPTEN_KEEPALIVE inline void sim_lcd_touch(int x, int y, int down) {
+  SimLcdDisplay::Touch& t = SimLcdDisplay::touchState();
+  t.x = x; t.y = y; t.down = down != 0;
+}
 #endif // __EMSCRIPTEN__

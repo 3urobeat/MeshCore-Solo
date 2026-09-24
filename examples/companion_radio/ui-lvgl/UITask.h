@@ -42,6 +42,7 @@ public:
   void openDM(const uint8_t* pub_key);
   void back();
   void sendFromCompose();
+  void setKeyboardVisible(bool show);
   void showToast(const char* text, uint32_t ms = 2500);
 
   // Kept for main.cpp's sim hooks (ui-new API).
@@ -93,6 +94,8 @@ private:
   lv_obj_t* _home_clock = nullptr;
   lv_obj_t* _home_date = nullptr;
   lv_obj_t* _home_unread = nullptr;
+  lv_obj_t* _header = nullptr;    // current screen's title bar (nullptr on Home)
+  lv_obj_t* _body = nullptr;
   lv_obj_t* _thread_list = nullptr;
   lv_obj_t* _compose_ta = nullptr;
   lv_obj_t* _keyboard = nullptr;

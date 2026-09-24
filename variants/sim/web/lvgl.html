@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<!--
+  ui-lvgl simulator: the Wio Tracker L2 frontend (320x240 touch LCD) running
+  the real companion firmware in the browser, plus one ui-new peer device on a
+  direct simulated link so there is someone to talk to.
+
+  Build both, then serve this directory (http://, not file://):
+      variants/sim/build_wasm.sh                   # peer   -> build/meshcore_sim.js
+      SIM_UI=lvgl variants/sim/build_wasm.sh       # L2     -> build/meshcore_sim_lvgl.js
+      cd variants/sim/web && python3 -m http.server 8080
+  and open http://localhost:8080/lvgl.html .
+
+  The mouse is the finger: press / drag / release on the LCD. Holding a key
+  on the on-screen keyboard opens its accent popup, as on the device.
+
+  window.sim is the automation surface (headless checks): sim.ready (promise),
+  sim.touch(x, y, down), sim.tap(x, y), sim.hold(x, y, ms), sim.L / sim.P.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ui-lvgl sim</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 24px 16px;
+    background: #111114; color: #ddd;
+    font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: flex-start;
+  }
+  .dev { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .dev h2 { margin: 0; font-size: 13px; font-weight: 600; color: #aaa; }
+  #sim-canvas-L {
+    width: 640px; height: 480px; max-width: calc(100vw - 32px); aspect-ratio: 4 / 3; height: auto;
+    image-rendering: pixelated; background: #000;
+    border: 10px solid #26262b; border-radius: 14px; touch-action: none; cursor: crosshair;
+  }
+  #sim-canvas-P {
+    width: 384px; height: 192px; image-rendering: pixelated; background: #000;
+    border: 6px solid #26262b; border-radius: 8px;
+  }
+  .panel { width: 384px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, input {
+    font: inherit; color: #eee; background: #2a2a30; border: 1px solid #45454d; border-radius: 6px; padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button:active { background: #3a3a42; }
+  input { flex: 1; min-width: 0; }
+  #log {
+    height: 180px; overflow-y: auto; background: #18181c; border: 1px solid #2c2c33; border-radius: 6px;
+    padding: 6px; font: 11px ui-monospace, Menlo, monospace; color: #9a9a9a; white-space: pre-wrap;
+  }
+  .status { font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+  <div class="dev">
+    <h2>Wio Tracker L2 &middot; ui-lvgl <span class="status" id="status-L">booting…</span></h2>
+    <canvas id="sim-canvas-L" width="320" height="240"></canvas>
+    <div class="row">
+      <button id="btn-L">Button (back / sleep)</button>
+      <button id="reset-L">Reset L2</button>
+    </div>
+  </div>
+
+  <div class="dev">
+    <h2>Peer &middot; ui-new <span class="status" id="status-P">booting…</span></h2>
+    <canvas id="sim-canvas-P" width="128" height="64"></canvas>
+    <div class="panel">
+      <div class="row">
+        <input id="peer-text" value="Cześć! Привет! Γειά σου!" aria-label="Peer message text">
+      </div>
+      <div class="row">
+        <button id="peer-dm">Peer → DM to L2</button>
+        <button id="peer-ch">Peer → Public</button>
+        <button id="advert">Advert both</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script src="build/meshcore_sim.js"></script>
+  <script src="build/meshcore_sim_lvgl.js"></script>
+  <script>
+    const logEl = document.getElementById('log');
+    function log(msg) {
+      const line = document.createElement('div');
+      line.textContent = new Date().toISOString().substr(11, 8) + ' ' + msg;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const MAX_PKT = 256;
+    function wrap(mod, label) {
+      const txBuf = mod._malloc(MAX_PKT);
+      return {
+        mod, label,
+        isReady() { return mod.ccall('sim_is_ready', 'number', [], []) === 1; },
+        pollTx() {
+          const out = [];
+          for (;;) {
+            const n = mod.ccall('sim_radio_poll_tx', 'number', ['number', 'number'], [txBuf, MAX_PKT]);
+            if (n <= 0) break;
+            out.push(mod.HEAPU8.slice(txBuf, txBuf + n));
+          }
+          return out;
+        },
+        injectRx(bytes) {
+          const p = mod._malloc(bytes.length);
+          mod.HEAPU8.set(bytes, p);
+          mod.ccall('sim_radio_inject_rx', null, ['number', 'number'], [p, bytes.length]);
+          mod._free(p);
+        },
+        call(name, ret, types, args) { return mod.ccall(name, ret, types || [], args || []); },
+      };
+    }
+
+    let L = null, P = null;
+
+    // Direct link L <-> P, 50 ms air time.
+    setInterval(() => {
+      if (!L || !P) return;
+      for (const [from, to] of [[L, P], [P, L]]) {
+        for (const pkt of from.pollTx()) setTimeout(() => to.injectRx(pkt), 50);
+      }
+    }, 40);
+
+    async function waitReady(inst) {
+      for (let i = 0; i < 400; i++) {
+        if (inst.isReady()) return true;
+        await new Promise(r => setTimeout(r, 25));
+      }
+      return false;
+    }
+
+    function prepare(inst) {
+      inst.call('sim_test_sync_time', 'number', ['number'], [Date.now() / 1000]);
+      inst.call('sim_test_set_timezone_hours', 'number', ['number'], [-Math.round(new Date().getTimezoneOffset() / 60)]);
+      inst.call('sim_test_disable_screen_timeout', 'number');
+    }
+
+    async function bootL() {
+      document.getElementById('status-L').textContent = 'booting…';
+      if (L) L.call('sim_stop_main_loop', null);
+      L = wrap(await MeshCoreSimLvgl({ simInstanceTag: 'L' }), 'L');
+      const ok = await waitReady(L);
+      if (ok) prepare(L);
+      document.getElementById('status-L').textContent = ok ? 'ready' : 'boot timed out';
+      return ok;
+    }
+
+    async function bootP() {
+      P = wrap(await MeshCoreSim({ simInstanceTag: 'P' }), 'P');
+      const ok = await waitReady(P);
+      if (ok) { prepare(P); P.call('sim_test_show_all_home_pages', 'number'); }
+      document.getElementById('status-P').textContent = ok ? 'ready' : 'boot timed out';
+      return ok;
+    }
+
+    function advertBoth() {
+      L.call('sim_test_advert_flood', 'number');
+      setTimeout(() => P.call('sim_test_advert_flood', 'number'), 300);
+      log('advert: both');
+    }
+
+    // ── Touch: mouse / pen / finger on the LCD canvas ─────────────────────
+    const canvas = document.getElementById('sim-canvas-L');
+    function touch(x, y, down) {
+      if (L) L.call('sim_lcd_touch', null, ['number', 'number', 'number'], [x | 0, y | 0, down ? 1 : 0]);
+    }
+    function toDevice(e) {
+      const r = canvas.getBoundingClientRect();
+      const bx = (r.width - canvas.clientWidth) / 2, by = (r.height - canvas.clientHeight) / 2;   // border
+      const x = (e.clientX - r.left - bx) * 320 / canvas.clientWidth;
+      const y = (e.clientY - r.top - by) * 240 / canvas.clientHeight;
+      return [Math.max(0, Math.min(319, x)), Math.max(0, Math.min(239, y))];
+    }
+    let pressed = false;
+    canvas.addEventListener('pointerdown', (e) => { pressed = true; canvas.setPointerCapture(e.pointerId); touch(...toDevice(e), true); });
+    canvas.addEventListener('pointermove', (e) => { if (pressed) touch(...toDevice(e), true); });
+    const lift = (e) => { if (!pressed) return; pressed = false; touch(...toDevice(e), false); };
+    canvas.addEventListener('pointerup', lift);
+    canvas.addEventListener('pointercancel', lift);
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    async function tap(x, y) { touch(x, y, true); await sleep(80); touch(x, y, false); await sleep(120); }
+    async function hold(x, y, ms) { touch(x, y, true); await sleep(ms || 700); }   // leaves the finger down
+
+    document.getElementById('btn-L').addEventListener('click', () => L && L.call('sim_lcd_button', null));
+    document.getElementById('reset-L').addEventListener('click', () => bootL());
+    document.getElementById('advert').addEventListener('click', advertBoth);
+    document.getElementById('peer-dm').addEventListener('click', () => {
+      const t = document.getElementById('peer-text').value;
+      const r = P.call('sim_test_send_msg_to_first_contact', 'number', ['string'], [t]);
+      log(r < 0 ? 'peer DM: no contact yet (Advert both first)' : 'peer DM sent: ' + t);
+    });
+    document.getElementById('peer-ch').addEventListener('click', () => {
+      const t = document.getElementById('peer-text').value;
+      const r = P.call('sim_test_send_channel_msg', 'number', ['number', 'string'], [0, t]);
+      log(r ? 'peer → Public: ' + t : 'peer → Public failed');
+    });
+
+    const ready = (async () => {
+      const [okP, okL] = [await bootP(), await bootL()];
+      if (okP && okL) { advertBoth(); log('both devices up'); }
+      return okP && okL;
+    })();
+
+    window.sim = {
+      ready, touch, tap, hold, advertBoth,
+      get L() { return L; }, get P() { return P; },
+      peerDM(t) { return P.call('sim_test_send_msg_to_first_contact', 'number', ['string'], [t]); },
+      peerChannel(t) { return P.call('sim_test_send_channel_msg', 'number', ['number', 'string'], [0, t]); },
+      contacts(inst) { return (inst || L).call('sim_test_get_num_contacts', 'number'); },
+    };
+  </script>
+</body>
+</html>

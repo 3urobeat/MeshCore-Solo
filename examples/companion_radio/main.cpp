@@ -456,6 +456,18 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_send_msg_to_first_contact(const cha
   return the_mesh.sendMessage(ci, ts, 0, text, expected_ack, est_timeout);
 }
 
+// Sends `text` on group channel `channel_idx` (0 = Public) via
+// BaseChatMesh::sendGroupMessage() -- what CMD_SEND_CHANNEL_TXT_MSG calls --
+// so a peer instance can post into a channel another instance is viewing
+// (web/lvgl.html). Returns 1 if sent, 0 if not (no such channel / not ready).
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_send_channel_msg(int channel_idx, const char* text) {
+  if (!g_sim_ready || !text) return 0;
+  ChannelDetails ch;
+  if (!the_mesh.getChannel(channel_idx, ch)) return 0;
+  return the_mesh.sendGroupMessage(rtc_clock.getCurrentTime(), ch.channel,
+                                   the_mesh.getNodeName(), text, strlen(text)) ? 1 : 0;
+}
+
 // How many contacts this instance has discovered so far (any type) -- lets
 // the JS ether-tick loop poll "has advert propagation finished yet" without
 // guessing a fixed timeout.

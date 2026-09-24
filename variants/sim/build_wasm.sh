@@ -52,6 +52,18 @@ else
   OPT_FLAGS=(-O2)
 fi
 
+# Which frontend: SIM_UI=new (default, 128x64 OLED-style ui-new) or
+# SIM_UI=lvgl (320x240 touch ui-lvgl, Wio Tracker L2 shape -> web/lvgl.html).
+# The lvgl build takes the LVGL 9 sources from PlatformIO's libdeps of the L2
+# env, so run `pio run -e Wio_Tracker_L2_companion_solo_lvgl` once first.
+SIM_UI="${SIM_UI:-new}"
+LVGL_DIR="$REPO_ROOT/.pio/libdeps/Wio_Tracker_L2_companion_solo_lvgl/lvgl"
+if [ "$SIM_UI" = "lvgl" ] && [ ! -f "$LVGL_DIR/lvgl.h" ]; then
+  echo "error: LVGL sources not found at $LVGL_DIR" >&2
+  echo "Fetch them first: pio run -e Wio_Tracker_L2_companion_solo_lvgl" >&2
+  exit 1
+fi
+
 mkdir -p "$OUT_DIR"
 cd "$REPO_ROOT"
 
@@ -105,7 +117,7 @@ SRCS=(
   examples/companion_radio/main.cpp
   examples/companion_radio/MyMesh.cpp
   examples/companion_radio/DataStore.cpp
-  examples/companion_radio/ui-new/UITask.cpp
+  "examples/companion_radio/ui-$SIM_UI/UITask.cpp"
 )
 
 INCLUDES=(
@@ -118,7 +130,7 @@ INCLUDES=(
   -Ilib/ed25519
   -Isrc
   -Iexamples/companion_radio
-  -Iexamples/companion_radio/ui-new
+  "-Iexamples/companion_radio/ui-$SIM_UI"
 )
 
 DEFINES=(
@@ -156,6 +168,21 @@ DEFINES=(
 # for the hardware builds; a local build with it unset keeps the old fallback.
 if [ -n "${FIRMWARE_VERSION:-}" ]; then
   DEFINES+=("-DFIRMWARE_VERSION=\"${FIRMWARE_VERSION}\"")
+fi
+
+OUT_NAME=meshcore_sim
+EXPORT_NAME=MeshCoreSim
+if [ "$SIM_UI" = "lvgl" ]; then
+  OUT_NAME=meshcore_sim_lvgl
+  EXPORT_NAME=MeshCoreSimLvgl   # distinct factory: web/lvgl.html loads both
+  # The 320x240 LCD driver (SimDisplayDriver.h's SimLcdDisplay) instead of
+  # the OLED canvas one, and the L2's channel count.
+  kept=()
+  for d in "${DEFINES[@]}"; do
+    case "$d" in -DDISPLAY_CLASS=*|-DMAX_GROUP_CHANNELS=*) ;; *) kept+=("$d") ;; esac
+  done
+  DEFINES=("${kept[@]}" -DDISPLAY_CLASS=SimLcdDisplay -DMAX_GROUP_CHANNELS=40 -DUI_ZOOM=1 -DLV_CONF_INCLUDE_SIMPLE)
+  INCLUDES+=("-I$LVGL_DIR")
 fi
 
 # -funsigned-char: carried over from Phase 1 verbatim -- real ARM cores
@@ -205,6 +232,33 @@ for src in "${SRCS[@]}"; do
   OBJS+=("$obj")
 done
 
+# ui-lvgl: LVGL itself and the generated fonts, compiled as C. Several hundred
+# files that rarely change, so their objects are cached in obj_lvgl/ and only
+# rebuilt when the source or lv_conf.h is newer.
+if [ "$SIM_UI" = "lvgl" ]; then
+  EMCC="$EMSDK_DIR/upstream/emscripten/emcc"
+  LV_CONF="examples/companion_radio/ui-lvgl/lv_conf.h"
+  # Only LVGL + lv_conf.h on the path: examples/companion_radio/features.h
+  # would shadow the libc <features.h> the C headers include.
+  C_FLAGS=(-std=gnu99 "${OPT_FLAGS[@]}" "${DEFINES[@]}" "-I$LVGL_DIR" -Iexamples/companion_radio/ui-lvgl)
+  LV_OBJ_DIR="$OUT_DIR/obj_lvgl"
+  C_SRCS=()
+  while IFS= read -r f; do C_SRCS+=("$f"); done < <(
+    find "$LVGL_DIR/src" -name '*.c' | sed "s|^$REPO_ROOT/||" | sort
+    find examples/companion_radio/ui-lvgl/fonts -name '*.c' | sort)
+  built=0
+  for src in "${C_SRCS[@]}"; do
+    obj="$LV_OBJ_DIR/${src%.*}.o"
+    if [ ! -f "$obj" ] || [ "$src" -nt "$obj" ] || [ "$LV_CONF" -nt "$obj" ]; then
+      mkdir -p "$(dirname "$obj")"
+      "$EMCC" -c "${C_FLAGS[@]}" "$src" -o "$obj"
+      built=$((built + 1))
+    fi
+    OBJS+=("$obj")
+  done
+  echo "LVGL/fonts: $built of ${#C_SRCS[@]} C files rebuilt"
+fi
+
 # FS is exported so a host page (or a manual verification script) can
 # directly inspect what DataStore/IdentityStore actually wrote -- e.g.
 # Module.FS.readFile('/sim_data/identity/_main.id') -- to prove IDBFS
@@ -233,14 +287,14 @@ done
   -sALLOW_MEMORY_GROWTH=1 \
   -sFORCE_FILESYSTEM=1 \
   -sMODULARIZE=1 \
-  -sEXPORT_NAME=MeshCoreSim \
+  -sEXPORT_NAME=$EXPORT_NAME \
   -sENVIRONMENT=web \
   -sEXIT_RUNTIME=0 \
   -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,HEAPU8,HEAPF32,HEAP32 \
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free \
-  -o "$OUT_DIR/meshcore_sim.js"
+  -o "$OUT_DIR/$OUT_NAME.js"
 
 echo ""
-echo "Built: $OUT_DIR/meshcore_sim.js (+ .wasm alongside it)"
+echo "Built: $OUT_DIR/$OUT_NAME.js (+ .wasm alongside it)"
 echo "Serve variants/sim/web/ locally and open index.html, e.g.:"
 echo "  cd $SCRIPT_DIR/web && python3 -m http.server 8080"

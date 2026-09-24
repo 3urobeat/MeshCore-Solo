@@ -18,6 +18,13 @@
 
 static UITask* s_ui = nullptr;   // for LVGL's C callbacks
 
+#if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+// The board's one button, pressed from the simulator page (web/lvgl.html).
+static bool s_sim_btn_click = false;
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_lcd_button() { s_sim_btn_click = true; }
+#endif
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 static void styleSurface(lv_obj_t* o, uint32_t bg) {
@@ -105,14 +112,18 @@ void UITask::loop() {
   pollConnection();
   drainCoreEvents();
 
+  bool btn_click = false;
 #ifdef PIN_USER_BTN
-  int ev = user_btn.check();
-  if (ev == BUTTON_EVENT_CLICK) {
+  btn_click = user_btn.check() == BUTTON_EVENT_CLICK;
+#elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+  btn_click = s_sim_btn_click;
+  s_sim_btn_click = false;
+#endif
+  if (btn_click) {
     if (_asleep) wake();
     else if (_screen == SCR_HOME) sleep();
     else back();
   }
-#endif
 
   if (_asleep) {
     if (lvport::touched()) { lvport::swallowTouch(); wake(); }
@@ -311,6 +322,7 @@ static void onBack(lv_event_t* e) { (void)e; s_ui->back(); }
 lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _home_clock = _home_date = _home_unread = nullptr;
   _thread_list = _compose_ta = _keyboard = nullptr;
+  _header = _body = nullptr;
   lv_obj_t* prev = lv_screen_active();
   lv_obj_t* scr = lv_obj_create(NULL);
   styleSurface(scr, theme::BG);
@@ -323,6 +335,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
     lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(hdr, LV_PCT(100), 32);
     lv_obj_set_pos(hdr, 0, top);
+    _header = hdr;
     if (with_back) {
       lv_obj_t* b = lv_button_create(hdr);
       lv_obj_set_size(b, 40, 28);
@@ -346,6 +359,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(body, theme::PAD, 0);
   lv_obj_set_style_pad_row(body, theme::GAP, 0);
+  _body = body;
   lv_screen_load(scr);
   if (prev && prev != scr) lv_obj_delete_async(prev);
   return body;
@@ -556,7 +570,7 @@ void UITask::buildContacts() {
 static void onKeyboard(lv_event_t* e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_READY) s_ui->sendFromCompose();
-  else if (code == LV_EVENT_CANCEL) lv_obj_add_flag((lv_obj_t*)lv_event_get_user_data(e), LV_OBJ_FLAG_HIDDEN);
+  else if (code == LV_EVENT_CANCEL) s_ui->setKeyboardVisible(false);
 }
 
 // Compose limit is in UTF-8 bytes (the over-the-air limit), not characters:
@@ -571,9 +585,33 @@ static void onComposeInsert(lv_event_t* e) {
     lv_textarea_set_insert_replace(ta, "");   // reject: would exceed the byte limit
 }
 
-static void onComposeClicked(lv_event_t* e) {
-  lv_obj_t* kb = (lv_obj_t*)lv_event_get_user_data(e);
-  lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
+static void onComposeClicked(lv_event_t* e) { (void)e; s_ui->setKeyboardVisible(true); }
+
+// Keyboard up: the screen header goes away and the body takes its 32 px, so
+// a line or two of the conversation stays visible above the compose field
+// (240 px can't fit header + list + field + keys). The field is FOCUSED
+// while the keyboard is up -- that is what makes LVGL draw its cursor.
+void UITask::setKeyboardVisible(bool show) {
+  if (!_keyboard || !_compose_ta) return;
+  if (show == !lv_obj_has_flag(_keyboard, LV_OBJ_FLAG_HIDDEN)) return;
+  if (show) {
+    lv_obj_remove_flag(_keyboard, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_state(_compose_ta, LV_STATE_FOCUSED);
+  } else {
+    lv_obj_add_flag(_keyboard, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_state(_compose_ta, LV_STATE_FOCUSED);
+  }
+  if (_header && _body) {
+    int top = theme::STATUS_H + (show ? 0 : lv_obj_get_height(_header));
+    if (show) lv_obj_add_flag(_header, LV_OBJ_FLAG_HIDDEN);
+    else      lv_obj_remove_flag(_header, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(_body, 0, top);
+    lv_obj_set_height(_body, lv_display_get_vertical_resolution(NULL) - top);
+  }
+  if (_thread_list) {   // keep the newest message in view
+    lv_obj_update_layout(_thread_list);
+    lv_obj_scroll_to_y(_thread_list, LV_COORD_MAX, LV_ANIM_OFF);
+  }
 }
 
 void UITask::openChannel(uint8_t channel_idx) {
@@ -618,6 +656,7 @@ void UITask::buildThread() {
   lv_obj_set_flex_flow(_thread_list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(_thread_list, theme::PAD, 0);
   lv_obj_set_style_pad_row(_thread_list, theme::GAP, 0);
+  lv_obj_set_scrollbar_mode(_thread_list, LV_SCROLLBAR_MODE_ACTIVE);   // only while scrolling
 
   _compose_ta = nullptr;
   _keyboard = nullptr;
@@ -625,19 +664,29 @@ void UITask::buildThread() {
     lv_obj_t* bar = lv_obj_create(body);
     styleSurface(bar, theme::BG);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(bar, LV_PCT(100), 44);
+    lv_obj_set_size(bar, LV_PCT(100), 42);
     lv_obj_set_style_pad_all(bar, 4, 0);
     _compose_ta = lv_textarea_create(bar);
     lv_textarea_set_one_line(_compose_ta, true);
     lv_textarea_set_placeholder_text(_compose_ta, "Message");
     lv_obj_add_event_cb(_compose_ta, onComposeInsert, LV_EVENT_INSERT, NULL);
-    lv_obj_set_size(_compose_ta, LV_PCT(100), 36);
+    lv_obj_set_size(_compose_ta, LV_PCT(100), 34);
     lv_obj_align(_compose_ta, LV_ALIGN_LEFT_MID, 0, 0);
+    // The theme's padding leaves less than one line inside 36 px, which makes
+    // the field scroll vertically (text jumps as it's typed). Pad so exactly one
+    // body line (20 px) fits: 34 = 2*1 border + 2*6 pad + 20.
+    lv_obj_set_style_border_width(_compose_ta, 1, 0);
+    lv_obj_set_style_pad_ver(_compose_ta, 6, 0);
+    lv_obj_set_style_pad_hor(_compose_ta, 10, 0);
+    lv_obj_set_scrollbar_mode(_compose_ta, LV_SCROLLBAR_MODE_OFF);
+    // Cursor: the theme draws it only while FOCUSED (set while the keyboard is up).
+    lv_obj_set_style_border_color(_compose_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(_compose_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
 
     // In the body's flex column below the compose bar: showing it shrinks the
     // message list, so the text field stays visible just above the keys.
     _keyboard = kb::create(body, _prefs);   // phone-style, scripts from prefs, hold for accents (Keyboard.h)
-    lv_obj_set_size(_keyboard, LV_PCT(100), 130);
+    lv_obj_set_size(_keyboard, LV_PCT(100), 124);
     lv_keyboard_set_textarea(_keyboard, _compose_ta);
     lv_obj_add_event_cb(_keyboard, onKeyboard, LV_EVENT_READY, _keyboard);
     lv_obj_add_event_cb(_keyboard, onKeyboard, LV_EVENT_CANCEL, _keyboard);
@@ -695,18 +744,35 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   lv_obj_set_style_pad_row(b, 2, 0);
   lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
 
-  if (from && from[0]) label(b, from, THEME_FONT_SMALL, theme::ACCENT);
+  char meta[32];
+  formatAge(meta, sizeof(meta), ts);
+
+  // Channel messages: "Sender  5m" on one line above the text, which keeps
+  // the bubble two lines tall -- matters with the keyboard up.
+  bool meta_in_header = from && from[0] && !status;
+  if (from && from[0]) {
+    lv_obj_t* hdr = lv_obj_create(b);
+    styleSurface(hdr, theme::BG);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(hdr, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(hdr, 8, 0);
+    label(hdr, from, THEME_FONT_SMALL, theme::ACCENT);   // names are <= 31 chars: fits the bubble
+    if (meta_in_header) label(hdr, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  }
   lv_obj_t* t = label(b, text, THEME_FONT_BODY, theme::TEXT);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_max_width(t, 238, 0);
   lv_obj_set_width(t, LV_SIZE_CONTENT);
 
-  char meta[32];
-  formatAge(meta, sizeof(meta), ts);
-  lv_obj_t* m = label(b, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  if (status) {
-    lv_label_set_text_fmt(m, "%s  %s", meta, status);
-    lv_obj_set_style_text_color(m, lv_color_hex(status_col), 0);
+  if (!meta_in_header) {
+    lv_obj_t* m = label(b, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    if (status) {
+      lv_label_set_text_fmt(m, "%s  %s", meta, status);
+      lv_obj_set_style_text_color(m, lv_color_hex(status_col), 0);
+    }
   }
 }
 
@@ -774,7 +840,7 @@ void UITask::sendFromCompose() {
   }
   if (ok) {
     lv_textarea_set_text(_compose_ta, "");
-    if (_keyboard) lv_obj_add_flag(_keyboard, LV_OBJ_FLAG_HIDDEN);
+    setKeyboardVisible(false);
     refreshThread();
   } else {
     showToast("Send failed");

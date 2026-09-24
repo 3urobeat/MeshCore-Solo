@@ -69,6 +69,46 @@ static bool touched() {
 
 static void swallowTouch() { s_swallow = true; }
 
+#elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+// Browser simulator (variants/sim/build_wasm_lvgl.sh): SimLcdDisplay blits to
+// a <canvas>, the host page feeds the mouse in as touch.
+
+static bool s_swallow = false;
+
+static void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
+  display.blit(area->x1, area->y1, area->x2 - area->x1 + 1, area->y2 - area->y1 + 1,
+               (const uint16_t*)px_map);
+  lv_display_flush_ready(disp);
+}
+
+static void touchCb(lv_indev_t* indev, lv_indev_data_t* data) {
+  (void)indev;
+  const SimLcdDisplay::Touch& t = SimLcdDisplay::touchState();
+  if (s_swallow) {
+    if (!t.down) s_swallow = false;
+    data->state = LV_INDEV_STATE_RELEASED;
+    return;
+  }
+  data->state = t.down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+  data->point.x = t.x;
+  data->point.y = t.y;
+}
+
+static bool begin() {
+  lv_display_t* disp = lv_display_create(SimLcdDisplay::W, SimLcdDisplay::H);
+  lv_display_set_flush_cb(disp, flushCb);
+  static uint8_t buf[SimLcdDisplay::W * 40 * 2];   // same 40-line partial buffer as the board
+  lv_display_set_buffers(disp, buf, nullptr, sizeof(buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
+
+  lv_indev_t* indev = lv_indev_create();
+  lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(indev, touchCb);
+  return true;
+}
+
+static bool touched() { return SimLcdDisplay::touchState().down; }
+static void swallowTouch() { s_swallow = true; }
+
 #else
   #error "ui-lvgl: no LVGL port for this board (see LvglPort.h)"
 #endif
