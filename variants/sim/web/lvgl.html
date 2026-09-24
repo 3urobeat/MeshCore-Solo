@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <!--
   ui-lvgl simulator: the Wio Tracker L2 frontend (320x240 touch LCD) running
-  the real companion firmware in the browser, plus one ui-new peer device on a
-  direct simulated link so there is someone to talk to.
+  the real companion firmware in the browser, plus one ui-new peer device and
+  one repeater on a shared simulated link, so there is someone to talk to and
+  something for Nearby > Scan to find.
 
   Build both, then serve this directory (http://, not file://):
       variants/sim/build_wasm.sh                   # peer   -> build/meshcore_sim.js
+      variants/sim/build_wasm_repeater.sh          # repeater (optional; page runs without it)
       SIM_UI=lvgl variants/sim/build_wasm.sh       # L2     -> build/meshcore_sim_lvgl.js
       cd variants/sim/web && python3 -m http.server 8080
   and open http://localhost:8080/lvgl.html .
@@ -74,7 +76,7 @@
       <div class="row">
         <button id="peer-dm">Peer → DM to L2</button>
         <button id="peer-ch">Peer → Public</button>
-        <button id="advert">Advert both</button>
+        <button id="advert">Advert all</button>
       </div>
       <div id="log"></div>
     </div>
@@ -82,6 +84,7 @@
 
   <script src="build/meshcore_sim.js"></script>
   <script src="build/meshcore_sim_lvgl.js"></script>
+  <script src="build/repeater/meshcore_sim_repeater.js" onerror="window.MeshCoreSimRepeater = null"></script>
   <script>
     const logEl = document.getElementById('log');
     function log(msg) {
@@ -116,13 +119,14 @@
       };
     }
 
-    let L = null, P = null;
+    let L = null, P = null, R = null;
 
-    // Direct link L <-> P, 50 ms air time.
+    // Everyone hears everyone, 50 ms air time.
     setInterval(() => {
-      if (!L || !P) return;
-      for (const [from, to] of [[L, P], [P, L]]) {
-        for (const pkt of from.pollTx()) setTimeout(() => to.injectRx(pkt), 50);
+      const nodes = [L, P, R].filter(Boolean);
+      for (const from of nodes) {
+        for (const pkt of from.pollTx())
+          for (const to of nodes) if (to !== from) setTimeout(() => to.injectRx(pkt), 50);
       }
     }, 40);
 
@@ -158,10 +162,19 @@
       return ok;
     }
 
+    async function bootR() {
+      if (!window.MeshCoreSimRepeater) { log('repeater build not found (optional)'); return false; }
+      R = wrap(await MeshCoreSimRepeater({ simInstanceTag: 'R' }), 'R');
+      const ok = await waitReady(R);
+      log(ok ? 'repeater up' : 'repeater boot timed out');
+      return ok;
+    }
+
     function advertBoth() {
       L.call('sim_test_advert_flood', 'number');
       setTimeout(() => P.call('sim_test_advert_flood', 'number'), 300);
-      log('advert: both');
+      if (R) setTimeout(() => R.call('sim_test_advert_flood', 'number'), 600);
+      log('advert: all');
     }
 
     // ── Touch: mouse / pen / finger on the LCD canvas ─────────────────────
@@ -202,6 +215,7 @@
     });
 
     const ready = (async () => {
+      await bootR();
       const [okP, okL] = [await bootP(), await bootL()];
       if (okP && okL) { advertBoth(); log('both devices up'); }
       return okP && okL;

@@ -10,18 +10,12 @@
 // Filter (type) and sort are independent axes and combine freely. The action
 // menu (Hold Enter) is identical everywhere; only the per-row column and the
 // detail fields differ between sources.
-class NearbyScreen : public UIScreen {
+class NearbyScreen : public UIScreen, protected NearbyModel {
   UITask* _task;
 
-  // ── filter (type axis) ──────────────────────────────────────────────────────
-  enum Filter : uint8_t { F_ALL, F_FAV, F_COMP, F_RPT, F_ROOM, F_SNSR, F_COUNT };
-  static const char* FILTER_LABELS[F_COUNT];
-
-  // ── sort axis ───────────────────────────────────────────────────────────────
-  enum Sort : uint8_t { SORT_DIST, SORT_TIME };
-
-  // ── source ──────────────────────────────────────────────────────────────────
-  enum Source : uint8_t { SRC_STORED, SRC_SCAN };
+  // List data, filter / sort / source and the refresh logic live in
+  // ui-core/NearbyModel.h (shared with ui-lvgl); this class adds selection,
+  // detail / navigate views, scan timing and the action menu.
 
   // ── action-menu actions (matched by id, not by row index) ────────────────────
   enum Action : uint8_t { ACT_NAV, ACT_PING, ACT_WAYPOINT, ACT_LOCATOR,
@@ -36,52 +30,11 @@ class NearbyScreen : public UIScreen {
   // startPickBotChannel()/startPickBotRoom() pick-mode idiom.
   bool _pick_admin_target = false;
 
-  // ── unified list entry ───────────────────────────────────────────────────────
-  struct Entry {
-    char     name[32];
-    uint8_t  type;
-    uint8_t  pub_key[PUB_KEY_SIZE];
-    // has_key: the full 32-byte pubkey is present -- what Ping and the base64
-    // key view need. has_prefix: at least the leading FAVOURITE_PREFIX_LEN
-    // bytes are, which is all an identity-keyed reference needs (a Locator
-    // person target, resolved via UITask::resolvePersonPos). Every has_key row
-    // also has_prefix; the reverse doesn't hold -- a [LOC] share and a heard
-    // advert carry a prefix and nothing more.
-    bool     has_key;
-    bool     has_prefix;
-    // stored-source fields
-    int32_t  lat_e6, lon_e6;
-    float    dist_km;
-    uint32_t lastmod;
-    int      contact_idx;
-    // scan-source fields
-    int8_t   rssi, snr_x4, remote_snr_x4;
-    bool     is_known;
-    // live-track ([LOC] share) overlay: this row's position/age came from a
-    // shared-location message. live_verified == true for a DM (pubkey) share,
-    // false for a channel (name, best-effort) share.
-    bool     is_live;
-    bool     live_verified;
-    // Favourite (ContactInfo::flags bit 0) -- always false for a scan/live row
-    // that isn't a contact, since only a contact can carry the flag.
-    bool     fav;
-  };
-
-  static const int MAX_NEARBY = 32;
-  Entry   _entries[MAX_NEARBY];
-  int     _count;
   int     _sel;
   int     _scroll;
   bool    _detail;
   bool    _nav = false;     // full-screen navigate-to-node view (over detail)
   navview::EtaTracker _nav_eta;  // closing-speed/ETA for the navigate view
-  int32_t _own_lat, _own_lon;
-  bool    _own_gps;
-
-  Source  _source;
-  uint8_t _filter;
-  uint8_t _sort;
-
   unsigned long _detail_refresh_ms;
   unsigned long _list_refresh_ms = 0;
   static const unsigned long DETAIL_REFRESH_MS    = 10000UL;
@@ -137,90 +90,15 @@ class NearbyScreen : public UIScreen {
     snprintf(buf, n, "%s ago", s);
   }
 
-  static const char* typeName(uint8_t t) {
-    switch (t) {
-      case ADV_TYPE_CHAT:     return "Companion";
-      case ADV_TYPE_REPEATER: return "Repeater";
-      case ADV_TYPE_ROOM:     return "Room";
-      case ADV_TYPE_SENSOR:   return "Sensor";
-      default:                return "Unknown";
-    }
-  }
-
-  static const char* typeShort(uint8_t t) {
-    switch (t) {
-      case ADV_TYPE_REPEATER: return "Rpt";
-      case ADV_TYPE_SENSOR:   return "Snsr";
-      case ADV_TYPE_ROOM:     return "Room";
-      case ADV_TYPE_CHAT:     return "Comp";
-      default:                return "?";
-    }
-  }
-
   // The selected entry, or nullptr when the list is empty.
   const Entry* selected() const {
     return (_count > 0 && _sel < _count) ? &_entries[_sel] : nullptr;
   }
 
-  bool typeMatchesFilter(uint8_t type, uint8_t flags, bool have_flags) const {
-    switch (_filter) {
-      case F_FAV:  return have_flags && (flags & 0x01);
-      case F_COMP: return type == ADV_TYPE_CHAT;
-      case F_RPT:  return type == ADV_TYPE_REPEATER;
-      case F_ROOM: return type == ADV_TYPE_ROOM;
-      case F_SNSR: return type == ADV_TYPE_SENSOR;
-      case F_ALL:
-      default:     return true;
-    }
-  }
-
-  // ── data refresh ──────────────────────────────────────────────────────────────
-  void refreshStored() {
-    _count = 0;
-    _own_lat = _own_lon = 0;
-    _own_gps = _task->currentLocation(_own_lat, _own_lon);
-
-    int nc = the_mesh.getNumContacts();
-    for (int i = 0; i < nc && _count < MAX_NEARBY; i++) {
-      ContactInfo ci;
-      // getContactByIdx() indexes the RAW contact table, whose first
-      // MAX_ANON_CONTACTS slots are reserved for anon-request bookkeeping
-      // (see BaseChatMesh::resetContacts()/ContactsIterator) -- getNumContacts()
-      // already excludes them from the count, so real contact 0 lives at raw
-      // index MAX_ANON_CONTACTS, not 0. Reading from 0 pulled those reserved
-      // (blank, type=ADV_TYPE_NONE) slots into the list as bogus "Unknown"
-      // rows, and silently dropped the same number of real contacts off the
-      // end -- while never touching the anon slots themselves, so it always
-      // reproduced the same way regardless of the auto-add overwrite setting.
-      if (!the_mesh.getContactByIdx(i + MAX_ANON_CONTACTS, ci)) continue;
-      if (!typeMatchesFilter(ci.type, ci.flags, true)) continue;
-
-      Entry& e = _entries[_count++];
-      strncpy(e.name, ci.name, sizeof(e.name) - 1);
-      e.name[sizeof(e.name) - 1] = '\0';
-      memcpy(e.pub_key, ci.id.pub_key, PUB_KEY_SIZE);
-      e.has_key = true;
-      e.has_prefix = true;
-      e.lat_e6  = ci.gps_lat;
-      e.lon_e6  = ci.gps_lon;
-      bool remote_gps = (ci.gps_lat != 0 || ci.gps_lon != 0);
-      e.dist_km = (_own_gps && remote_gps)
-                    ? geo::haversineKm(_own_lat, _own_lon, ci.gps_lat, ci.gps_lon)
-                    : -1.0f;
-      e.type        = ci.type;
-      e.fav         = (ci.flags & 0x01) != 0;
-      e.contact_idx = i + MAX_ANON_CONTACTS;   // raw index -- other lookups re-key off this directly
-      e.lastmod     = ci.lastmod;
-      e.is_known    = true;
-      e.is_live     = false;
-      e.live_verified = false;
-    }
-
-    mergeLiveTrack();
-    mergeRecentlyHeard();
-    sortStored();
-    clampSelection();
-  }
+  // ── data refresh (NearbyModel) + selection clamping ─────────────────────────
+  void refreshStored() { NearbyModel::refreshStored(); clampSelection(); }
+  void refreshScan()   { NearbyModel::refreshScan();   clampSelection(); }
+  void refresh()       { refreshModel(); clampSelection(); }
 
   // Rebuild the stored list (re-merge live shares + re-sort) while keeping the
   // currently highlighted node selected across the rebuild — by contact index
@@ -236,172 +114,11 @@ class NearbyScreen : public UIScreen {
       saved_name[sizeof(saved_name) - 1] = '\0';
     }
     refreshStored();
-    if (saved_idx >= 0) {
-      for (int i = 0; i < _count; i++)
-        if (_entries[i].contact_idx == saved_idx) { _sel = i; return true; }
-    } else if (saved_live && saved_name[0]) {
-      for (int i = 0; i < _count; i++)
-        if (_entries[i].is_live && strncmp(_entries[i].name, saved_name, sizeof(saved_name) - 1) == 0)
-          { _sel = i; return true; }
-    }
+    int i = saved_idx >= 0 ? findContact(saved_idx)
+          : (saved_live && saved_name[0]) ? findLiveByName(saved_name) : -1;
+    if (i >= 0) { _sel = i; return true; }
     return false;
   }
-
-  // Overlay live [LOC] shares onto the stored list: refresh a matching contact
-  // with the fresher shared position, and append senders who aren't contacts so
-  // a group sharing on a channel still shows up. DM shares match by pubkey
-  // prefix (verified); channel shares match by name (best-effort).
-  void mergeLiveTrack() {
-    if (!_task) return;
-    LiveTrackStore& lt = _task->liveTrack();
-    uint32_t now = rtc_clock.getCurrentTime();
-    for (int i = 0; i < LiveTrackStore::CAPACITY; i++) {
-      if (!lt.isActive(i, now)) continue;
-      const LiveTrackStore::Entry& s = lt.slotAt(i);
-
-      int m = -1;
-      for (int j = 0; j < _count; j++) {
-        if (s.verified && _entries[j].has_key
-            && memcmp(_entries[j].pub_key, s.key, LiveTrackStore::KEY_LEN) == 0) { m = j; break; }
-        if (!s.verified && strncmp(_entries[j].name, s.name, sizeof(_entries[j].name) - 1) == 0) { m = j; break; }
-      }
-
-      if (m >= 0) {
-        Entry& e = _entries[m];
-        // A [LOC] share is an explicit "here I am now", so it defines the pin and
-        // the distance (used for proximity sorting). Recency for the time sort is
-        // the most recent of the advert and the share.
-        e.lat_e6  = s.lat_1e6;
-        e.lon_e6  = s.lon_1e6;
-        e.dist_km = _own_gps ? geo::haversineKm(_own_lat, _own_lon, s.lat_1e6, s.lon_1e6) : -1.0f;
-        if (s.ts > e.lastmod) e.lastmod = s.ts;
-        e.is_live       = true;
-        e.live_verified = s.verified;
-      } else if (_count < MAX_NEARBY && typeMatchesFilter(ADV_TYPE_CHAT, 0, false)) {
-        // A sender we don't have as a contact: treat it as a companion (the only
-        // node type that shares position), so the type filter still applies —
-        // e.g. it must not appear under the Repeater/Room/Sensor filters.
-        Entry& e = _entries[_count++];
-        memset(&e, 0, sizeof(e));
-        strncpy(e.name, s.name, sizeof(e.name) - 1);
-        e.name[sizeof(e.name) - 1] = '\0';
-        // We only keep a key *prefix* for shares, not the full pubkey, so Ping
-        // and the base64 key view (which need 32 bytes) stay unavailable for a
-        // non-contact live entry. Navigate / Save-waypoint work off lat/lon.
-        // A DM share is pubkey-keyed, so the prefix is real and good enough to
-        // keep re-resolving them as a Locator person target; a channel share is
-        // matched by name and carries no identity at all.
-        e.has_key       = false;
-        e.has_prefix    = s.verified;
-        if (s.verified) memcpy(e.pub_key, s.key, LiveTrackStore::KEY_LEN);
-        e.type          = ADV_TYPE_CHAT;
-        e.lat_e6        = s.lat_1e6;
-        e.lon_e6        = s.lon_1e6;
-        e.dist_km       = _own_gps ? geo::haversineKm(_own_lat, _own_lon, s.lat_1e6, s.lon_1e6) : -1.0f;
-        e.lastmod       = s.ts;
-        e.contact_idx   = -1;
-        e.is_known      = false;
-        e.is_live       = true;
-        e.live_verified = s.verified;
-      }
-    }
-  }
-
-  // Fold passively-heard adverts that aren't already listed (contact or live) into
-  // the list as name+age rows — no full key/GPS, so informational only. This is
-  // what absorbs the old standalone "Recent adverts" home page. Gated to the All
-  // filter because AdvertPath carries no node type to filter or sort-by-dist on.
-  void mergeRecentlyHeard() {
-    if (_filter != F_ALL || !_task) return;
-    static AdvertPath heard[8];   // scratch — refreshStored isn't reentrant
-    int n = the_mesh.getRecentlyHeard(heard, 8);
-    for (int i = 0; i < n && _count < MAX_NEARBY; i++) {
-      AdvertPath& a = heard[i];
-      if (a.name[0] == 0) continue;
-      bool dup = false;
-      for (int j = 0; j < _count; j++) {
-        if (_entries[j].has_key &&
-            memcmp(_entries[j].pub_key, a.pubkey_prefix, sizeof(a.pubkey_prefix)) == 0) { dup = true; break; }
-        if (strncmp(_entries[j].name, a.name, sizeof(a.name) - 1) == 0) { dup = true; break; }
-      }
-      if (dup) continue;
-      Entry& e = _entries[_count++];
-      memset(&e, 0, sizeof(e));
-      strncpy(e.name, a.name, sizeof(e.name) - 1);
-      e.name[sizeof(e.name) - 1] = '\0';
-      e.type        = ADV_TYPE_CHAT;   // unknown from AdvertPath — best-effort label
-      e.has_key     = false;
-      e.has_prefix  = true;
-      memcpy(e.pub_key, a.pubkey_prefix, sizeof(a.pubkey_prefix));
-      e.dist_km     = -1.0f;
-      e.lastmod     = a.recv_timestamp;
-      e.contact_idx = -1;
-      e.is_known    = false;
-      e.is_live     = false;
-    }
-  }
-
-  void sortStored() {
-    uint32_t now_ts = rtc_clock.getCurrentTime();
-    NodePrefs* p = _task->getNodePrefs();
-    const bool fav_first = !(p && p->fav_sort_off);
-    for (int i = 0; i < _count - 1; i++) {
-      int best = i;
-      for (int j = i + 1; j < _count; j++) {
-        if (fav_first && _entries[j].fav != _entries[best].fav) {
-          if (_entries[j].fav) best = j;   // favourites outrank the time/distance key
-          continue;
-        }
-        if (_sort == SORT_TIME) {
-          // lastmod=0 or lastmod>now (RTC not synced) → "unknown" → sort to bottom.
-          uint32_t tj = (_entries[j].lastmod > 0 && now_ts >= _entries[j].lastmod) ? _entries[j].lastmod : 0;
-          uint32_t tb = (_entries[best].lastmod > 0 && now_ts >= _entries[best].lastmod) ? _entries[best].lastmod : 0;
-          if (tj > 0 && (tb == 0 || tj > tb)) best = j;  // descending — most recent first
-        } else {
-          float dj = _entries[j].dist_km, db = _entries[best].dist_km;
-          if (dj >= 0.0f && (db < 0.0f || dj < db)) best = j;  // ascending — closest first
-        }
-      }
-      if (best != i) { Entry tmp = _entries[i]; _entries[i] = _entries[best]; _entries[best] = tmp; }
-    }
-  }
-
-  void refreshScan() {
-    static DiscoverResult dr[DISCOVER_RESULTS_MAX];  // scratch — refresh isn't reentrant
-    int n = the_mesh.getDiscoverResults(dr, DISCOVER_RESULTS_MAX);
-    _count = 0;
-    for (int i = 0; i < n && _count < MAX_NEARBY; i++) {
-      if (!typeMatchesFilter(dr[i].type, 0, false)) continue;
-      Entry& e = _entries[_count++];
-      strncpy(e.name, dr[i].name, sizeof(e.name) - 1);
-      e.name[sizeof(e.name) - 1] = '\0';
-      e.type          = dr[i].type;
-      memcpy(e.pub_key, dr[i].pub_key, PUB_KEY_SIZE);
-      e.has_key       = true;
-      e.has_prefix    = true;
-      e.rssi          = dr[i].rssi;
-      e.snr_x4        = dr[i].snr_x4;
-      e.remote_snr_x4 = dr[i].remote_snr_x4;
-      e.is_known      = dr[i].is_known;
-      e.fav           = false;
-      e.lat_e6 = e.lon_e6 = 0;
-      e.dist_km = -1.0f;
-      e.lastmod = 0;
-      e.contact_idx = -1;
-      e.is_live = false;
-      e.live_verified = false;
-    }
-    // strongest first
-    for (int i = 0; i < _count - 1; i++) {
-      int best = i;
-      for (int j = i + 1; j < _count; j++)
-        if (_entries[j].rssi > _entries[best].rssi) best = j;
-      if (best != i) { Entry tmp = _entries[i]; _entries[i] = _entries[best]; _entries[best] = tmp; }
-    }
-    clampSelection();
-  }
-
-  void refresh() { if (_source == SRC_SCAN) refreshScan(); else refreshStored(); }
 
   void clampSelection() {
     if (_count == 0)            { _sel = _scroll = 0; }
@@ -804,17 +521,16 @@ class NearbyScreen : public UIScreen {
   // side and wrap around (the tab before "All" is "Snsr", and vice-versa),
   // matching the wrap-around LEFT/RIGHT cycle.
   void drawFilterTabs(DisplayDriver& display) {
-    tabbar::draw(display, FILTER_LABELS, F_COUNT, _filter, display.menuHintWidth());
+    tabbar::draw(display, filterLabels(), F_COUNT, _filter, display.menuHintWidth());
     display.drawContextMenuHint(DisplayDriver::LIGHT, ctxMenuOpen());   // Nodes list has a Hold-Enter menu
   }
 
 public:
   NearbyScreen(UITask* task)
-    : _task(task), _count(0), _sel(0), _scroll(0), _detail(false),
-      _own_lat(0), _own_lon(0), _own_gps(false),
-      _source(SRC_STORED), _filter(F_ALL), _sort(SORT_DIST),
+    : _task(task), _sel(0), _scroll(0), _detail(false),
       _detail_refresh_ms(0), _scanning(false), _scan_started_ms(0),
       _menu_action_count(0), _pinging(false), _ping_started_ms(0) {
+    bindModel(&task->core(), task->getNodePrefs());
     resetPingLines();
     _sort_label[0] = '\0';
   }
@@ -895,7 +611,7 @@ public:
     int dist_col = display.width() - display.getCharWidth() * 7;
 
     display.setColor(DisplayDriver::LIGHT);
-    const char* flt = (_filter != F_ALL) ? FILTER_LABELS[_filter] : nullptr;
+    const char* flt = (_filter != F_ALL) ? filterLabel(_filter) : nullptr;
     if (_source == SRC_SCAN) {
       char title[28];
       const char* base = _scanning ? "SCANNING" : "SCAN";
@@ -1056,4 +772,3 @@ public:
   }
 };
 
-const char* NearbyScreen::FILTER_LABELS[F_COUNT] = { "All", "Fav", "Comp", "Rpt", "Room", "Snsr" };

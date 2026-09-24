@@ -160,7 +160,7 @@ checked in the sim plus on L1 hardware before the next one.
 3. **Flip the interface** ✅. `UiCore` is `MyMesh::Listener`; `ui-new`'s `UITask` derives `UITaskBase` + `UiCoreHost` and is fed by events, drained at the start (mesh-originated) and end (engines) of its `loop()`. Mesh callbacks no longer touch the display or buzzer directly.
 4. **Settings schema.** Convert `SettingsScreen` section by section.
 5. **`ui-lvgl` skeleton** ✅ on L2 hardware (env `Wio_Tracker_L2_companion_solo_lvgl`, LVGL 9.2.2): status bar, home, conversation list, contact picker, conversation with keyboard, toasts, display sleep/wake. The Core gained the first actions (`sendDirectText`, `sendChannelText`) and runs DM resends itself. Then: European fonts + phone-style keyboard ✅, 320×240 sim target ✅. Next: screens by priority.
-6. Contacts/Nearby, Admin, Bot logic extraction as the LVGL screens for them are built.
+6. Contacts/Nearby, Admin, Bot logic extraction as the LVGL screens for them are built. Nearby ✅: `ui-core/NearbyModel.h` builds the list (contacts + live [LOC] shares + heard adverts, or scan results), filter and sort; `ui-new`'s `NearbyScreen` inherits it (entry array stays with the screen), `ui-lvgl` owns one for its Nearby list + node detail (Message, Ping, favourite, Add, Delete). Home became three tiles: Messages, Nearby, Settings.
 
 ## Decisions
 

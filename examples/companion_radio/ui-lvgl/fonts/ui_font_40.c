@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 40 px
  * Bpp: 4
- * Opts: --bpp 4 --size 40 --no-compress --font /private/tmp/claude-501/-Users-jakub-Documents-MeshCore-MeshCore/3d84fa48-e031-42a4-abec-01b33a2b06ef/scratchpad/fonts/NotoSans-SemiBold.ttf -r 0x20,0x2D,0x30-0x3A --format lvgl --lv-include lvgl.h --lv-font-name ui_font_40 -o /Users/jakub/Documents/MeshCore/MeshCore/examples/companion_radio/ui-lvgl/fonts/ui_font_40.c
+ * Opts: --bpp 4 --size 40 --no-compress --font /var/folders/1d/dgkmygls6x5gsb16pbn2mwlr0000gn/T//meshcore-ui-fonts/NotoSans-SemiBold.ttf -r 0x20,0x2D,0x30-0x3A --format lvgl --lv-include lvgl.h --lv-font-name ui_font_40 -o /Users/jakub/Documents/MeshCore/MeshCore/examples/companion_radio/ui-lvgl/fonts/ui_font_40.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

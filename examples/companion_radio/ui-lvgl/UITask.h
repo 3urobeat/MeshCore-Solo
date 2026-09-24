@@ -15,6 +15,7 @@
 #include "../ui-core/UiCoreHost.h"
 
 class UiCore;
+class NearbyModel;
 struct UiEvent;
 
 class UITask : public UITaskBase, public UiCoreHost {
@@ -37,6 +38,14 @@ public:
   void showChats();
   void showContacts();
   void showSettings();
+  void showNearby();
+  void setNearbyFilter(uint8_t f);
+  void toggleNearbySort();
+  void startNearbyScan();
+  void closeScanPopup();
+  void openScanNode(int row);
+  void openNode(int row);
+  void nodeAction(uint8_t action);
   void setKeyboardAlphabets(int main_idx, int alt_sel);
   void openChannel(uint8_t channel_idx);
   void openDM(const uint8_t* pub_key);
@@ -50,7 +59,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -60,6 +69,13 @@ private:
   void buildChats();
   void buildContacts();
   void buildSettings();
+  void buildNearby();
+  void refreshNearbyList();
+  uint32_t nearbySignature() const;
+  void showScanPopup();
+  void refreshScanPopup();
+  void buildNode();
+  void refreshNode();
   void buildThread();
   void refreshThread();
   uint32_t threadSignature() const;
@@ -99,4 +115,27 @@ private:
   lv_obj_t* _thread_list = nullptr;
   lv_obj_t* _compose_ta = nullptr;
   lv_obj_t* _keyboard = nullptr;
+
+  // Nearby (SCR_NEARBY) / node detail (SCR_NODE); list data in NearbyModel
+  NearbyModel* _nearby = nullptr;
+  NearbyModel* _scan = nullptr;    // NODE_DISCOVER results: nodes in range now (popup over the list)
+  bool      _scanning = false;
+  bool      _node_from_scan = false;
+  uint32_t  _scan_sig = 0;
+  lv_obj_t* _scan_overlay = nullptr;
+  lv_obj_t* _scan_list = nullptr;
+  lv_obj_t* _scan_status = nullptr;
+  uint32_t  _scan_until_ms = 0;
+  uint32_t  _nearby_sig = 0;
+  uint32_t  _next_nearby_ms = 0;
+  bool      _pinging = false;
+  uint32_t  _ping_started_ms = 0;
+  uint32_t  _delete_armed_ms = 0;
+  lv_obj_t* _nearby_list = nullptr;
+  lv_obj_t* _nearby_status = nullptr;
+  lv_obj_t* _nearby_sort_lbl = nullptr;
+  lv_obj_t* _nearby_chips = nullptr;
+  lv_obj_t* _node_info = nullptr;
+  lv_obj_t* _node_ping = nullptr;
+  lv_obj_t* _node_delete_lbl = nullptr;
 };

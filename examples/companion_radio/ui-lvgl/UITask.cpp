@@ -7,6 +7,7 @@
 #endif
 
 #include "../ui-core/UiCore.h"   // shared UI Core (header-only, this TU)
+#include "../ui-core/NearbyModel.h"
 #include "Theme.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
@@ -87,6 +88,11 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
 
   _core = new UiCore();
   _core->begin(node_prefs, sensors, this);
+  _nearby = new NearbyModel();
+  _nearby->bindModel(_core, node_prefs);
+  _scan = new NearbyModel();
+  _scan->bindModel(_core, node_prefs);
+  _scan->setSource(NearbyModel::SRC_SCAN);
 
 #ifdef PIN_USER_BTN
   user_btn.begin();
@@ -140,6 +146,17 @@ void UITask::loop() {
       _next_status_ms = millis() + 1000;
       refreshStatusBar();
       if (_screen == SCR_HOME) refreshHome();
+    }
+    if ((_screen == SCR_NEARBY || _screen == SCR_NODE) && (int32_t)(millis() - _next_nearby_ms) >= 0) {
+      // Scan results trickle in over a few seconds: poll fast while scanning.
+      _next_nearby_ms = millis() + (_scanning ? 250 : 2000);
+      if (_scanning && (int32_t)(millis() - _scan_until_ms) >= 0) _scanning = false;
+      if (_screen == SCR_NEARBY) {
+        refreshNearbyList();
+        if (_scan_overlay) refreshScanPopup();
+      } else {
+        refreshNode();
+      }
     }
     if (_screen == SCR_THREAD && (int32_t)(millis() - _next_thread_check_ms) >= 0) {
       _next_thread_check_ms = millis() + 500;
@@ -323,6 +340,9 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _home_clock = _home_date = _home_unread = nullptr;
   _thread_list = _compose_ta = _keyboard = nullptr;
   _header = _body = nullptr;
+  _nearby_list = _nearby_status = _nearby_sort_lbl = _nearby_chips = nullptr;
+  _node_info = _node_ping = _node_delete_lbl = nullptr;
+  _scan_overlay = _scan_list = _scan_status = nullptr;   // the popup went with the old screen
   lv_obj_t* prev = lv_screen_active();
   lv_obj_t* scr = lv_obj_create(NULL);
   styleSurface(scr, theme::BG);
@@ -371,6 +391,15 @@ void UITask::back() {
     case SCR_CONTACTS: showChats(); break;
     case SCR_SETTINGS: showHome(); break;
     case SCR_CHATS:    showHome(); break;
+    case SCR_NEARBY:
+      if (_scan_overlay) closeScanPopup();
+      else showHome();
+      break;
+    case SCR_NODE:     // back to where the node was picked: the list, or the scan popup over it
+      _screen = SCR_NEARBY;
+      buildNearby();
+      if (_node_from_scan) showScanPopup();
+      break;
     default:           break;
   }
 }
@@ -380,19 +409,26 @@ void UITask::back() {
 static void onOpenChats(lv_event_t* e) { (void)e; s_ui->showChats(); }
 static void onOpenSettings(lv_event_t* e) { (void)e; s_ui->showSettings(); }
 
-// Wide home tile: icon + label left, optional value label right.
-static lv_obj_t* homeTile(lv_obj_t* parent, const char* text, lv_event_cb_t cb, lv_obj_t** value_out) {
+static void onOpenNearby(lv_event_t* e) { (void)e; s_ui->showNearby(); }
+
+// Home tile: icon over label, one of a row of three; optional amber value
+// (unread count) in its top-right corner.
+static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, lv_event_cb_t cb,
+                          lv_obj_t** value_out) {
   lv_obj_t* tile = lv_button_create(parent);
-  lv_obj_set_size(tile, LV_PCT(100), 42);
+  lv_obj_set_height(tile, 64);
+  lv_obj_set_flex_grow(tile, 1);
   lv_obj_set_style_bg_color(tile, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(tile, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
   lv_obj_set_style_radius(tile, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(tile, 0, 0);
+  lv_obj_set_style_pad_all(tile, 4, 0);
   lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t* tl = label(tile, text, THEME_FONT_TITLE, theme::TEXT);
-  lv_obj_align(tl, LV_ALIGN_LEFT_MID, theme::PAD, 0);
+  lv_obj_align(label(tile, icon, THEME_FONT_LARGE, theme::TEXT), LV_ALIGN_TOP_MID, 0, 6);
+  lv_obj_align(label(tile, text, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_BOTTOM_MID, 0, -4);
   if (value_out) {
-    *value_out = label(tile, "", THEME_FONT_TITLE, theme::ACCENT);
-    lv_obj_align(*value_out, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+    *value_out = label(tile, "", THEME_FONT_SMALL, theme::ACCENT);
+    lv_obj_align(*value_out, LV_ALIGN_TOP_RIGHT, -2, 0);
   }
   return tile;
 }
@@ -412,8 +448,15 @@ void UITask::buildHome() {
   lv_obj_t* name = label(body, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
   lv_obj_set_style_pad_bottom(name, 4, 0);
 
-  homeTile(body, LV_SYMBOL_ENVELOPE "  Messages", onOpenChats, &_home_unread);
-  homeTile(body, LV_SYMBOL_SETTINGS "  Settings", onOpenSettings, NULL);
+  lv_obj_t* tiles = lv_obj_create(body);
+  styleSurface(tiles, theme::BG);
+  lv_obj_remove_flag(tiles, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(tiles, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(tiles, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(tiles, theme::GAP, 0);
+  homeTile(tiles, LV_SYMBOL_ENVELOPE, "Messages", onOpenChats, &_home_unread);
+  homeTile(tiles, LV_SYMBOL_GPS, "Nearby", onOpenNearby, NULL);
+  homeTile(tiles, LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, NULL);
 }
 
 void UITask::refreshHome() {
@@ -433,7 +476,7 @@ void UITask::refreshHome() {
     lv_label_set_text(_home_date, "time not synced");
   }
   int unread = _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
-  if (unread > 0) lv_label_set_text_fmt(_home_unread, "%d new", unread);
+  if (unread > 0) lv_label_set_text_fmt(_home_unread, "%d", unread);
   else lv_label_set_text(_home_unread, "");
 }
 
@@ -563,6 +606,442 @@ void UITask::buildContacts() {
     rows++;
   }
   if (rows == 0) label(body, "No contacts yet", THEME_FONT_BODY, theme::TEXT_MUTED);
+}
+
+// ── Nearby ────────────────────────────────────────────────────────────────────
+// Contacts / live shares / heard adverts from NearbyModel, filtered by type
+// chips, sorted by distance or recency. Tap a row for detail. Scan (nodes that
+// answer a discover request right now) is a popup over the list with its own
+// model, since it is a different set: who is in range, not who is known.
+
+static NearbyModel::Entry s_node;   // the node open in SCR_NODE (a copy: the list re-sorts)
+enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE };
+
+static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
+static void onNearbyScan(lv_event_t* e) { (void)e; s_ui->startNearbyScan(); }
+static void onNearbyRow(lv_event_t* e)  { s_ui->openNode((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onScanRow(lv_event_t* e)    { s_ui->openScanNode((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onScanClose(lv_event_t* e)  { (void)e; s_ui->closeScanPopup(); }
+static void onNodeAction(lv_event_t* e) { s_ui->nodeAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+
+static lv_obj_t* headerButton(lv_obj_t* hdr, const char* text, lv_event_cb_t cb, int right, lv_obj_t** label_out) {
+  lv_obj_t* b = lv_button_create(hdr);
+  lv_obj_set_size(b, LV_SIZE_CONTENT, 28);
+  lv_obj_set_style_pad_hor(b, 10, 0);
+  lv_obj_set_style_pad_ver(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_align(b, LV_ALIGN_RIGHT_MID, -right, 0);
+  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* l = label(b, text, THEME_FONT_SMALL, theme::TEXT);
+  lv_obj_center(l);
+  if (label_out) *label_out = l;
+  return b;
+}
+
+void UITask::showNearby() {
+  _screen = SCR_NEARBY;
+  _scanning = false;
+  buildNearby();   // filter / sort persist
+}
+
+void UITask::buildNearby() {
+  lv_obj_t* body = newScreen("Nearby", true);
+  lv_obj_set_style_pad_row(body, 4, 0);
+  if (_header) {
+    headerButton(_header, LV_SYMBOL_REFRESH " Scan", onNearbyScan, 4, NULL);
+    headerButton(_header, "", onNearbySort, 84, &_nearby_sort_lbl);
+  }
+
+  // Type filter chips
+  _nearby_chips = lv_obj_create(body);
+  styleSurface(_nearby_chips, theme::BG);
+  lv_obj_remove_flag(_nearby_chips, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(_nearby_chips, LV_PCT(100), 26);
+  lv_obj_set_flex_flow(_nearby_chips, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(_nearby_chips, 4, 0);
+  for (uint8_t f = 0; f < NearbyModel::F_COUNT; f++) {
+    lv_obj_t* c = lv_button_create(_nearby_chips);
+    lv_obj_set_height(c, 26);
+    lv_obj_set_flex_grow(c, 1);
+    lv_obj_set_style_pad_all(c, 0, 0);
+    lv_obj_set_style_radius(c, 13, 0);
+    lv_obj_set_style_shadow_width(c, 0, 0);
+    bool on = f == _nearby->filter();
+    lv_obj_set_style_bg_color(c, lv_color_hex(on ? theme::ACCENT : theme::SURFACE), 0);
+    lv_obj_add_event_cb(c, onNearbyChip, LV_EVENT_CLICKED, (void*)(uintptr_t)f);
+    lv_obj_center(label(c, NearbyModel::filterLabel(f), THEME_FONT_SMALL, on ? theme::BG : theme::TEXT));
+  }
+
+  _nearby_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+
+  _nearby_list = lv_obj_create(body);
+  styleSurface(_nearby_list, theme::BG);
+  lv_obj_set_width(_nearby_list, LV_PCT(100));
+  lv_obj_set_flex_grow(_nearby_list, 1);
+  lv_obj_set_flex_flow(_nearby_list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(_nearby_list, theme::GAP, 0);
+  lv_obj_set_scrollbar_mode(_nearby_list, LV_SCROLLBAR_MODE_ACTIVE);
+
+  _nearby_sig = 0;
+  refreshNearbyList();
+}
+
+void UITask::setNearbyFilter(uint8_t f) {
+  _nearby->setFilter(f);
+  buildNearby();
+}
+
+void UITask::toggleNearbySort() {
+  _nearby->setSortMode(_nearby->sortMode() == NearbyModel::SORT_DIST ? NearbyModel::SORT_TIME
+                                                                     : NearbyModel::SORT_DIST);
+  _nearby_sig = 0;
+  refreshNearbyList();
+}
+
+void UITask::startNearbyScan() {
+  _scanning = true;
+  _scan_until_ms = millis() + 8000;
+  _next_nearby_ms = millis() + 250;
+  the_mesh.sendNodeDiscoverReq();
+  if (!_scan_overlay) showScanPopup();
+  else { _scan_sig = 0; refreshScanPopup(); }
+}
+
+// Dimmed full-screen overlay (swallows taps) holding a panel with the results.
+// A child of the current screen, so it goes away with it.
+void UITask::showScanPopup() {
+  _scan_overlay = lv_obj_create(lv_screen_active());
+  lv_obj_remove_style_all(_scan_overlay);
+  lv_obj_set_size(_scan_overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(_scan_overlay, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(_scan_overlay, LV_OPA_60, 0);
+  lv_obj_add_flag(_scan_overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(_scan_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t* panel = lv_obj_create(_scan_overlay);
+  lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16,
+                  lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12);
+  lv_obj_set_pos(panel, 8, theme::STATUS_H + 6);
+  lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(panel, 1, 0);
+  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
+  lv_obj_set_style_pad_all(panel, theme::PAD, 0);
+  lv_obj_set_style_pad_row(panel, 4, 0);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t* hdr = lv_obj_create(panel);
+  styleSurface(hdr, theme::BG);
+  lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(hdr, LV_PCT(100), 28);
+  lv_obj_align(label(hdr, "In range now", THEME_FONT_TITLE, theme::TEXT), LV_ALIGN_LEFT_MID, 0, 0);
+  headerButton(hdr, LV_SYMBOL_CLOSE, onScanClose, 0, NULL);
+  headerButton(hdr, LV_SYMBOL_REFRESH " Again", onNearbyScan, 44, NULL);
+
+  _scan_status = label(panel, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  _scan_list = lv_obj_create(panel);
+  styleSurface(_scan_list, theme::BG);
+  lv_obj_set_width(_scan_list, LV_PCT(100));
+  lv_obj_set_flex_grow(_scan_list, 1);
+  lv_obj_set_flex_flow(_scan_list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(_scan_list, theme::GAP, 0);
+  lv_obj_set_scrollbar_mode(_scan_list, LV_SCROLLBAR_MODE_ACTIVE);
+
+  _scan_sig = 0;
+  refreshScanPopup();
+}
+
+void UITask::closeScanPopup() {
+  if (_scan_overlay) lv_obj_delete_async(_scan_overlay);   // may be closing from its own button
+  _scan_overlay = _scan_list = _scan_status = nullptr;
+  _scanning = false;
+}
+
+void UITask::refreshScanPopup() {
+  if (!_scan_list) return;
+  _scan->refreshScan();
+  int n = _scan->count();
+  if (_scanning) lv_label_set_text_fmt(_scan_status, LV_SYMBOL_REFRESH "  Listening for replies... %d", n);
+  else lv_label_set_text_fmt(_scan_status, "%d node%s answered the discover request", n, n == 1 ? "" : "s");
+
+  uint32_t sig = (uint32_t)n + (_scanning ? 0x10000u : 0);
+  for (int i = 0; i < n; i++) {
+    const NearbyModel::Entry& e = _scan->at(i);
+    sig = sig * 31 + e.rssi * 7 + e.snr_x4 + e.is_known;
+    for (int k = 0; k < 4; k++) sig = sig * 31 + e.pub_key[k];
+  }
+  if (sig == _scan_sig) return;
+  _scan_sig = sig;
+
+  lv_obj_clean(_scan_list);
+  for (int i = 0; i < n; i++) {
+    const NearbyModel::Entry& e = _scan->at(i);
+    char title[40], sub[48], right[12];
+    if (e.name[0]) snprintf(title, sizeof(title), "%s", e.name);
+    else snprintf(title, sizeof(title), "%s %02X%02X%02X%02X", NearbyModel::typeName(e.type),
+                  e.pub_key[0], e.pub_key[1], e.pub_key[2], e.pub_key[3]);
+    snprintf(sub, sizeof(sub), "%s  -  SNR %.1f / %.1f%s", NearbyModel::typeName(e.type),
+             e.snr_x4 / 4.0f, e.remote_snr_x4 / 4.0f, e.is_known ? "" : "  -  new");
+    snprintf(right, sizeof(right), "%d dBm", e.rssi);
+    lv_obj_t* row = listRow(_scan_list, title, sub, onScanRow, (void*)(uintptr_t)i);
+    lv_obj_align(label(row, right, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+  }
+  if (n == 0) {
+    lv_obj_t* l = label(_scan_list, _scanning ? "Repeaters and rooms in range will answer."
+                                              : "Nobody answered. Try again later or move.",
+                        THEME_FONT_BODY, theme::TEXT_MUTED);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_obj_set_style_pad_top(l, 8, 0);
+  }
+}
+
+void UITask::openScanNode(int row) {
+  if (row < 0 || row >= _scan->count()) return;
+  s_node = _scan->at(row);
+  _node_from_scan = true;
+  _scanning = false;
+  _pinging = false;
+  _delete_armed_ms = 0;
+  _screen = SCR_NODE;
+  buildNode();
+}
+
+// Changes whenever a rebuild would show something different.
+uint32_t UITask::nearbySignature() const {
+  uint32_t sig = (uint32_t)_nearby->count() * 2654435761u + _nearby->sortMode() + (_scanning ? 7 : 0);
+  for (int i = 0; i < _nearby->count(); i++) {
+    const NearbyModel::Entry& e = _nearby->at(i);
+    sig = sig * 31 + e.contact_idx + (uint32_t)e.lastmod + (uint32_t)(e.dist_km * 100) + e.rssi + e.fav;
+    for (const char* p = e.name; *p; p++) sig = sig * 31 + (uint8_t)*p;
+  }
+  // Ages are shown in minutes, so let the list re-render once a minute anyway.
+  return sig + rtc_clock.getCurrentTime() / 60;
+}
+
+void UITask::refreshNearbyList() {
+  if (!_nearby_list) return;
+  _nearby->refreshModel();
+  uint32_t sig = nearbySignature();
+  int n = _nearby->count();
+
+  if (_nearby_sort_lbl)
+    lv_label_set_text(_nearby_sort_lbl, _nearby->sortMode() == NearbyModel::SORT_TIME ? "Recent" : "Dist");
+  int32_t lat, lon;
+  bool gps = _nearby->ownPosition(lat, lon);
+  lv_label_set_text_fmt(_nearby_status, "%d node%s%s", n, n == 1 ? "" : "s",
+                        gps ? "" : "  -  no GPS fix, distances unknown");
+  if (sig == _nearby_sig) return;
+  _nearby_sig = sig;
+
+  int32_t scroll = lv_obj_get_scroll_y(_nearby_list);
+  lv_obj_clean(_nearby_list);
+  uint32_t now = rtc_clock.getCurrentTime();
+  bool imperial = _prefs && _prefs->units_imperial;
+  for (int i = 0; i < n; i++) {
+    const NearbyModel::Entry& e = _nearby->at(i);
+    char title[48], sub[48], right[16] = "";
+    const char* name = e.name[0] ? e.name : "(unknown)";
+    snprintf(title, sizeof(title), "%s%s", e.fav ? UI_SYMBOL_STAR " " : "", name);
+    char age[8];
+    geo::fmtAgeShort(age, sizeof(age), now, e.lastmod);
+    if (e.dist_km >= 0.0f) geo::fmtDist(right, sizeof(right), e.dist_km, imperial);
+    else if (age[0]) snprintf(right, sizeof(right), "%s", age);
+    const char* kind = e.contact_idx >= 0 ? NearbyModel::typeName(e.type) : "not a contact";
+    snprintf(sub, sizeof(sub), "%s%s%s%s", kind, e.is_live ? "  -  live" : "",
+             (e.dist_km >= 0.0f && age[0]) ? "  -  " : "", (e.dist_km >= 0.0f && age[0]) ? age : "");
+    lv_obj_t* row = listRow(_nearby_list, title, sub, onNearbyRow, (void*)(uintptr_t)i);
+    if (e.fav) lv_obj_set_style_text_color(lv_obj_get_child(row, 0), lv_color_hex(theme::ACCENT), 0);
+    if (right[0]) {
+      lv_obj_t* r = label(row, right, THEME_FONT_SMALL, e.is_live ? theme::OK : theme::TEXT_MUTED);
+      lv_obj_align(r, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+    }
+  }
+  if (n == 0) {
+    lv_obj_t* l = label(_nearby_list, "Nobody here yet. Tap Scan to look around.",
+                        THEME_FONT_BODY, theme::TEXT_MUTED);
+    lv_obj_set_style_pad_top(l, 12, 0);
+  }
+  lv_obj_update_layout(_nearby_list);
+  lv_obj_scroll_to_y(_nearby_list, scroll, LV_ANIM_OFF);
+}
+
+// ── Node detail ───────────────────────────────────────────────────────────────
+
+void UITask::openNode(int row) {
+  if (row < 0 || row >= _nearby->count()) return;
+  s_node = _nearby->at(row);
+  _node_from_scan = false;
+  _pinging = false;
+  _delete_armed_ms = 0;
+  _screen = SCR_NODE;
+  buildNode();
+}
+
+static lv_obj_t* actionButton(lv_obj_t* parent, const char* text, uint8_t action, bool accent) {
+  lv_obj_t* b = lv_button_create(parent);
+  lv_obj_set_height(b, 40);
+  lv_obj_set_flex_grow(b, 1);
+  lv_obj_set_style_pad_hor(b, 4, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? theme::ACCENT_DIM : theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+  lv_obj_add_event_cb(b, onNodeAction, LV_EVENT_CLICKED, (void*)(uintptr_t)action);
+  lv_obj_t* l = label(b, text, THEME_FONT_SMALL, theme::TEXT);
+  lv_obj_center(l);
+  return l;
+}
+
+void UITask::buildNode() {
+  const NearbyModel::Entry& e = s_node;
+  lv_obj_t* body = newScreen(e.name[0] ? e.name : "(unknown)", true);
+
+  _node_info = label(body, "", THEME_FONT_BODY, theme::TEXT);
+  lv_label_set_long_mode(_node_info, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(_node_info, LV_PCT(100));
+  lv_obj_set_style_text_line_space(_node_info, 3, 0);
+  _node_ping = label(body, "", THEME_FONT_BODY, theme::ACCENT);
+
+  lv_obj_t* spacer = lv_obj_create(body);   // pushes the actions to the bottom
+  lv_obj_remove_style_all(spacer);
+  lv_obj_set_width(spacer, 1);
+  lv_obj_set_flex_grow(spacer, 1);
+
+  lv_obj_t* acts = lv_obj_create(body);
+  styleSurface(acts, theme::BG);
+  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
+  bool contact = e.contact_idx >= 0;
+  if (contact && e.type == ADV_TYPE_CHAT) actionButton(acts, LV_SYMBOL_ENVELOPE " Message", NODE_MSG, true);
+  if (e.has_key) actionButton(acts, LV_SYMBOL_LOOP " Ping", NODE_PING, false);
+  if (contact) actionButton(acts, e.fav ? UI_SYMBOL_STAR " Unfav" : UI_SYMBOL_STAR " Fav", NODE_FAV, false);
+  if (!contact && e.has_key && !e.is_known) actionButton(acts, LV_SYMBOL_PLUS " Add", NODE_ADD, true);
+  if (contact) _node_delete_lbl = actionButton(acts, LV_SYMBOL_TRASH, NODE_DELETE, false);
+
+  refreshNode();
+}
+
+void UITask::refreshNode() {
+  if (!_node_info) return;
+  const NearbyModel::Entry& e = s_node;
+  // Refresh position / age / signal from its model while the node is still listed.
+  NearbyModel* model = _node_from_scan ? _scan : _nearby;
+  model->refreshModel();
+  for (int i = 0; i < model->count(); i++) {
+    const NearbyModel::Entry& m = model->at(i);
+    bool same = e.has_key ? (m.has_key && memcmp(m.pub_key, e.pub_key, PUB_KEY_SIZE) == 0)
+              : (e.contact_idx >= 0) ? m.contact_idx == e.contact_idx
+              : strncmp(m.name, e.name, sizeof(m.name)) == 0;
+    if (same) { s_node = m; break; }
+  }
+
+  char buf[320];
+  int o = 0;
+  // A scan row carries no contact index; is_known says whether it's in the contacts.
+  bool known = e.contact_idx >= 0 || (_node_from_scan && e.is_known);
+  o += snprintf(buf + o, sizeof(buf) - o, "%s%s%s%s", NearbyModel::typeName(e.type),
+                known ? "" : "  -  not a contact",
+                e.is_live ? (e.live_verified ? "  -  live position" : "  -  live position (channel)") : "",
+                e.fav ? "  -  favourite" : "");
+  int32_t lat, lon;
+  bool gps = _nearby->ownPosition(lat, lon);
+  if (e.lat_e6 != 0 || e.lon_e6 != 0) {
+    if (gps && e.dist_km >= 0.0f) {
+      char d[16];
+      geo::fmtDist(d, sizeof(d), e.dist_km, _prefs && _prefs->units_imperial);
+      int az = geo::bearingDeg(lat, lon, e.lat_e6, e.lon_e6);
+      o += snprintf(buf + o, sizeof(buf) - o, "\n%s  %d\xC2\xB0 %s", d, az, geo::bearingCardinal(az));
+    }
+    o += snprintf(buf + o, sizeof(buf) - o, "\n%.5f, %.5f", e.lat_e6 / 1e6, e.lon_e6 / 1e6);
+  } else if (!_node_from_scan) {
+    o += snprintf(buf + o, sizeof(buf) - o, "\nNo position shared");
+  }
+  char age[8];
+  geo::fmtAgeShort(age, sizeof(age), rtc_clock.getCurrentTime(), e.lastmod);
+  if (age[0]) o += snprintf(buf + o, sizeof(buf) - o, "\nHeard %s ago", age);
+  if (_node_from_scan)
+    o += snprintf(buf + o, sizeof(buf) - o, "\nRSSI %d dBm  -  SNR %.1f / %.1f dB", e.rssi,
+                  e.snr_x4 / 4.0f, e.remote_snr_x4 / 4.0f);
+  if (e.has_prefix)
+    o += snprintf(buf + o, sizeof(buf) - o, "\nID %02X%02X%02X%02X", e.pub_key[0], e.pub_key[1], e.pub_key[2], e.pub_key[3]);
+  lv_label_set_text(_node_info, buf);
+
+  // Ping result (PingEngine releases its slot on reply; the view owns the timeout)
+  if (_pinging) {
+    int16_t out = 0, back = 0; uint32_t rtt = 0;
+    _core->ping.getResult(out, back, rtt);
+    if (!_core->ping.isActive() && (out || back || rtt)) {
+      lv_label_set_text_fmt(_node_ping, "Ping %lu ms  -  SNR out %.1f  back %.1f", (unsigned long)rtt,
+                            out / 4.0f, back / 4.0f);
+      _pinging = false;
+    } else if (millis() - _ping_started_ms > 3000) {
+      _core->ping.clear();
+      lv_label_set_text(_node_ping, "Ping: no reply");
+      _pinging = false;
+    }
+  }
+  if (_node_delete_lbl && _delete_armed_ms && millis() - _delete_armed_ms > 3000) {
+    _delete_armed_ms = 0;
+    lv_label_set_text(_node_delete_lbl, LV_SYMBOL_TRASH);
+  }
+}
+
+void UITask::nodeAction(uint8_t action) {
+  NearbyModel::Entry& e = s_node;
+  switch (action) {
+    case NODE_MSG:
+      openDM(e.pub_key);
+      break;
+    case NODE_PING: {
+      if (_pinging) break;
+      PingEngine::StartResult r = _core->ping.start(e.pub_key);
+      if (r == PingEngine::STARTED) {
+        _pinging = true;
+        _ping_started_ms = millis();
+        _next_nearby_ms = millis() + 250;
+        lv_label_set_text(_node_ping, "Pinging...");
+      } else {
+        lv_label_set_text(_node_ping, r == PingEngine::UNSUPPORTED ? "Ping needs 1-2 byte path hashes"
+                                                                   : "Ping failed");
+      }
+      break;
+    }
+    case NODE_FAV:
+      if (the_mesh.setContactFavourite(e.pub_key, !e.fav)) {
+        e.fav = !e.fav;
+        buildNode();
+      }
+      break;
+    case NODE_ADD:
+      if (the_mesh.addDiscoveredContact(e.pub_key, e.name, e.type)) {
+        showToast("Contact added");
+        _screen = SCR_NEARBY;
+        buildNearby();
+      } else {
+        showToast("Contacts full");
+      }
+      break;
+    case NODE_DELETE:
+      if (!_delete_armed_ms) {   // destructive: second tap within 3 s confirms
+        _delete_armed_ms = millis();
+        if (_delete_armed_ms == 0) _delete_armed_ms = 1;
+        lv_label_set_text(_node_delete_lbl, "Delete?");
+        break;
+      }
+      if (the_mesh.deleteContactByKey(e.pub_key)) {
+        showToast("Contact deleted");
+        _screen = SCR_NEARBY;
+        buildNearby();
+      }
+      break;
+  }
 }
 
 // ── Conversation ──────────────────────────────────────────────────────────────

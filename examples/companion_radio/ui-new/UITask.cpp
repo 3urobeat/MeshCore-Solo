@@ -167,6 +167,7 @@ static const int QUICK_MSGS_MAX = 10;
 #include "RingtoneEditorScreen.h"
 #include "BotScreen.h"
 #include "AdminScreen.h"
+#include "../ui-core/NearbyModel.h"
 #include "NearbyScreen.h"
 #include "DashboardConfigScreen.h"
 #include "AutoAdvertScreen.h"

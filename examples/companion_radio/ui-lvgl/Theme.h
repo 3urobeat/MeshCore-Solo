@@ -28,4 +28,7 @@ namespace theme {
   #define THEME_FONT_TITLE  (&ui_font_16)
   #define THEME_FONT_LARGE  (&ui_font_20)
   #define THEME_FONT_CLOCK  (&ui_font_40)
+
+  // Extra FontAwesome glyphs baked into ui_font_12..20 beyond LVGL's LV_SYMBOL_*.
+  #define UI_SYMBOL_STAR    "\xEF\x80\x85"   // U+F005, favourite
 }
