@@ -1843,7 +1843,7 @@ void UITask::handlePingResult(uint32_t tag, int16_t snr_out_x4, int16_t snr_back
 
 // Static ping callback (for MyMesh)
 static void onPingResult(uint32_t tag, int16_t snr_out_x4, int16_t snr_back_x4, uint32_t rtt_ms) {
-  AbstractUITask* ui = the_mesh.getUITask();
+  MyMesh::Listener* ui = the_mesh.getListener();
   if (ui) {
     UITask* task = static_cast<UITask*>(ui);
     task->handlePingResult(tag, snr_out_x4, snr_back_x4, rtt_ms);
@@ -2642,6 +2642,7 @@ void UITask::pollHallSensor() {
 }
 
 void UITask::loop() {
+  pollConnection();   // BLE link state -> hasConnection() (see AbstractUITask)
   // Background delivery: resend pending on-device DMs whose ACK timed out, and
   // finalise the ✗ marker — runs regardless of which screen is active.
   ((MessagesScreen*)messages_screen)->tickDmResends();

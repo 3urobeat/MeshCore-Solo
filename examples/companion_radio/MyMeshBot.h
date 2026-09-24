@@ -154,7 +154,7 @@ void MyMesh::tryBotReplyDM(const ContactInfo& from, const char* text, uint8_t ho
     botDmRecord(from.id.pub_key);
     _bot_reply_count++;
 #ifdef DISPLAY_CLASS
-    if (_ui) _ui->addDMMsg(from.id.pub_key, true, expanded);
+    if (_listener) _listener->addDMMsg(from.id.pub_key, true, expanded);
 #endif
   }
 }
@@ -243,7 +243,7 @@ void MyMesh::tryBotReplyRoom(const ContactInfo& from, const uint8_t* sender_pref
     _bot_last_room_reply_ms = millis();
     _bot_reply_count++;
 #ifdef DISPLAY_CLASS
-    if (_ui) _ui->addDMMsg(from.id.pub_key, true, expanded);
+    if (_listener) _listener->addDMMsg(from.id.pub_key, true, expanded);
 #endif
   }
 }
@@ -334,7 +334,7 @@ bool MyMesh::botCommandReply(const char* cmd, const char* arg, const char* arg2,
         bool off = !strcmp(arg, "off");
         if (!on && !off) { snprintf(out, out_len, "gpio%d: on|off?", idx); return true; }
         bool is_out = false, val = false;
-        if (_ui && _ui->botGetGPIO(idx, is_out, val) && is_out) {
+        if (_listener && _listener->botGetGPIO(idx, is_out, val) && is_out) {
           _bot_gpio_action[idx - 1] = on ? 1 : 0;   // deferred -- see applyPendingBotActions()
           snprintf(out, out_len, "gpio%d: %s", idx, on ? "on" : "off");
         } else {
@@ -344,9 +344,9 @@ bool MyMesh::botCommandReply(const char* cmd, const char* arg, const char* arg2,
       }
       int mv = 0;
       bool is_out = false, val = false;
-      if (_ui && _ui->botGetGPIOAnalog(idx, mv)) {
+      if (_listener && _listener->botGetGPIOAnalog(idx, mv)) {
         snprintf(out, out_len, "gpio%d: %dmV", idx, mv);
-      } else if (_ui && _ui->botGetGPIO(idx, is_out, val)) {
+      } else if (_listener && _listener->botGetGPIO(idx, is_out, val)) {
         snprintf(out, out_len, "gpio%d: %s %s", idx, is_out ? "out" : "in", val ? "on" : "off");
       } else {
         snprintf(out, out_len, "gpio%d: off", idx);
@@ -457,7 +457,7 @@ bool MyMesh::tryBotCommand(const ContactInfo& from, const char* text, uint8_t ho
     botDmRecord(from.id.pub_key);
     _bot_reply_count++;
 #ifdef DISPLAY_CLASS
-    if (_ui) _ui->addDMMsg(from.id.pub_key, true, out);
+    if (_listener) _listener->addDMMsg(from.id.pub_key, true, out);
 #endif
     if (_locfix_requested) startLocFix(LOCFIX_DEST_CONTACT, from.id.pub_key, 0);
     applyPendingBotActions();
@@ -524,7 +524,7 @@ bool MyMesh::tryBotRoomCommand(const ContactInfo& from, const uint8_t* sender_pr
     _bot_last_room_reply_ms = millis();
     _bot_reply_count++;
 #ifdef DISPLAY_CLASS
-    if (_ui) _ui->addDMMsg(from.id.pub_key, true, out);
+    if (_listener) _listener->addDMMsg(from.id.pub_key, true, out);
 #endif
     if (_locfix_requested) startLocFix(LOCFIX_DEST_CONTACT, from.id.pub_key, 0);
     applyPendingBotActions();
@@ -541,11 +541,11 @@ bool MyMesh::tryBotRoomCommand(const ContactInfo& from, const uint8_t* sender_pr
 // MyMesh.h). !gps fix's startLocFix() is armed separately by the caller (it
 // needs the destination, which this function doesn't have).
 void MyMesh::applyPendingBotActions() {
-  if (_bot_gps_action_pending && _ui) _ui->botSetGPS(_bot_gps_action_on);
-  if (_bot_buzz_action_secs > 0 && _ui) _ui->botBuzz(_bot_buzz_action_secs);
+  if (_bot_gps_action_pending && _listener) _listener->botSetGPS(_bot_gps_action_on);
+  if (_bot_buzz_action_secs > 0 && _listener) _listener->botBuzz(_bot_buzz_action_secs);
   if (_bot_advert_action_pending) advert();
   for (int i = 0; i < 4; i++) {
-    if (_bot_gpio_action[i] >= 0 && _ui) _ui->botSetGPIO(i + 1, _bot_gpio_action[i] != 0);
+    if (_bot_gpio_action[i] >= 0 && _listener) _listener->botSetGPIO(i + 1, _bot_gpio_action[i] != 0);
   }
 }
 
@@ -578,7 +578,7 @@ void MyMesh::startLocFix(uint8_t dest_type, const uint8_t* pub_key, uint8_t chan
   _loc_fix.averaging_until_ms = 0;
   _loc_fix.deadline_ms = futureMillis(_locfix_requested_timeout_ms);
   _loc_fix.gps_was_on = (_prefs.gps_enabled != 0);
-  if (!_loc_fix.gps_was_on && _ui) _ui->botSetGPS(true);
+  if (!_loc_fix.gps_was_on && _listener) _listener->botSetGPS(true);
 }
 
 // !gps fix state machine, ticked every MyMesh::loop() while _loc_fix.active.
@@ -627,7 +627,7 @@ void MyMesh::tickLocFix() {
   }
   sendLocFixResult(msg);
 
-  if (!_loc_fix.gps_was_on && _ui) _ui->botSetGPS(false);
+  if (!_loc_fix.gps_was_on && _listener) _listener->botSetGPS(false);
   _loc_fix.active = false;
 }
 
@@ -659,7 +659,7 @@ void MyMesh::sendLocFixResult(const char* msg) {
       else botDmRecord(c->id.pub_key);
       _bot_reply_count++;
 #ifdef DISPLAY_CLASS
-      if (_ui) _ui->addDMMsg(c->id.pub_key, true, msg);
+      if (_listener) _listener->addDMMsg(c->id.pub_key, true, msg);
 #endif
     }
   }

@@ -62,10 +62,19 @@ interleaved. Classified:
 
 ### 1. `UiCore` owns the mesh-facing interface
 
-`UiCore` implements `AbstractUITask`. `MyMesh` keeps calling exactly the same
-methods; they land in the Core, which updates models/engines and emits events.
-The frontend no longer implements `AbstractUITask` at all. This is the single
-point that makes both frontends receive identical behaviour.
+`MyMesh` talks to the UI only through `MyMesh::Listener` (set with
+`setListener()`), ported from upstream's "Abstract UI overhaul" (PR #3431 and
+follow-ups `3caf033d`, `5c3d9281`, `30dd723c`, `b3b17025`, `64434c53`) with
+identical names/signatures. A second block in the same interface holds this
+fork's extensions (own-send mirroring, relay echoes, room login/admin replies,
+`[LOC]` shares, contact/channel removal, bot device actions,
+`requestShutdown`), each defaulting to a no-op.
+
+Today `AbstractUITask` is the Listener and carries the glue `MyMesh` used to
+run for the UI (display filter, room-post labelling, notifications). In the
+target design `UiCore` becomes the Listener instead: it updates models/engines
+and emits events, and the frontends no longer implement it at all. This is the
+single point that makes both frontends receive identical behaviour.
 
 ### 2. Engines
 
@@ -140,7 +149,8 @@ consumes keys only.
 Each step keeps `WioTrackerL1_companion_solo_dual` behaviour identical and is
 checked in the sim plus on L1 hardware before the next one.
 
-1. **Skeleton.** `examples/companion_radio/ui-core/`; add it to every solo env's `build_src_filter` / include path. Move `MessageHistory` + DM unread tracking into it; `ui-new` uses them through the Core.
+0. **Listener boundary** ✅ (upstream `MyMesh::Listener` ported; `MyMesh` has no UI calls left).
+1. **Skeleton.** `examples/companion_radio/ui-core/`, compiled through a single unity `.cpp` inside each frontend directory so the 66 variant `platformio.ini` files that already build `ui-new` need no changes; add it to every solo env's `build_src_filter` / include path. Move `MessageHistory` + DM unread tracking into it; `ui-new` uses them through the Core.
 2. **Engines, one per commit.** Clock tools → ping → course-over-ground → live share → locator → trail → notifications. `UITask` shrinks to screen management + drawing.
 3. **Flip the interface.** `UiCore` implements `AbstractUITask`; `ui-new`'s `UITask` becomes a frontend fed by events.
 4. **Settings schema.** Convert `SettingsScreen` section by section.

@@ -105,7 +105,8 @@ switch(t){
     buzzer.play("ack:d=32,o=8,b=120:c");
     break;
   case UIEventType::roomMessage:
-  case UIEventType::advertReceived:
+  case UIEventType::advertReceivedFlood:
+  case UIEventType::advertReceivedZeroHop:
   case UIEventType::none:
   default:
     break;
@@ -314,6 +315,7 @@ void UITask::shutdown(bool restart){
 }
 
 void UITask::loop() {
+  pollConnection();   // BLE link state -> hasConnection() (see AbstractUITask)
   #ifdef PIN_USER_BTN
     if (_userButton) {
       _userButton->update();

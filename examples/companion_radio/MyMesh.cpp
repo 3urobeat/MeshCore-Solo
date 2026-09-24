@@ -6,10 +6,10 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 
-#ifdef DISPLAY_CLASS
-#include "helpers/ui/DisplayDriver.h"
-#include "UITask.h"
 #include <helpers/UTF8Helpers.h>
+#if defined(DISPLAY_CLASS) && defined(ENABLE_SCREENSHOT)
+#include "helpers/ui/DisplayDriver.h"
+#include "UITask.h"   // screenshot debug command reads the UI's display
 #endif
 
 #define CMD_APP_START                 1
@@ -373,7 +373,7 @@ uint8_t MyMesh::getAutoAddMaxHops() const {
 
 void MyMesh::onContactOverwrite(const uint8_t* pub_key) {
     _store->deleteBlobByKey(pub_key, PUB_KEY_SIZE); // delete from storage
-  if (_ui) _ui->onContactRemoved(pub_key); // same cleanup as an explicit CMD_REMOVE_CONTACT
+  if (_listener) _listener->onContactRemoved(pub_key); // same cleanup as an explicit CMD_REMOVE_CONTACT
   if (_serial->isConnected()) {
     out_frame[0] = PUSH_CODE_CONTACT_DELETED;
     memcpy(&out_frame[1], pub_key, PUB_KEY_SIZE);
@@ -389,7 +389,7 @@ void MyMesh::onContactsFull() {
 }
 
 void MyMesh::onDiscoveredAdvert(bool was_flood) {
-  if (_ui) _ui->notify(was_flood ? UIEventType::advertReceivedFlood : UIEventType::advertReceivedZeroHop);
+  if (_listener) _listener->onAdvertHeard(was_flood);
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
@@ -423,6 +423,8 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     p->recv_timestamp = getRTCClock()->getCurrentTime();
     p->path_len = mesh::Packet::copyPath(p->path, path, path_len);
   }
+
+  if (_listener) _listener->onDiscoveredContact(contact, is_new, path_len, path);
 
   if (!is_new) dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // only schedule lazy write for contacts that are in contacts[]
 }
@@ -465,7 +467,7 @@ bool MyMesh::deleteContactByKey(const uint8_t* pub_key) {
   if (!recipient || !removeContact(*recipient)) return false;
   _store->deleteBlobByKey(pub_key, PUB_KEY_SIZE);
   forgetRoomPassword(pub_key);
-  if (_ui) _ui->onContactRemoved(pub_key);
+  if (_listener) _listener->onContactRemoved(pub_key);
   dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
   return true;
 }
@@ -608,37 +610,12 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
     _serial->writeFrame(frame, 1);
   }
 
-#ifdef DISPLAY_CLASS
-  // we only want to show text messages on display, not cli data
-  bool should_display = txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN;
-  if (should_display && _ui) {
-    _ui->newMsg(path_len, from.name, text, offline_queue_len, from.type, from.id.pub_key);
-    _ui->notify(from.type == ADV_TYPE_ROOM ? UIEventType::roomMessage : UIEventType::contactMessage);
-    // Add to the on-device conversation history. Room servers (ADV_TYPE_ROOM) are
-    // viewed through the same history list as chat contacts (keyed by the server's
-    // pubkey), so their posts must be stored too — otherwise an incoming room
-    // message fires the notification and reaches the app via the offline queue but
-    // never shows when the room is opened directly on the device.
-    if (from.type == ADV_TYPE_CHAT) {
-      _ui->addDMMsg(from.id.pub_key, false, text, sender_timestamp, 0, 0, 0, pkt->path, (uint8_t)pkt->path_len);
-    } else if (from.type == ADV_TYPE_ROOM) {
-      // A room carries many guests, so prefix the post with its author so the UI
-      // can attribute each line. The signed message's `extra` holds the sender's
-      // pubkey prefix; resolve it to a contact name, falling back to a short hex.
-      char labeled[MAX_TEXT_LEN + 40];  // room text + "Sender: " (history store truncates)
-      if (extra && extra_len >= 4) {
-        ContactInfo* sc = lookupContactByPubKey(extra, extra_len);
-        if (sc && sc->name[0])
-          snprintf(labeled, sizeof(labeled), "%s: %s", sc->name, text);
-        else
-          snprintf(labeled, sizeof(labeled), "%02X%02X: %s", extra[0], extra[1], text);
-      } else {
-        snprintf(labeled, sizeof(labeled), "%s", text);
-      }
-      _ui->addDMMsg(from.id.pub_key, false, labeled, sender_timestamp, 0, 0, 0, pkt->path, (uint8_t)pkt->path_len);
-    }
+  if (_listener) {
+    // Queue size first: the UI caps its room-unread count against it when the
+    // message itself arrives (upstream sends it after; order is harmless there).
+    _listener->onQueueSizeChanged(offline_queue_len);
+    _listener->onMessageRecvEx(pkt, from, txt_type, sender_timestamp, extra, extra_len, text);
   }
-#endif
 }
 
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* packet) {
@@ -668,7 +645,7 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* packet) {
         // DIFFERENT repeater's independent echo of this same send can still
         // match here too -- onChannelRelayed()/markChannelRelayed() append each
         // additionally heard repeater instead of just flipping a single flag.
-        if (_ui) {
+        if (_listener) {
           uint8_t hash_size = packet->getPathHashSize();
           uint8_t hop_count = packet->getPathHashCount();
           // The repeater we just heard directly is always the LAST hop appended
@@ -676,7 +653,7 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* packet) {
           // one within our own earshot, regardless of how many further hops
           // this same packet may go on to take beyond it.
           const uint8_t* repeater_hash = hop_count > 0 ? &packet->path[(hop_count - 1) * hash_size] : nullptr;
-          _ui->onChannelRelayed(s.seq, repeater_hash, repeater_hash ? hash_size : 0);
+          _listener->onChannelRelayed(s.seq, repeater_hash, repeater_hash ? hash_size : 0);
         }
         break;
       }
@@ -933,8 +910,8 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
 
   // Live position share: a verified DM, so key the track by the sender's pubkey.
   int32_t loc_lat, loc_lon;
-  if (_ui && geo::parseLocShare(text, loc_lat, loc_lon)) {
-    _ui->onSharedLocation(from.id.pub_key, from.name, loc_lat, loc_lon, sender_timestamp, true);
+  if (_listener && geo::parseLocShare(text, loc_lat, loc_lon)) {
+    _listener->onSharedLocation(from.id.pub_key, from.name, loc_lat, loc_lon, sender_timestamp, true);
   }
 
   // hop count of the received message. getPathHashCount() (low 6 bits of path_len)
@@ -954,9 +931,9 @@ void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint3
   // terminal), also hand the reply straight to the UI -- queueMessage() above
   // never displays TXT_TYPE_CLI_DATA on-device (see should_display), since that
   // path also serves the app's terminal, which must keep working unaffected.
-  if (_ui && ui_pending_admin_reply && memcmp(&ui_pending_admin_reply, from.id.pub_key, 4) == 0) {
+  if (_listener && ui_pending_admin_reply && memcmp(&ui_pending_admin_reply, from.id.pub_key, 4) == 0) {
     ui_pending_admin_reply = 0;
-    _ui->onAdminReply(from.id.pub_key, text);
+    _listener->onAdminReply(from.id.pub_key, text);
   }
 }
 
@@ -972,10 +949,10 @@ void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uin
   // resolve that 4-byte prefix to a contact name and track by name. Unverified:
   // we only hold a 4-byte prefix here, not the full pubkey LiveTrack keys on.
   int32_t loc_lat, loc_lon;
-  if (_ui && geo::parseLocShare(text, loc_lat, loc_lon)) {
+  if (_listener && geo::parseLocShare(text, loc_lat, loc_lon)) {
     ContactInfo* sc = sender_prefix ? lookupContactByPubKey(sender_prefix, 4) : nullptr;
     const char* who = (sc && sc->name[0]) ? sc->name : from.name;
-    _ui->onSharedLocation(nullptr, who, loc_lat, loc_lon, sender_timestamp, false);
+    _listener->onSharedLocation(nullptr, who, loc_lat, loc_lon, sender_timestamp, false);
   }
 
   // Room-server auto-reply bot — only ever fires for the room server contact
@@ -1030,28 +1007,26 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
     _serial->writeFrame(frame, 1);
   }
-#ifdef DISPLAY_CLASS
-  if (_ui) _ui->addChannelMsg(channel_idx, text, timestamp, pkt->path, (uint8_t)pkt->path_len);
-  if (_ui) _ui->notify(UIEventType::channelMessage);
-  const char *channel_name = "Unknown";
-  ChannelDetails channel_details;
-  if (getChannel(channel_idx, channel_details)) {
-    channel_name = channel_details.name;
+  if (_listener) {
+    ChannelDetails channel_details;
+    if (!getChannel(channel_idx, channel_details)) {
+      strcpy(channel_details.name, "Unknown");
+    }
+    _listener->onQueueSizeChanged(offline_queue_len);   // first -- see queueMessage()
+    _listener->onChannelMessageRecvEx(pkt, channel_idx, channel_details, timestamp, text);
   }
-  if (_ui) _ui->newMsg(path_len, channel_name, text, offline_queue_len, 0);
 
   // Live position share on a channel. The sender's identity here is only the
   // unsigned "name: msg" prefix (no pubkey), so track it by name — best-effort
   // and unverified. parseLocShare requires an explicit [LOC] tag, so ordinary
   // chatter is ignored.
   int32_t loc_lat, loc_lon;
-  if (_ui && geo::parseLocShare(text, loc_lat, loc_lon)) {
+  if (_listener && geo::parseLocShare(text, loc_lat, loc_lon)) {
     char sender[32];
     const char* msg;
     botChannelSenderSplit(text, sender, sizeof(sender), &msg);
-    _ui->onSharedLocation(nullptr, sender, loc_lat, loc_lon, timestamp, false);
+    _listener->onSharedLocation(nullptr, sender, loc_lat, loc_lon, timestamp, false);
   }
-#endif
 
   // hop count for !hops (see onMessageRecv); not the wire path_len above.
   uint8_t ch_hops = pkt->getPathHashCount();
@@ -1096,6 +1071,9 @@ void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *
     uint8_t frame[1];
     frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
     _serial->writeFrame(frame, 1);
+  }
+  if (_listener) {
+    _listener->onChannelDataRecv(pkt, channel, data_type, data, data_len);
   }
 }
 
@@ -1144,6 +1122,8 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
       memcpy(&reply[4], telemetry.getBuffer(), tlen);
       return 4 + tlen;
     }
+  } else if (_listener) {
+    return _listener->onUnhandledRequest(contact, sender_timestamp, data, len, reply);
   }
   return 0; // unknown
 }
@@ -1210,7 +1190,7 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     } else {
       success = false;
     }
-    _ui->onRoomLoginResult(contact.id.pub_key, success, permissions);
+    if (_listener) _listener->onRoomLoginResult(contact.id.pub_key, success, permissions);
   } else if (len > 4 && // check for status response
              pending_status &&
              memcmp(&pending_status, contact.id.pub_key, 4) == 0 // legacy matching scheme
@@ -1248,6 +1228,8 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
     _serial->writeFrame(out_frame, i);
+  } else if (_listener && len > 4) {
+    _listener->onUnhandledResponse(contact, tag, &data[4], len - 4);
   }
 }
 
@@ -1532,7 +1514,7 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
         memcpy(r.pub_key, pub_key, PUB_KEY_SIZE);
         r.timestamp = getRTCClock()->getCurrentTime();
       }
-      if (_ui) _ui->notify(packet->isRouteFlood() ? UIEventType::advertReceivedFlood : UIEventType::advertReceivedZeroHop);
+      if (_listener) _listener->onAdvertHeard(packet->isRouteFlood());
       return;  // our discover — don't forward to BLE app
     }
   }
@@ -1564,6 +1546,8 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
   } else {
     MESH_DEBUG_PRINTLN("onControlDataRecv(), data received while app offline");
   }
+
+  if (_listener) _listener->onControlDataRecv(packet);
 }
 
 void MyMesh::onRawDataRecv(mesh::Packet *packet) {
@@ -1583,6 +1567,9 @@ void MyMesh::onRawDataRecv(mesh::Packet *packet) {
     _serial->writeFrame(out_frame, i);
   } else {
     MESH_DEBUG_PRINTLN("onRawDataRecv(), data received while app offline");
+  }
+  if (_listener) {
+    _listener->onRawDataRecv(packet);
   }
 }
 
@@ -1656,6 +1643,9 @@ void MyMesh::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code,
     _serial->writeFrame(out_frame, i);
   } else {
     MESH_DEBUG_PRINTLN("onTraceRecv(), data received while app offline");
+  }
+  if (_listener) {
+    _listener->onTraceRecv(packet, tag, auth_code, flags, path_snrs, path_hashes, path_len);
   }
 }
 
@@ -1784,10 +1774,10 @@ void MyMesh::onAckRecv(mesh::Packet* packet, uint32_t ack_crc) {
   // device UI registers in BaseChatMesh's own ack table instead, so gating on
   // `mine` here would leave every on-device DM stuck at ✗. The UI matches the
   // crc against its own pending tag, so an unrelated/overheard ACK is ignored.
-  if (_ui) _ui->onMsgAck(ack_crc);
+  if (_listener) _listener->onACKRecv(ack_crc);
 }
 
-MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store, AbstractUITask* ui)
+MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
     // Sized to match simple_repeater's pool (32), not the old client-only 16: with the
     // on-device Repeater toggle, queued retransmits (adverts/channel flood from
     // neighbours) can now hold packet-pool slots for their retransmit delay window. A
@@ -1795,7 +1785,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
     // silently drops every incoming packet — DMs and channels included — until a slot
     // frees up.
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(32), tables),
-      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _ui(ui), _iter(0) {
+      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _listener(NULL), _iter(0) {
   _iter_started = false;
   _cli_rescue = false;
   for (int i = 0; i < RELAY_RING; i++) _relay[i].pending = false;
@@ -1891,7 +1881,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 #endif
 }
 
-void MyMesh::begin(bool has_display) {
+void MyMesh::begin() {
   BaseChatMesh::begin();
 
   if (!_store->loadMainIdentity(self_id)) {
@@ -1950,24 +1940,9 @@ void MyMesh::begin(bool has_display) {
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
 
-#ifdef BLE_PIN_CODE // 123456 by default
-  if (_prefs.ble_pin == 0) {
-#ifdef DISPLAY_CLASS
-    if (has_display && BLE_PIN_CODE == 123456) {
-      StdRNG rng;
-      _active_ble_pin = rng.nextInt(100000, 999999); // random pin each session
-    } else {
-      _active_ble_pin = BLE_PIN_CODE; // otherwise static pin
-    }
-#else
-    _active_ble_pin = BLE_PIN_CODE; // otherwise static pin
-#endif
-  } else {
-    _active_ble_pin = _prefs.ble_pin;
-  }
-#else
-  _active_ble_pin = 0;
-#endif
+  // The session PIN (random when a display can show it) is resolved by
+  // main.cpp, which knows whether there is one -- see resolveBLEPin().
+  _active_ble_pin = _prefs.ble_pin;
 
   resetContacts();
   _store->loadContacts(this);
@@ -2025,6 +2000,9 @@ NodePrefs *MyMesh::getNodePrefs() {
 uint32_t MyMesh::getBLEPin() {
   return _active_ble_pin;
 }
+void MyMesh::setBLEPin(uint32_t active_pin) {
+  _active_ble_pin = active_pin;
+}
 
 struct FreqRange {
   uint32_t lower_freq, upper_freq;
@@ -2067,8 +2045,8 @@ bool MyMesh::setChannelLocal(uint8_t idx, const ChannelDetails& ch) {
   // An all-zero secret is this codebase's "empty slot" sentinel (same check
   // loadChannels()/saveChannels() use) -- drop anything that referenced it by
   // index, the same way onContactRemoved() does for contacts.
-  if (_ui && isAllZero(ch.channel.secret, sizeof(ch.channel.secret)))
-    _ui->onChannelRemoved(idx);
+  if (_listener && isAllZero(ch.channel.secret, sizeof(ch.channel.secret)))
+    _listener->onChannelRemoved(idx);
   return true;
 }
 
@@ -2185,9 +2163,9 @@ void MyMesh::handleCmdFrame(size_t len) {
         // uses); resends stays 0 -- the app already owns its own resend/retry
         // decision, so this only drives the on-screen status, never a second,
         // independent auto-resend from the device itself.
-        if (_ui && txt_type == TXT_TYPE_PLAIN) {
+        if (_listener && txt_type == TXT_TYPE_PLAIN) {
           uint32_t ack_deadline_ms = expected_ack ? (millis() + est_timeout + 4000) : 0;
-          _ui->addDMMsg(recipient->id.pub_key, true, text, msg_timestamp, expected_ack, ack_deadline_ms, 0);
+          _listener->addDMMsg(recipient->id.pub_key, true, text, msg_timestamp, expected_ack, ack_deadline_ms, 0);
         }
 #endif
       }
@@ -2450,9 +2428,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     int out_len;
     if ((out_len = getFromOfflineQueue(out_frame)) > 0) {
       _serial->writeFrame(out_frame, out_len);
-#ifdef DISPLAY_CLASS
-      if (_ui) _ui->msgRead(offline_queue_len);
-#endif
+      if (_listener) _listener->onQueueSizeChanged(offline_queue_len);
     } else {
       out_frame[0] = RESP_CODE_NO_MORE_MESSAGES;
       _serial->writeFrame(out_frame, 1);
@@ -2563,9 +2539,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeOKFrame();
     }
   } else if (cmd_frame[0] == CMD_REBOOT && memcmp(&cmd_frame[1], "reboot", 6) == 0) {
-    if (_ui) {
-      _ui->shutdown(true);
-    } else {
+    if (!(_listener && _listener->requestShutdown(true))) {
       flushDirtyContacts();
       savePrefs();
       board.reboot();
@@ -3150,7 +3124,7 @@ void MyMesh::handleCmdFrame(size_t len) {
 #ifdef ENABLE_SCREENSHOT
 void MyMesh::handleScreenshotRequest() {
     #ifdef DISPLAY_CLASS
-    UITask* ui_task = static_cast<UITask*>(getUITask());
+    UITask* ui_task = static_cast<UITask*>(getListener());
     if (!ui_task || !ui_task->hasDisplay()) {
         writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
         return;
@@ -3387,9 +3361,7 @@ void MyMesh::checkCLIRescueCmd() {
       }
 
     } else if (strcmp(cli_command, "reboot") == 0) {
-      if (_ui) {
-        _ui->shutdown(true);
-      } else {
+      if (!(_listener && _listener->requestShutdown(true))) {
         flushDirtyContacts();
         savePrefs();  // flush any on-device setting change not yet persisted -- see UITask::shutdown()'s comment
         board.reboot();  // doesn't return
@@ -3470,15 +3442,6 @@ void MyMesh::loop() {
     if (pkt) sendZeroHop(pkt);
     _next_auto_advert_ms = futureMillis(_prefs.advert_auto_interval_sec * 1000UL);
   }
-
-#ifdef DISPLAY_CLASS
-  // hasConnection() means "a BLE companion app is connected". Not isConnected()
-  // (a dual interface hardcodes that true as a USB send-fallback). Drives the BT
-  // status indicator, pairing PIN, and the GPX-export collision warning — all
-  // BLE-specific. The Auto buzzer mute / message-wake use isClientConnected()
-  // (BLE *or* an open USB port) directly instead.
-  if (_ui) _ui->setHasConnection(_serial->isBLEConnected());
-#endif
 }
 
 bool MyMesh::advert() {

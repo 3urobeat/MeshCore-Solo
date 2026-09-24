@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <Mesh.h>
-#include "AbstractUITask.h"
 #include <helpers/ui/DisplayDriver.h>
 #include "Features.h"   // FEAT_RX_POWERSAVE, used by MyMesh.cpp
 
@@ -107,14 +106,101 @@ struct DiscoverResult {
 
 class MyMesh : public BaseChatMesh, public DataStoreHost {
 public:
-  MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store, AbstractUITask* ui=NULL);
+  // Everything MyMesh tells the on-device UI goes through this one interface
+  // (set with setListener()); MyMesh itself has no UI concepts. The first
+  // block mirrors upstream meshcore-dev/MeshCore's MyMesh::Listener (PR #3431
+  // and follow-ups) with identical names/signatures, so upstream merges stay
+  // mechanical. The second block is this fork's extensions -- events and
+  // device controls upstream doesn't have (yet). Every method there defaults
+  // to a no-op, so an upstream-style listener still works unchanged.
+  class Listener {
+    public:
+      // ---- upstream MyMesh::Listener ----
+      virtual void onMessageRecv(mesh::Packet *pkt, const ContactInfo &from, uint8_t txt_type, uint32_t sender_timestamp, const char* text) = 0;
+      virtual void onChannelMessageRecv(mesh::Packet *pkt, ChannelDetails& channel_details, const char* text) = 0;
+      virtual void onQueueSizeChanged(int msgcount) = 0;
+      virtual void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) { }
+      virtual void onControlDataRecv(const mesh::Packet* pkt) { }
+      virtual void onChannelDataRecv(mesh::Packet *pkt, const mesh::GroupChannel &channel, uint16_t data_type,
+                                     const uint8_t *data, size_t data_len) { }
+      virtual void onACKRecv(uint32_t ack_crc) { }
+      virtual uint8_t onUnhandledRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
+                                         uint8_t len, uint8_t *reply) { return 0; /* unknown request type */ }
+      virtual void onUnhandledResponse(const ContactInfo &from, uint32_t tag, const uint8_t* data, uint8_t len) { }
+      virtual void onTraceRecv(mesh::Packet *pkt, uint32_t tag, uint32_t auth_code, uint8_t flags,
+                               const uint8_t *path_snrs, const uint8_t *path_hashes, uint8_t path_len) { }
+      virtual void onRawDataRecv(mesh::Packet *pkt) { }
+      virtual ~Listener() { }
 
-  void begin(bool has_display);
+      // ---- Solo fork extensions ----
+      // onMessageRecv() plus the signed-message author prefix (a room post's
+      // real author; extra_len 0 otherwise). MyMesh calls this one; the
+      // default forwards to the upstream method.
+      virtual void onMessageRecvEx(mesh::Packet *pkt, const ContactInfo &from, uint8_t txt_type, uint32_t sender_timestamp,
+                                   const uint8_t* extra, int extra_len, const char* text) {
+        onMessageRecv(pkt, from, txt_type, sender_timestamp, text);
+      }
+      // onChannelMessageRecv() plus the channel slot and sender timestamp.
+      virtual void onChannelMessageRecvEx(mesh::Packet *pkt, uint8_t channel_idx, ChannelDetails& channel_details,
+                                          uint32_t timestamp, const char* text) {
+        onChannelMessageRecv(pkt, channel_details, text);
+      }
+      // Any advert heard (contact or discover response) -- sound/notify hook.
+      virtual void onAdvertHeard(bool was_flood) { }
+      // Our own channel send (app, bot) to mirror into on-device history.
+      // Returns the history ring position, or -1 if none is kept.
+      virtual int addChannelMsg(uint8_t channel_idx, const char* text, uint32_t timestamp = 0,
+                                const uint8_t* path = nullptr, uint8_t path_len = 0,
+                                bool own_message = false) { return -1; }
+      // Mirror of our own channel post, framed "Me: " (see MessagesScreen).
+      // text_len < 0: text is null-terminated; otherwise only text_len bytes.
+      int addOwnChannelMsg(uint8_t channel_idx, const char* text, int text_len = -1, uint32_t timestamp = 0) {
+        char buf[MAX_TEXT_LEN + 8];   // "Me: "(4) + text(MAX_TEXT_LEN) + margin
+        if (text_len < 0) snprintf(buf, sizeof(buf), "Me: %s", text);
+        else              snprintf(buf, sizeof(buf), "Me: %.*s", text_len, text);
+        return addChannelMsg(channel_idx, buf, timestamp, nullptr, 0, true);
+      }
+      // Arm the "relayed into mesh" tracker on ring position pos (seq:
+      // lastChannelRelaySeq()), and report each repeater echo heard for it.
+      virtual void armChannelRelay(int pos, uint32_t seq) { }
+      virtual void onChannelRelayed(uint32_t seq, const uint8_t* repeater_hash = nullptr, uint8_t hash_size = 0) { }
+      // DM history entry: incoming (path = route taken) or our own outgoing
+      // send from the app/bot (ack_tag/ack_deadline_ms drive the marker).
+      virtual void addDMMsg(const uint8_t* pub_key, bool outgoing, const char* text, uint32_t sender_timestamp = 0,
+                            uint32_t ack_tag = 0, uint32_t ack_deadline_ms = 0, uint8_t resends = 0,
+                            const uint8_t* path = nullptr, uint8_t path_len = 0) { }
+      // Results of on-device-UI-initiated requests (sendRoomLogin/sendAdminCommand).
+      virtual void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) { }
+      virtual void onAdminReply(const uint8_t* pub_key, const char* text) { }
+      // A [LOC] share (pub_key set = verified DM; null = channel/room, by name).
+      virtual void onSharedLocation(const uint8_t* pub_key, const char* name,
+                                    int32_t lat_1e6, int32_t lon_1e6, uint32_t ts, bool verified) { }
+      // A contact / channel slot is gone -- drop references to it.
+      virtual void onContactRemoved(const uint8_t* pub_key) { }
+      virtual void onChannelRemoved(uint8_t channel_idx) { }
+      // Remote bot device actions (!gps/!buzz/!gpioN), gated by bot_actions_* prefs.
+      virtual void botSetGPS(bool on) { }
+      virtual void botBuzz(int seconds) { }
+      virtual bool botSetGPIO(int idx, bool on) { return false; }
+      virtual bool botGetGPIO(int idx, bool& is_output, bool& value) { return false; }
+      virtual bool botGetGPIOAnalog(int idx, int& millivolts) { return false; }
+      // Controlled reboot/power-off (CLI/app "reboot"): the listener flushes
+      // its state and restarts. Returns false if it doesn't handle it, and
+      // MyMesh then flushes and reboots by itself.
+      virtual bool requestShutdown(bool restart) { return false; }
+  };
+
+  MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store);
+
+  void begin();
+  void setListener(Listener* listener) { _listener = listener; }
+  Listener* getListener() const { return _listener; }
   void startInterface(BaseSerialInterface &serial);
 
   const char *getNodeName();
   NodePrefs *getNodePrefs();
   uint32_t getBLEPin();
+  void setBLEPin(uint32_t active_pin);
 
   void loop();
   void handleCmdFrame(size_t len);
@@ -176,7 +262,6 @@ public:
   void clearPingResult(uint32_t tag);
   PingResult* getPingResult(uint32_t tag);
   PingCallback getPingCallback() const { return _ping_callback; }
-  AbstractUITask* getUITask() const { return _ui; }
 
 protected:
   float getAirtimeBudgetFactor() const override;
@@ -257,9 +342,9 @@ public:
   // GroupChannel&, ...) already calls trackRelaySend() unconditionally, so
   // lastChannelRelaySeq() is already the seq for the send just made.
   int mirrorOwnChannelMsg(uint8_t channel_idx, const char* text, int text_len = -1, uint32_t timestamp = 0) {
-    if (!_ui) return -1;
-    int pos = _ui->addOwnChannelMsg(channel_idx, text, text_len, timestamp);
-    if (pos >= 0) _ui->armChannelRelay(pos, lastChannelRelaySeq());
+    if (!_listener) return -1;
+    int pos = _listener->addOwnChannelMsg(channel_idx, text, text_len, timestamp);
+    if (pos >= 0) _listener->armChannelRelay(pos, lastChannelRelaySeq());
     return pos;
   }
 private:
@@ -279,7 +364,7 @@ public:
   // The room server's ACL grants permission per-identity (self_id), not per
   // command source, so this reuses the same sendLogin() the BLE CMD_SEND_LOGIN
   // path uses; the async result lands in onContactResponse() and is pushed to
-  // the UI via AbstractUITask::onRoomLoginResult().
+  // the UI via Listener::onRoomLoginResult().
   bool sendRoomLogin(const ContactInfo& contact, const char* password, uint32_t& est_timeout) {
     if (sendLogin(contact, password, est_timeout) == MSG_SEND_FAILED) return false;
     clearPendingReqs();
@@ -521,7 +606,7 @@ private:
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
   uint32_t pending_req;   // pending _BINARY_REQ
   BaseSerialInterface *_serial;
-  AbstractUITask* _ui;
+  Listener* _listener;
 
   ContactsIterator _iter;
   uint32_t _iter_filter_since;

@@ -135,16 +135,35 @@ static uint32_t _atoi(const char* sp) {
 
 StdRNG fast_rng;
 SimpleMeshTables tables;
-MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store
-   #ifdef DISPLAY_CLASS
-      , &ui_task
-   #endif
-);
+MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store);
 
 /* END GLOBAL OBJECTS */
 
 void halt() {
   while (1) ;
+}
+
+// Session BLE PIN, resolved after the_mesh.begin() has loaded prefs and before
+// the serial interface starts advertising with it. A saved PIN wins; otherwise
+// the default 123456 becomes a random per-session PIN when there's a display to
+// show it on (moved here from MyMesh::begin(), as upstream did -- MyMesh has no
+// display concept).
+static void resolveBLEPin(bool has_display) {
+#ifdef BLE_PIN_CODE // 123456 by default
+  if (the_mesh.getNodePrefs()->ble_pin == 0) {
+    if (has_display && BLE_PIN_CODE == 123456) {
+      StdRNG rng;
+      the_mesh.setBLEPin(rng.nextInt(100000, 999999)); // random pin each session
+    } else {
+      the_mesh.setBLEPin(BLE_PIN_CODE); // otherwise static pin
+    }
+  } else {
+    the_mesh.setBLEPin(the_mesh.getNodePrefs()->ble_pin);
+  }
+#else
+  (void)has_display;
+  the_mesh.setBLEPin(0);
+#endif
 }
 
 /* WIFI RECONNECT TRACKERS */
@@ -193,7 +212,8 @@ void setup() {
   #endif
   #endif
   store.begin();
-  the_mesh.begin(
+  the_mesh.begin();
+  resolveBLEPin(
     #ifdef DISPLAY_CLASS
         disp != NULL
     #else
@@ -212,7 +232,8 @@ void setup() {
 #elif defined(RP2040_PLATFORM)
   LittleFS.begin();
   store.begin();
-  the_mesh.begin(
+  the_mesh.begin();
+  resolveBLEPin(
     #ifdef DISPLAY_CLASS
         disp != NULL
     #else
@@ -238,7 +259,8 @@ void setup() {
 #elif defined(ESP32)
   SPIFFS.begin(true);
   store.begin();
-  the_mesh.begin(
+  the_mesh.begin();
+  resolveBLEPin(
     #ifdef DISPLAY_CLASS
         disp != NULL
     #else
@@ -277,7 +299,8 @@ void setup() {
 #elif defined(SIM_PLATFORM)
   // sim_fs already exists/mkdir'd itself in its constructor above.
   store.begin();
-  the_mesh.begin(
+  the_mesh.begin();
+  resolveBLEPin(
     #ifdef DISPLAY_CLASS
         disp != NULL
     #else
@@ -303,6 +326,7 @@ void setup() {
   if (disp && the_mesh.getNodePrefs())
     disp->setBrightness(the_mesh.getNodePrefs()->display_brightness);
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
+  the_mesh.setListener(&ui_task);
 #ifdef DISPLAY_HAS_BUSY_PUMP
   if (disp) disp->setBusyPumpFn(pumpRadioDuringDisplayBusyWait, nullptr);
 #endif

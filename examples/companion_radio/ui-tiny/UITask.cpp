@@ -581,6 +581,7 @@ bool UITask::isButtonPressed() const {
 }
 
 void UITask::loop() {
+  pollConnection();   // BLE link state -> hasConnection() (see AbstractUITask)
   char c = 0;
 #if UI_HAS_JOYSTICK
   int ev = user_btn.check();
