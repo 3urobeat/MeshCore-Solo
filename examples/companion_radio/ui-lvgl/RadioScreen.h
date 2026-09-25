@@ -1,6 +1,7 @@
 #pragma once
 // Settings > Radio: preset, frequency, SF / bandwidth / coding rate, TX power
-// and Adaptive Power Control -- ui-new's Settings > Radio. Every change is
+// and Adaptive Power Control -- ui-new's Settings > Radio; the saved presets
+// and scopes below them are RadioExtras.h. Every change is
 // applied to the radio at once and saved (ui-core/RadioControl.h does the
 // applying for both frontends).
 //
@@ -124,6 +125,8 @@ void UITask::buildRadio() {
                          THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(note, LV_PCT(100));
+
+  buildRadioExtras(body);   // my presets, scopes (RadioExtras.h)
 }
 
 void UITask::radioSet(int which, int v) {
@@ -142,9 +145,13 @@ void UITask::radioSet(int which, int v) {
     case R_APC: p->tx_apc = (uint8_t)v; radioctl::applyApc(); break;
   }
   the_mesh.savePrefs();
-  lv_obj_t* body = _body;
-  int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
-  buildRadio();   // preset name / hints follow
+  rebuildRadio();   // preset name / hints follow
+}
+
+// Rebuilds the screen where it was scrolled to.
+void UITask::rebuildRadio() {
+  int32_t y = _body ? lv_obj_get_scroll_y(_body) : 0;
+  buildRadio();
   if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_to_y(_body, y, LV_ANIM_OFF); }
 }
 

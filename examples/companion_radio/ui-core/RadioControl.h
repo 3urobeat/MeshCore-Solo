@@ -1,8 +1,9 @@
 #pragma once
 // Radio settings actions shared by the frontends: push the companion's
 // NodePrefs radio fields (freq / bw / sf / cr, TX power, Adaptive Power
-// Control) to the radio, and the preset list (../RadioPresets.h built-ins,
-// then the user's saved presets in NodePrefs) the Settings > Radio pickers show.
+// Control) to the radio, the preset list (../RadioPresets.h built-ins, then
+// the user's saved presets in NodePrefs) the Settings > Radio pickers show,
+// and saving / deleting those user presets.
 // ui-new's Settings / Repeater screens and ui-lvgl's Radio screen both go
 // through here.
 
@@ -65,6 +66,37 @@ static bool choosePreset(NodePrefs* p, int idx) {
   p->freq = f; p->bw = b; p->sf = s; p->cr = c;
   applyParams();
   return true;
+}
+
+// ── The user's saved presets (NodePrefs::user_radio_presets) ────────────────
+
+// Whether saving one more under a new name would replace the oldest slot.
+static bool userPresetsFull(const NodePrefs* p) {
+  for (int i = 0; p && i < NodePrefs::USER_RADIO_PRESET_MAX; i++) if (!p->user_radio_presets[i].name[0]) return false;
+  return p != nullptr;
+}
+
+// Saves freq / bw / sf / cr under `name`: over a slot with the same name if
+// there is one, else the first empty slot, else slot 0 (the oldest). The
+// caller saves the prefs. False for an empty name.
+static bool saveUserPreset(NodePrefs* p, const char* name, float freq, float bw, uint8_t sf, uint8_t cr) {
+  if (!p || !name || !name[0]) return false;
+  int slot = -1;
+  for (int i = 0; i < NodePrefs::USER_RADIO_PRESET_MAX; i++)
+    if (strcmp(p->user_radio_presets[i].name, name) == 0) { slot = i; break; }
+  if (slot < 0)
+    for (int i = 0; i < NodePrefs::USER_RADIO_PRESET_MAX; i++)
+      if (!p->user_radio_presets[i].name[0]) { slot = i; break; }
+  if (slot < 0) slot = 0;
+  NodePrefs::UserRadioPreset& u = p->user_radio_presets[slot];
+  strncpy(u.name, name, sizeof(u.name) - 1);
+  u.name[sizeof(u.name) - 1] = '\0';
+  u.freq = freq; u.bw = bw; u.sf = sf; u.cr = cr;
+  return true;
+}
+
+static void deleteUserPreset(NodePrefs* p, int slot) {
+  if (p && slot >= 0 && slot < NodePrefs::USER_RADIO_PRESET_MAX) p->user_radio_presets[slot].name[0] = '\0';
 }
 
 }  // namespace radioctl

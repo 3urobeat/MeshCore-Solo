@@ -3,6 +3,7 @@
 #include "PopupMenu.h"
 #include "../RadioPresets.h"
 #include "../NodePrefs.h"
+#include "../ui-core/RadioControl.h"   // saving / deleting user presets
 
 // Shared "radio preset" picker used by both Settings › Radio and Tools ›
 // Repeater. Both edit the same 4 user preset slots in NodePrefs and build the
@@ -78,23 +79,11 @@ struct RadioPresetPicker {
     return -1;
   }
 
-  // Save the target's params as a named user preset: overwrite a slot with the
-  // same name if one exists, else the first empty slot, else slot 0 (oldest).
-  // Returns true if anything was written (caller alerts + marks dirty).
+  // Save the target's params as a named user preset (slot choice in
+  // radioctl::saveUserPreset). Returns true if anything was written (caller
+  // alerts + marks dirty).
   bool save(NodePrefs* p, const char* name, const Target& t) {
-    if (!p || !name || !name[0]) return false;
-    int slot = -1;
-    for (int i = 0; i < NodePrefs::USER_RADIO_PRESET_MAX; i++)
-      if (strcmp(p->user_radio_presets[i].name, name) == 0) { slot = i; break; }
-    if (slot < 0)
-      for (int i = 0; i < NodePrefs::USER_RADIO_PRESET_MAX; i++)
-        if (!p->user_radio_presets[i].name[0]) { slot = i; break; }
-    if (slot < 0) slot = 0;
-    NodePrefs::UserRadioPreset& u = p->user_radio_presets[slot];
-    strncpy(u.name, name, sizeof(u.name) - 1);
-    u.name[sizeof(u.name) - 1] = '\0';
-    u.freq = *t.freq; u.bw = *t.bw; u.sf = *t.sf; u.cr = *t.cr;
-    return true;
+    return radioctl::saveUserPreset(p, name, *t.freq, *t.bw, *t.sf, *t.cr);
   }
 
   void open(NodePrefs* p, const Target& t, const char* title) {
@@ -143,7 +132,7 @@ struct RadioPresetPicker {
     if (confirm_slot >= 0) {
       Result r = NONE;
       if (idx == 0) {   // "Delete"
-        p->user_radio_presets[confirm_slot].name[0] = '\0';
+        radioctl::deleteUserPreset(p, confirm_slot);
         r = DELETED;
       }
       confirm_slot = -1;

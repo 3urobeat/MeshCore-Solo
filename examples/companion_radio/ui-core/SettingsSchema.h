@@ -119,6 +119,10 @@ static const int32_t INVERTED[] = { 1, 0 };   // switch over a field stored as "
 static void optResend(uint8_t v, char* b, int n, const NodePrefs&) {
   if (v == 0) snprintf(b, n, "Off"); else snprintf(b, n, "%u more", (unsigned)v);
 }
+static void optBattDisplay(uint8_t v, char* b, int n, const NodePrefs&) {
+  static const char* L[] = { "Icon", "Percent", "Voltage" };
+  snprintf(b, n, "%s", L[v < 3 ? v : 0]);
+}
 static void optExpiry(uint8_t v, char* b, int n, const NodePrefs&) {
   snprintf(b, n, "%s", NodePrefs::contactExpiryLabel(v));
 }
@@ -171,12 +175,14 @@ static const Setting ALL[] = {
   MAP("Wake on message", "Turn the screen on for new messages", SEC_DISPLAY, msg_wake_screen_off, INVERTED,
       nullptr, nullptr),
   SW("Lock screen", "Slide to unlock after the screen turns off", SEC_DISPLAY, auto_lock, nullptr),
+  IDX("Battery display", "In the status bar", SEC_DISPLAY, batt_display_mode, 3, optBattDisplay, nullptr),
 
   MAP("Battery shutdown", "Power off below this voltage", SEC_POWER, low_batt_mv, LOW_BATT, optLowBatt, nullptr),
   MAP("GPS power saving", "Sleep between fixes", SEC_POWER, gps_interval, GPS_DUTY, optGpsDuty, applyGpsDuty),
 
   MAP("Time zone", "For the clock and the alarm", SEC_TIME, tz_offset_hours, TZ, optTz, nullptr),
   SW("12-hour clock", "AM / PM instead of 24 h", SEC_TIME, clock_12h, nullptr),
+  MAP("Clock seconds", "On the home and lock screen clock", SEC_TIME, clock_hide_seconds, INVERTED, nullptr, nullptr),
 
   IDX("Resend direct messages", "Extra tries without a delivery tick", SEC_MESSAGES, dm_resend_count, 6,
       optResend, nullptr),

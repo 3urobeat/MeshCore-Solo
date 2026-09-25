@@ -14,6 +14,7 @@
 #include "../ui-core/TrackBack.h"
 #include "../ui-core/RadioControl.h"
 #include "../ui-core/Diagnostics.h"
+#include "../ui-core/Battery.h"
 #include "../ui-core/ChannelControl.h"
 #include "../ui-core/BotConfig.h"
 #include "Theme.h"
@@ -88,13 +89,16 @@ static bool localTime(const NodePrefs* p, struct tm& out) {
   out = *gmtime(&t);
   return true;
 }
-// "14:05", or "2:05" (+ " PM" with suffix) with Settings > 12-hour clock.
-static void fmtClock(char* b, size_t n, const struct tm& ti, const NodePrefs* p, bool suffix) {
+// "14:05", or "2:05" (+ " PM" with suffix) with Settings > 12-hour clock;
+// with `seconds`, ":09" follows unless Settings > Clock seconds is off.
+static void fmtClock(char* b, size_t n, const struct tm& ti, const NodePrefs* p, bool suffix, bool seconds = false) {
+  char sec[4] = "";
+  if (seconds && p && !p->clock_hide_seconds) snprintf(sec, sizeof(sec), ":%02d", ti.tm_sec);
   if (p && p->clock_12h) {
     int h = ti.tm_hour % 12;
-    snprintf(b, n, "%d:%02d%s", h ? h : 12, ti.tm_min, suffix ? (ti.tm_hour < 12 ? " AM" : " PM") : "");
+    snprintf(b, n, "%d:%02d%s%s", h ? h : 12, ti.tm_min, sec, suffix ? (ti.tm_hour < 12 ? " AM" : " PM") : "");
   } else {
-    snprintf(b, n, "%02d:%02d", ti.tm_hour, ti.tm_min);
+    snprintf(b, n, "%02d:%02d%s", ti.tm_hour, ti.tm_min, sec);
   }
 }
 // "Thu 25 Sep 2026" ("PM  Thu 25 Sep 2026" on a 12-hour clock, whose big
@@ -375,11 +379,18 @@ void UITask::refreshStatusBar() {
     lv_label_set_text(_status_time, "--:--");
   }
 
+  // Battery: the icon, then % or volts per Settings > Battery display.
   uint16_t mv = getBattMilliVolts();
-  int pct = mv <= 3300 ? 0 : mv >= 4200 ? 100 : (int)(mv - 3300) * 100 / 900;
+  int pct = battery::percent(mv, _prefs ? _prefs->low_batt_mv : 0);
   const char* batt = pct > 80 ? LV_SYMBOL_BATTERY_FULL : pct > 55 ? LV_SYMBOL_BATTERY_3
                    : pct > 30 ? LV_SYMBOL_BATTERY_2 : pct > 10 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
-  lv_label_set_text_fmt(_status_icons, "%s%s %d%%", hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, pct);
+  char level[12] = "";
+  switch (battery::mode(_prefs ? _prefs->batt_display_mode : 0)) {
+    case battery::PERCENT: snprintf(level, sizeof(level), " %d%%", pct); break;
+    case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
+    default: break;
+  }
+  lv_label_set_text_fmt(_status_icons, "%s%s%s", hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, level);
   // GPS: green with a fix, muted while on and searching, absent when off.
   int32_t lat, lon;
   bool fix = _core->course.currentLocation(lat, lon);
@@ -501,7 +512,16 @@ void UITask::back() {
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
     case SCR_CLOCK:    showHome(); break;
-    case SCR_RADIO:    if (radioPopupOpen()) radioCloseFreq(); else showSettings(); break;
+    case SCR_RADIO:
+      if (radioPopupOpen()) radioCloseFreq();
+      else if (_nav_overlay) navClosePopup();
+      else showSettings();
+      break;
+    case SCR_SCOPES:   // back to the Radio screen's bottom, where Scopes is
+      if (_nav_overlay) { navClosePopup(); break; }
+      showRadio();
+      if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_by(_body, 0, -lv_obj_get_scroll_bottom(_body), LV_ANIM_OFF); }
+      break;
     case SCR_CHATS:    if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_NEARBY:
       if (_scan_overlay) closeScanPopup();
@@ -683,7 +703,7 @@ void UITask::refreshHome() {
   struct tm ti;
   if (localTime(_prefs, ti)) {
     char clk[12], date[48];
-    fmtClock(clk, sizeof(clk), ti, _prefs, false);
+    fmtClock(clk, sizeof(clk), ti, _prefs, false, true);
     fmtDate(date, sizeof(date), ti, _prefs);
     lv_label_set_text(_home_clock, clk);
     lv_label_set_text(_home_date, date);
@@ -2062,3 +2082,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "DeviceScreen.h"
 #include "DiagScreen.h"
 #include "CompassScreen.h"
+#include "RadioExtras.h"

@@ -203,7 +203,7 @@ void UITask::refreshLock() {
   struct tm ti;
   if (localTime(_prefs, ti)) {
     char clk[12], date[48];
-    fmtClock(clk, sizeof(clk), ti, _prefs, false);
+    fmtClock(clk, sizeof(clk), ti, _prefs, false, true);
     fmtDate(date, sizeof(date), ti, _prefs);
     lv_label_set_text(s_lock_clock, clk);
     lv_label_set_text(s_lock_date, date);

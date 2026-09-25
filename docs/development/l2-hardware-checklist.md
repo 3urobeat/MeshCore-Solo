@@ -66,6 +66,15 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: My presets, scopes, battery display, clock seconds (2026-09-25)
+- [ ] Settings > Radio > MY PRESETS > Save current settings: name popup, Enter → "Preset saved", the row shows freq / SF / BW / CR with a tick while in use, and it is in the Preset dropdown
+- [ ] Tap a saved preset → Use (radio switches) / Delete (confirm, red) → "Preset deleted"; a 5th name replaces the oldest (hint says so when all 4 are used); presets survive a reboot
+- [ ] L1: Settings › Radio › Preset lists the presets saved on L2 and vice versa (same slots)
+- [ ] Settings > Radio > SCOPE > Scopes: "* (no scope)" is the default; + Add → name → listed; tap → Default / Rename / Delete; the Radio screen row shows the default
+- [ ] Deleting the default scope makes * the default; a channel set to the deleted scope goes back to none (channel options > Scope); the app shows the same default scope after a sync
+- [ ] Settings > Display & power > Battery display: Icon / Percent / Voltage change the status bar at once; percent follows the L1 curve (empties at the Battery shutdown voltage)
+- [ ] Settings > Display & power > TIME > Clock seconds off: Home and lock screen clocks show HH:MM; on: HH:MM:SS
+
 ## New: Diagnostics, auto-advert, compass (2026-09-25)
 - [ ] Settings > SYSTEM > Diagnostics: tabs Live / System / Font; Live counters (uptime, rx/tx, heap, noise floor, RSSI/SNR, queue, errors) tick every second
 - [ ] Live > Reset → confirm popup → "Counters reset", rx/tx and forwarded go back to 0
