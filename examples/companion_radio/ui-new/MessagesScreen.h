@@ -682,11 +682,11 @@ class MessagesScreen : public UIScreen {
   // password), so get one under way instead of opening a history view that
   // would silently fail to send. Targets _sel_contact.
   void requireRoomLogin() {
-    char saved_pw[sizeof(_login_pw)];
-    if (the_mesh.getRoomPassword(_sel_contact.id.pub_key, saved_pw, sizeof(saved_pw))) {
-      // Logged in to this room before, on an earlier boot -- retry with the
-      // remembered password instead of prompting again.
-      startRoomLogin(saved_pw);
+    // Logged in to this room before, on an earlier boot: the Core retries with
+    // the remembered password instead of prompting again.
+    RoomSessions::Open o = _task->core().rooms.open(_sel_contact);
+    if (o != RoomSessions::NEED_PASSWORD) {
+      if (o != RoomSessions::OPEN_NOW) loginAlert(o == RoomSessions::LOGGING_IN);
       return;
     }
     _login_mode = true;
@@ -865,41 +865,13 @@ class MessagesScreen : public UIScreen {
     if (state == v_set) variant |= m; else variant &= ~m;
   }
 
-  template <class Entry>
-  static uint8_t prefTableGet(const Entry* tbl, int n, const uint8_t* pub_key,
-                              uint8_t Entry::* val) {
-    for (int i = 0; i < n; i++)
-      if (tbl[i].*val && memcmp(tbl[i].prefix, pub_key, 4) == 0) return tbl[i].*val;
-    return 0;
-  }
-  template <class Entry>
-  static void prefTableSet(Entry* tbl, int n, const uint8_t* pub_key,
-                           uint8_t Entry::* val, uint8_t v) {
-    for (int i = 0; i < n; i++)
-      if (tbl[i].*val && memcmp(tbl[i].prefix, pub_key, 4) == 0) {
-        if (v == 0) memset(&tbl[i], 0, sizeof(tbl[i])); else tbl[i].*val = v;
-        return;
-      }
-    if (v == 0) return;
-    for (int i = 0; i < n; i++)
-      if (tbl[i].*val == 0) { memcpy(tbl[i].prefix, pub_key, 4); tbl[i].*val = v; return; }
-    memcpy(tbl[0].prefix, pub_key, 4); tbl[0].*val = v;   // table full — overwrite slot 0
-  }
-
   // Channel notif (ui-core/ChannelControl.h): 0 = default, 1 = muted, 2 = force-on.
   uint8_t chNotifState(uint8_t ch_idx) const { return chanctl::notif(_task->getNodePrefs(), ch_idx); }
   void setChNotifState(uint8_t ch_idx, uint8_t state) { chanctl::setNotif(_task->getNodePrefs(), ch_idx, state); }
 
-  uint8_t dmNotifState(const uint8_t* pub_key) const {
-    NodePrefs* p = _task->getNodePrefs();
-    return p ? prefTableGet(p->dm_notif, NodePrefs::DM_NOTIF_TABLE_MAX, pub_key,
-                            &NodePrefs::DmNotifEntry::state) : 0;
-  }
-  void setDmNotifState(const uint8_t* pub_key, uint8_t state) {
-    NodePrefs* p = _task->getNodePrefs();
-    if (p) prefTableSet(p->dm_notif, NodePrefs::DM_NOTIF_TABLE_MAX, pub_key,
-                        &NodePrefs::DmNotifEntry::state, state);
-  }
+  // DM notif / melody overrides (ui-core/ContactControl.h).
+  uint8_t dmNotifState(const uint8_t* pub_key) const { return contactctl::notif(_task->getNodePrefs(), pub_key); }
+  void setDmNotifState(const uint8_t* pub_key, uint8_t state) { contactctl::setNotif(_task->getNodePrefs(), pub_key, state); }
 
   // Channel melody: slot 1 = melody 1 (variant bit clear), 2 = melody 2 (set).
   uint8_t chNotifMelody(uint8_t ch_idx) const {
@@ -911,16 +883,8 @@ class MessagesScreen : public UIScreen {
     if (p) maskPairSet(p->ch_notif_melody_set, p->ch_notif_melody_2, ch_idx, slot, 2);
   }
 
-  uint8_t dmMelodySlot(const uint8_t* pub_key) const {
-    NodePrefs* p = _task->getNodePrefs();
-    return p ? prefTableGet(p->dm_melody, NodePrefs::DM_MELODY_TABLE_MAX, pub_key,
-                            &NodePrefs::DmMelodyEntry::slot) : 0;
-  }
-  void setDmMelody(const uint8_t* pub_key, uint8_t slot) {
-    NodePrefs* p = _task->getNodePrefs();
-    if (p) prefTableSet(p->dm_melody, NodePrefs::DM_MELODY_TABLE_MAX, pub_key,
-                        &NodePrefs::DmMelodyEntry::slot, slot);
-  }
+  uint8_t dmMelodySlot(const uint8_t* pub_key) const { return contactctl::melody(_task->getNodePrefs(), pub_key); }
+  void setDmMelody(const uint8_t* pub_key, uint8_t slot) { contactctl::setMelody(_task->getNodePrefs(), pub_key, slot); }
 
   // On-device channel Add/Edit form (Channels tab) — owned by this screen and
   // delegated to while active(), the same relationship WaypointsView has with
@@ -974,79 +938,19 @@ public:
     else         { if (_dm_hist_sel > 0) { _dm_hist_sel++; _dm_hist_scroll++; } }
   }
 
-  // Rooms successfully logged in to this power-on session. RAM-only — the
-  // server's ACL (see ClientACL) is the real permission store and survives
-  // reboot on its own, but the device has no way to query it, so this is just
-  // a local memo to skip re-prompting for a password already entered this
-  // session when the same room is picked again.
-  static const int ROOM_LOGIN_TABLE_SIZE = 8;
-  uint8_t _room_login_prefix[ROOM_LOGIN_TABLE_SIZE][4];
-  int _room_login_head = 0, _room_login_count = 0;
+  // Room logins (who is logged in this session, the saved passwords, the one
+  // login in flight) are the UI Core's RoomSessions.
+  bool isRoomLoggedIn(const uint8_t* pub_key) const { return _task->core().rooms.isLoggedIn(pub_key); }
 
-  bool isRoomLoggedIn(const uint8_t* pub_key) const {
-    // Indices are relative to _room_login_head, same as forgetRoomLoggedIn() --
-    // direct 0.._room_login_count indexing only happens to work before the
-    // ring has wrapped once (head==0); after that it silently checks the wrong
-    // slots.
-    for (int i = 0; i < _room_login_count; i++) {
-      int pos = (_room_login_head + i) % ROOM_LOGIN_TABLE_SIZE;
-      if (memcmp(_room_login_prefix[pos], pub_key, 4) == 0) return true;
-    }
-    return false;
-  }
+  void loginAlert(bool sent) { _task->showAlert(sent ? "Logging in..." : "Login failed", sent ? 1000 : 1500); }
 
-  void markRoomLoggedIn(const uint8_t* pub_key) {
-    if (isRoomLoggedIn(pub_key)) return;
-    int pos;
-    if (_room_login_count < ROOM_LOGIN_TABLE_SIZE) {
-      pos = (_room_login_head + _room_login_count) % ROOM_LOGIN_TABLE_SIZE;
-      _room_login_count++;
-    } else {
-      pos = _room_login_head;
-      _room_login_head = (_room_login_head + 1) % ROOM_LOGIN_TABLE_SIZE;
-    }
-    memcpy(_room_login_prefix[pos], pub_key, 4);
-  }
-
-  // Reverses markRoomLoggedIn() on explicit Logout -- shifts the ring buffer
-  // closed over the removed slot so isRoomLoggedIn() goes back to false and
-  // the next room open prompts for a password instead of skipping it.
-  void forgetRoomLoggedIn(const uint8_t* pub_key) {
-    for (int i = 0; i < _room_login_count; i++) {
-      int pos = (_room_login_head + i) % ROOM_LOGIN_TABLE_SIZE;
-      if (memcmp(_room_login_prefix[pos], pub_key, 4) == 0) {
-        for (int j = i; j < _room_login_count - 1; j++) {
-          int from = (_room_login_head + j + 1) % ROOM_LOGIN_TABLE_SIZE;
-          int to   = (_room_login_head + j) % ROOM_LOGIN_TABLE_SIZE;
-          memcpy(_room_login_prefix[to], _room_login_prefix[from], 4);
-        }
-        _room_login_count--;
-        return;
-      }
-    }
-  }
-
-  // Password of the room-login attempt currently in flight -- set right
-  // before sendRoomLogin(), read back in onRoomLoginResult() so a successful
-  // attempt can be persisted (see MyMesh::saveRoomPassword()).
-  char _login_pw[16];
-
-  void startRoomLogin(const char* password) {
-    strncpy(_login_pw, password, sizeof(_login_pw) - 1);
-    _login_pw[sizeof(_login_pw) - 1] = 0;
-    uint32_t est_timeout = 0;   // this screen's login isn't a blocking wait (see
-                                // onRoomLoginResult() below), so no deadline needed
-    bool sent = the_mesh.sendRoomLogin(_sel_contact, password, est_timeout);
-    _task->showAlert(sent ? "Logging in..." : "Login failed", sent ? 1000 : 1500);
-  }
+  void startRoomLogin(const char* password) { loginAlert(_task->core().rooms.login(_sel_contact, password)); }
 
   // Result of an on-device sendRoomLogin() (MyMesh::onContactResponse(), routed
   // via the UI Core and UITask::onRoomLoginResult()). Surfaces as a transient alert.
   void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) {
     (void)permissions;
     if (success) {
-      markRoomLoggedIn(pub_key);
-      the_mesh.saveRoomPassword(pub_key, _login_pw);
       // Auto-enter the room's chat right after a successful login so the user
       // doesn't have to press Enter a second time. The login result is async,
       // so only do it if they're still sitting on this same room in the picker
@@ -1056,11 +960,6 @@ public:
           && memcmp(_sel_contact.id.pub_key, pub_key, 4) == 0) {
         openDmHistory();
       }
-    } else {
-      // Saved password (if any) no longer works -- forget it so the next
-      // ENTER on this room falls back to a manual prompt instead of
-      // silently retrying the same bad password forever.
-      the_mesh.forgetRoomPassword(pub_key);
     }
     _task->showAlert(success ? "Login OK" : "Login failed", 1200);
   }
@@ -2015,8 +1914,7 @@ public:
                 if (_pin_picker_active) return true;   // rebuild below would close the submenu
               } else if (sel != _ctx_fav_idx) {
                 // Logout: only reachable when isRoomLoggedIn() added this item.
-                the_mesh.logoutRoom(_sel_contact.id.pub_key);
-                forgetRoomLoggedIn(_sel_contact.id.pub_key);
+                _task->core().rooms.logout(_sel_contact.id.pub_key);
                 _task->showAlert("Logged out", 1000);
               }
               // Fav is a value row -- Enter never selects it (see cycleRoomCtxValue).
@@ -2080,14 +1978,14 @@ public:
           if (_pick_fav_slot >= 0) { commitPickFavContact(_sel_contact); return true; }
           if (_pick_bot_room) {
             if (!isRoomLoggedIn(_sel_contact.id.pub_key)) {
-              char saved_pw[sizeof(_login_pw)];
-              if (the_mesh.getRoomPassword(_sel_contact.id.pub_key, saved_pw, sizeof(saved_pw))) {
-                // Known password, just not re-established this boot — retry
-                // silently in the background; the bot target is set below
-                // regardless of this attempt's outcome (self-heals like any
-                // other saved room password would on the next real open).
-                startRoomLogin(saved_pw);
-              } else {
+              // Known password, just not re-established this boot: the Core
+              // retries silently in the background; the bot target is set
+              // below regardless of this attempt's outcome (self-heals like
+              // any other saved room password would on the next real open).
+              RoomSessions::Open o = _task->core().rooms.open(_sel_contact);
+              if (o == RoomSessions::LOGGING_IN || o == RoomSessions::SEND_FAILED) {
+                loginAlert(o == RoomSessions::LOGGING_IN);
+              } else if (o == RoomSessions::NEED_PASSWORD) {
                 // Never logged in — the bot could never post here without a
                 // password, so prompt for one now instead of picking an
                 // unusable target. Commits once submitted (see the KEYBOARD/

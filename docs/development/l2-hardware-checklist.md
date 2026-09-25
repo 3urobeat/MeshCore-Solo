@@ -66,6 +66,20 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: Rooms, conversation options, message actions (2026-09-25)
+- [ ] Messages: sections CHANNELS / DIRECT / ROOMS; "All" / "★ Fav" pill on CHANNELS and ROOMS shows only favourites (and survives a reboot)
+- [ ] ROOMS lists room servers ("Tap to log in" / last post); "ROOMS - N new" when posts arrived
+- [ ] Tap a room never logged into: password popup (empty is fine for public rooms) → "Logging in..." → "Logged in" → thread opens
+- [ ] Wrong password: "Login failed - wrong password?" and the popup comes back; no answer: "No answer from the room"
+- [ ] Reboot, tap the same room: logs in with the saved password without asking, then opens
+- [ ] Room thread: other people's posts show their name above the text; your post gets "delivered"
+- [ ] Room ⚙ / hold the row: "Logged in" status, Fav, Login (new password), Logout (forgets the password; next tap asks again)
+- [ ] DIRECT: hold a conversation (or ⚙ in the thread): Alerts Default / Muted / Always, Fav (star in the list), Read; muted shows the mute icon
+- [ ] New message: CONTACTS "All" / "★ Fav" pill
+- [ ] Hold someone's message bubble: path ("Path (2 hops): A > B" or "Heard directly"), Reply puts "@[name] " in the field with the keyboard up, Set target (message with a position) sets the navigation target
+- [ ] Hold your own channel post: "Relayed by: ..." once a repeater echoed it
+- [ ] L1 (ui-new): Room Servers login / logout / saved password work as before (now in the shared RoomSessions)
+
 ## New: Bot (2026-09-25)
 - [ ] Home page 2: Clock, Bot
 - [ ] Bot: tabs Channel / Room / Direct / Other; header shows "N sent" once it has replied

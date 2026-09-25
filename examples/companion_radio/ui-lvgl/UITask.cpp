@@ -177,6 +177,7 @@ void UITask::loop() {
     if (_screen == SCR_MAP) mapLoop();
     if (_screen == SCR_WIFI) pollWifiScan();
     if (_screen == SCR_ADMIN) adminPoll();
+    roomPoll();
     if (_screen == SCR_CLOCK && (int32_t)(millis() - _next_clock_ms) >= 0) {
       _next_clock_ms = millis() + 100;   // stopwatch tenths
       refreshClock();
@@ -282,7 +283,7 @@ void UITask::onMessageArrived(const UiEvent& ev) {
   if (_asleep && !wake_disabled && !isClientConnected()) wake();
   else if (!_asleep) lv_display_trigger_activity(NULL);
   showToast(buf, 3000);
-  if (_screen == SCR_CHATS) buildChats();   // new unread counts
+  if (_screen == SCR_CHATS && !_nav_overlay) buildChats();   // new unread counts (not under an open popup)
 }
 
 bool UITask::isViewingChannel(uint8_t channel_idx) {
@@ -676,6 +677,14 @@ static void onNewChat(lv_event_t* e) { (void)e; s_ui->showContacts(); }
 static void onChanRowHold(lv_event_t* e);      // ChannelScreen.h
 static void onChanAdd(lv_event_t* e);
 static void onChanThreadMenu(lv_event_t* e);
+static uint8_t s_room_rows[16][PUB_KEY_SIZE];
+static void onDMRowHold(lv_event_t* e);        // ConversationScreen.h
+static void onRoomRow(lv_event_t* e);
+static void onRoomRowHold(lv_event_t* e);
+static void onConvThreadMenu(lv_event_t* e);
+static void onMsgHold(lv_event_t* e);
+static void onChatFilter(lv_event_t* e);
+enum : uint8_t { CF_CHANNELS, CF_ROOMS, CF_CONTACTS };   // favourites-only filters
 
 // One tappable list row: title, optional muted subtitle, optional badge.
 static lv_obj_t* listRow(lv_obj_t* parent, const char* title, const char* sub,
@@ -707,6 +716,26 @@ static lv_obj_t* sectionTitle(lv_obj_t* parent, const char* text) {
   return l;
 }
 
+// Section title with an "All" / "★ Fav" pill on the right that flips the
+// section's favourites-only filter.
+static void sectionWithFilter(lv_obj_t* parent, const char* text, bool fav_only, uint8_t which) {
+  lv_obj_t* row = lv_obj_create(parent);
+  styleSurface(row, theme::BG);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), 26);
+  lv_obj_align(label(row, text, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_BOTTOM_LEFT, 0, -2);
+  lv_obj_t* b = lv_button_create(row);
+  lv_obj_set_size(b, LV_SIZE_CONTENT, 24);
+  lv_obj_set_style_pad_hor(b, 10, 0);
+  lv_obj_set_style_pad_ver(b, 0, 0);
+  lv_obj_set_style_radius(b, 12, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(fav_only ? theme::ACCENT_DIM : theme::SURFACE), 0);
+  lv_obj_align(b, LV_ALIGN_RIGHT_MID, -2, 0);
+  lv_obj_add_event_cb(b, onChatFilter, LV_EVENT_CLICKED, (void*)(uintptr_t)which);
+  lv_obj_center(label(b, fav_only ? UI_SYMBOL_STAR " Fav" : "All", THEME_FONT_SMALL, theme::TEXT));
+}
+
 void UITask::showChats() {
   _screen = SCR_CHATS;
   buildChats();
@@ -716,14 +745,18 @@ void UITask::buildChats() {
   lv_obj_t* body = newScreen("Messages", true);
 
   // Channels: favourites first (unless turned off), hold a row for its options
-  sectionTitle(body, "CHANNELS");
+  bool ch_fav_only = _prefs && _prefs->ch_fav_only;
+  sectionWithFilter(body, "CHANNELS", ch_fav_only, CF_CHANNELS);
   bool fav_first = !(_prefs && _prefs->fav_sort_off);
+  int ch_rows = 0;
   for (int pass = fav_first ? 0 : 1; pass < 2; pass++) {
     for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
       ChannelDetails ch;
       if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
       bool fav = chanctl::favourite(_prefs, i);
+      if (ch_fav_only && !fav) continue;
       if (fav_first && fav != (pass == 0)) continue;
+      ch_rows++;
       char title[48], sub[64] = "";
       snprintf(title, sizeof(title), "%s%s%s", fav ? UI_SYMBOL_STAR " " : "", ch.name,
                chanctl::notif(_prefs, i) == chanctl::NOTIF_MUTED ? "  " LV_SYMBOL_MUTE : "");
@@ -737,6 +770,7 @@ void UITask::buildChats() {
       badge(row, _core->history.chUnread(i), _core->history.chUnreadOverflow(i));
     }
   }
+  if (ch_rows == 0 && ch_fav_only) label(body, "No favourite channels", THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_obj_t* add_ch = lv_button_create(body);
   lv_obj_set_size(add_ch, LV_PCT(100), 32);
   lv_obj_set_style_bg_color(add_ch, lv_color_hex(theme::BG), 0);
@@ -755,21 +789,54 @@ void UITask::buildChats() {
     bool seen = false;
     for (int r = 0; r < rows; r++) if (memcmp(s_dm_rows[r], e.prefix, 4) == 0) { seen = true; break; }
     if (seen) continue;
+    ContactInfo c;
+    bool known = MessageHistory::contactByPrefix(e.prefix, c);
+    if (known && c.type == ADV_TYPE_ROOM) continue;   // rooms have their own section
     memcpy(s_dm_rows[rows], e.prefix, 4);
-    char name[33];
+    char name[48];
     contactName(e.prefix, name, sizeof(name));
+    if (known && contactctl::favourite(c)) { char t[48]; snprintf(t, sizeof(t), UI_SYMBOL_STAR " %s", name); strcpy(name, t); }
+    if (known && contactctl::notif(_prefs, c.id.pub_key) == contactctl::NOTIF_MUTED) strncat(name, "  " LV_SYMBOL_MUTE, sizeof(name) - strlen(name) - 1);
     char sub[64];
     snprintf(sub, sizeof(sub), "%s%s", e.outgoing ? "Me: " : "", e.text);
     lv_obj_t* row = listRow(body, name, sub, onOpenDMRow, (void*)(uintptr_t)rows);
+    if (known) lv_obj_add_event_cb(row, onDMRowHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)rows);
     badge(row, _core->dmUnread(e.prefix), _core->dmUnreadOverflow(e.prefix));
     rows++;
   }
-  int room = _core->roomUnread();
-  if (room > 0) {
-    char t[32];
-    snprintf(t, sizeof(t), "%d unread room post%s", room, room == 1 ? "" : "s");
-    sectionTitle(body, t);
+  if (rows == 0) label(body, "No conversations yet", THEME_FONT_SMALL, theme::TEXT_MUTED);
+
+  // Room servers: tap logs in (saved password or ask) and opens; hold: options
+  bool room_fav_only = _prefs && _prefs->room_fav_only;
+  int room_unread = _core->roomUnread();
+  char rt[32];
+  if (room_unread > 0) snprintf(rt, sizeof(rt), "ROOMS  -  %d new", room_unread);
+  else snprintf(rt, sizeof(rt), "ROOMS");
+  sectionWithFilter(body, rt, room_fav_only, CF_ROOMS);
+  int nrooms = 0, total = the_mesh.getNumContacts();
+  const int MAX_ROOMS = (int)(sizeof(s_room_rows) / sizeof(s_room_rows[0]));
+  for (int pass = fav_first ? 0 : 1; pass < 2; pass++) {
+    for (int i = 0; i < total && nrooms < MAX_ROOMS; i++) {
+      ContactInfo c;
+      if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c) || c.type != ADV_TYPE_ROOM) continue;
+      bool fav = contactctl::favourite(c);
+      if (room_fav_only && !fav) continue;
+      if (fav_first && fav != (pass == 0)) continue;
+      memcpy(s_room_rows[nrooms], c.id.pub_key, PUB_KEY_SIZE);
+      char title[48], sub[64];
+      snprintf(title, sizeof(title), "%s%s", fav ? UI_SYMBOL_STAR " " : "", c.name);
+      if (_core->history.dmHistCountForContact(c.id.pub_key) > 0) {
+        const DmHistEntry& e = _core->history.dmAtPos(_core->history.dmHistEntryForContact(c.id.pub_key, 0));
+        snprintf(sub, sizeof(sub), "%s%s", e.outgoing ? "Me: " : "", e.text);
+      } else {
+        snprintf(sub, sizeof(sub), "%s", _core->rooms.isLoggedIn(c.id.pub_key) ? "Logged in" : "Tap to log in");
+      }
+      lv_obj_t* row = listRow(body, title, sub, onRoomRow, (void*)(uintptr_t)nrooms);
+      lv_obj_add_event_cb(row, onRoomRowHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)nrooms);
+      nrooms++;
+    }
   }
+  if (nrooms == 0) label(body, room_fav_only ? "No favourite rooms" : "No room servers known", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
   lv_obj_t* add = lv_button_create(body);
   lv_obj_set_size(add, LV_PCT(100), 36);
@@ -789,6 +856,8 @@ void UITask::showContacts() {
 
 void UITask::buildContacts() {
   lv_obj_t* body = newScreen("New message", true);
+  bool fav_only = _prefs && !_prefs->dm_show_all;   // ui-new's default: favourites only
+  sectionWithFilter(body, "CONTACTS", fav_only, CF_CONTACTS);
   int total = the_mesh.getNumContacts();
   int rows = 0;
   // +MAX_ANON_CONTACTS: getContactByIdx() takes the raw table index (see
@@ -797,11 +866,12 @@ void UITask::buildContacts() {
     ContactInfo c;
     if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c)) continue;
     if (c.type != ADV_TYPE_CHAT) continue;
+    if (fav_only && !contactctl::favourite(c)) continue;
     memcpy(s_contact_rows[rows], c.id.pub_key, PUB_KEY_SIZE);
     listRow(body, c.name, NULL, onOpenContactRow, (void*)(uintptr_t)rows);
     rows++;
   }
-  if (rows == 0) label(body, "No contacts yet", THEME_FONT_BODY, theme::TEXT_MUTED);
+  if (rows == 0) label(body, fav_only ? "No favourites - tap All" : "No contacts yet", THEME_FONT_BODY, theme::TEXT_MUTED);
 }
 
 // ── Nearby ────────────────────────────────────────────────────────────────────
@@ -1347,14 +1417,14 @@ void UITask::buildThread() {
   } else {
     contactName(_thread_key, title, sizeof(title));
     ContactInfo c;
-    can_send = MessageHistory::contactByPrefix(_thread_key, c) && c.type == ADV_TYPE_CHAT;
+    can_send = MessageHistory::contactByPrefix(_thread_key, c) && (c.type == ADV_TYPE_CHAT || c.type == ADV_TYPE_ROOM);
   }
   lv_obj_t* body = newScreen(title, true);
   lv_obj_set_style_pad_all(body, 0, 0);
   lv_obj_set_style_pad_row(body, 0, 0);
-  if (_thread_is_channel && _header) {   // channel options
+  if (_header && (_thread_is_channel || can_send)) {   // channel / conversation options
     lv_obj_set_width(lv_obj_get_child(_header, 1), 200);   // title, clear of the button
-    headerButton(_header, LV_SYMBOL_SETTINGS, onChanThreadMenu, 4, NULL);
+    headerButton(_header, LV_SYMBOL_SETTINGS, _thread_is_channel ? onChanThreadMenu : onConvThreadMenu, 4, NULL);
   }
 
   _thread_list = lv_obj_create(body);
@@ -1439,6 +1509,19 @@ static const int THREAD_MAX_SHOWN = 30;
 static MsgLoc s_msg_locs[THREAD_MAX_SHOWN];
 static int    s_msg_loc_n = 0;
 
+// What a held bubble is about: its history ring entry, sender, position slot.
+struct MsgMeta { int pos; bool channel; bool own; int loc; char from[32]; };
+static MsgMeta s_msg_meta[THREAD_MAX_SHOWN];
+static int     s_msg_meta_n = 0;
+
+static int noteMsgMeta(int pos, bool channel, bool own, int loc, const char* from) {
+  if (s_msg_meta_n >= THREAD_MAX_SHOWN) return -1;
+  MsgMeta& m = s_msg_meta[s_msg_meta_n];
+  m.pos = pos; m.channel = channel; m.own = own; m.loc = loc;
+  snprintf(m.from, sizeof(m.from), "%s", from ? from : "");
+  return s_msg_meta_n++;
+}
+
 static void onMsgLoc(lv_event_t* e) {
   uintptr_t v = (uintptr_t)lv_event_get_user_data(e);
   s_ui->messageLocationAction((int)(v >> 1), (v & 1) != 0);
@@ -1459,7 +1542,7 @@ static void msgLocButton(lv_obj_t* parent, const char* text, int idx, bool save,
 // One message bubble. Own messages right-aligned in amber, others left.
 // loc_idx >= 0: the text carries a position (s_msg_locs[loc_idx]).
 static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
-                   uint32_t ts, const char* status, uint32_t status_col, int loc_idx = -1) {
+                   uint32_t ts, const char* status, uint32_t status_col, int loc_idx = -1, int meta_idx = -1) {
   // Full-width row that pushes the bubble to its side.
   lv_obj_t* row = lv_obj_create(list);
   styleSurface(row, theme::BG);
@@ -1473,7 +1556,12 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
 
   lv_obj_t* b = lv_obj_create(row);
   lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  if (meta_idx >= 0) {   // hold: reply / path / target (ConversationScreen.h)
+    lv_obj_add_event_cb(b, onMsgHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)meta_idx);
+    lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+  } else {
+    lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  }
   lv_obj_set_size(b, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_max_width(b, 250, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(own ? theme::ACCENT_DIM : theme::SURFACE), 0);
@@ -1566,12 +1654,14 @@ void UITask::refreshThread() {
   const MessageHistory& h = _core->history;
   const int MAX_SHOWN = THREAD_MAX_SHOWN;
   s_msg_loc_n = 0;
+  s_msg_meta_n = 0;
 
   if (_thread_is_channel) {
     int n = h.histCountForChannel(_thread_channel);
     if (n > MAX_SHOWN) n = MAX_SHOWN;
     for (int j = n - 1; j >= 0; j--) {   // oldest first
-      const ChHistEntry& e = h.chAtPos(h.histEntryForChannel(_thread_channel, j));
+      int pos = h.histEntryForChannel(_thread_channel, j);
+      const ChHistEntry& e = h.chAtPos(pos);
       // Channel text is "Sender: body"; our own posts are filed as "Me: body".
       char from[40] = "";
       const char* body = e.text;
@@ -1585,14 +1675,18 @@ void UITask::refreshThread() {
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
       if (own && e.relay_status == ACK_OK)      { st = LV_SYMBOL_OK " relayed"; col = theme::OK; }
       else if (own && e.relay_status == ACK_PENDING) st = "sent";
+      int loc = own ? -1 : noteMsgLocation(body, from);
       bubble(_thread_list, own ? NULL : from, body, own, e.timestamp, st, col,
-             own ? -1 : noteMsgLocation(body, from));
+             loc, noteMsgMeta(pos, true, own, loc, own ? "" : from));
     }
   } else {
     int n = h.dmHistCountForContact(_thread_key);
     if (n > MAX_SHOWN) n = MAX_SHOWN;
+    ContactInfo tc;
+    bool room = MessageHistory::contactByPrefix(_thread_key, tc) && tc.type == ADV_TYPE_ROOM;
     for (int j = n - 1; j >= 0; j--) {
-      const DmHistEntry& e = h.dmAtPos(h.dmHistEntryForContact(_thread_key, j));
+      int pos = h.dmHistEntryForContact(_thread_key, j);
+      const DmHistEntry& e = h.dmAtPos(pos);
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
       if (e.outgoing) {
         switch (h.dmEffectiveStatus(e)) {
@@ -1602,10 +1696,14 @@ void UITask::refreshThread() {
           default:          st = "sent"; break;
         }
       }
+      // A room post is filed "Author: text": shown under its author.
       char who[33] = "";
-      if (!e.outgoing) contactName(_thread_key, who, sizeof(who));
-      bubble(_thread_list, NULL, e.text, e.outgoing, e.timestamp, st, col,
-             e.outgoing ? -1 : noteMsgLocation(e.text, who));
+      const char* text = e.text;
+      if (!e.outgoing && room) text = contactctl::splitRoomPost(e.text, who, sizeof(who));
+      else if (!e.outgoing) contactName(_thread_key, who, sizeof(who));
+      int loc = e.outgoing ? -1 : noteMsgLocation(text, who);
+      bubble(_thread_list, room && !e.outgoing ? who : NULL, text, e.outgoing, e.timestamp, st, col,
+             loc, e.outgoing ? -1 : noteMsgMeta(pos, false, false, loc, who));   // nothing to show for our own DM
     }
   }
   if (lv_obj_get_child_count(_thread_list) == 0)
@@ -1912,3 +2010,5 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
   _prefs->keyboard_alt_alphabet  = (uint8_t)(alt_sel == 0 ? main_idx : alt_sel - 1);
   the_mesh.savePrefs();
 }
+
+#include "ConversationScreen.h"

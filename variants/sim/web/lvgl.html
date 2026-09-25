@@ -89,6 +89,7 @@
   <script src="build/meshcore_sim.js"></script>
   <script src="build/meshcore_sim_lvgl.js"></script>
   <script src="build/repeater/meshcore_sim_repeater.js" onerror="window.MeshCoreSimRepeater = null"></script>
+  <script src="build/room_server/meshcore_sim_room_server.js" onerror="window.MeshCoreSimRoomServer = null"></script>
   <script>
     const logEl = document.getElementById('log');
     function log(msg) {
@@ -123,11 +124,11 @@
       };
     }
 
-    let L = null, P = null, R = null;
+    let L = null, P = null, R = null, S = null;
 
     // Everyone hears everyone, 50 ms air time.
     setInterval(() => {
-      const nodes = [L, P, R].filter(Boolean);
+      const nodes = [L, P, R, S].filter(Boolean);
       for (const from of nodes) {
         for (const pkt of from.pollTx())
           for (const to of nodes) if (to !== from) setTimeout(() => to.injectRx(pkt), 50);
@@ -193,10 +194,21 @@
       return ok;
     }
 
+    // Room server "Sim Room" (optional, variants/sim/build_wasm_room_server.sh):
+    // guest password empty, admin "password".
+    async function bootS() {
+      if (!window.MeshCoreSimRoomServer) { log('room server build not found (optional)'); return false; }
+      S = wrap(await MeshCoreSimRoomServer({ simInstanceTag: 'S' }), 'S');
+      const ok = await waitReady(S);
+      log(ok ? 'room server up' : 'room server boot timed out');
+      return ok;
+    }
+
     function advertBoth() {
       L.call('sim_test_advert_flood', 'number');
       setTimeout(() => P.call('sim_test_advert_flood', 'number'), 300);
       if (R) setTimeout(() => R.call('sim_test_advert_flood', 'number'), 600);
+      if (S) setTimeout(() => S.call('sim_test_advert_flood', 'number'), 900);
       log('advert: all');
     }
 
@@ -239,6 +251,7 @@
 
     const ready = (async () => {
       await bootR();
+      await bootS();
       const [okP, okL] = [await bootP(), await bootL()];
       if (okP && okL) { advertBoth(); log('both devices up'); }
       return okP && okL;

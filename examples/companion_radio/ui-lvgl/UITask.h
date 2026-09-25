@@ -136,6 +136,16 @@ public:
   void botPick(int idx);
   void botHour(uint8_t act);
   void botTextDone(bool ok);
+  // ConversationScreen.h
+  void openRoom(const uint8_t* pub_key);
+  void roomLoginPopup(const uint8_t* pub_key);
+  void roomLoginDone(bool ok);
+  void conversationMenu(const uint8_t* pub_key);   // nullptr: the open thread's
+  void conversationAction(uint8_t act);
+  void conversationNotif(int v);
+  void messageMenu(int idx);
+  void messageAction(uint8_t act);
+  void toggleChatFilter(uint8_t which);
   void setGps(bool on);
   bool ensureGps();   // true with a fix; else turns GPS on / says it's waiting
 
@@ -204,6 +214,7 @@ private:
   void refreshAdminStatus();
   void adminLeave();
   void adminPoll();
+  void roomPoll();
   void adminValuePopup();
   void adminTextPopup(const char* text, bool digits);
   void adminReplyPopup(const char* text);

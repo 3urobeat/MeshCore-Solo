@@ -31,6 +31,14 @@ static bool g_sim_ready = false;
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_is_ready() {
   return g_sim_ready ? 1 : 0;
 }
+
+// Advert now, so a host page's companions learn the room right away (see
+// examples/simple_repeater/main.cpp's sim_test_advert_flood()).
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_advert_flood() {
+  if (!g_sim_ready) return 0;
+  the_mesh.sendSelfAdvertisement(0, true);
+  return 1;
+}
 #endif
 
 static char command[MAX_POST_TEXT_LEN+1];

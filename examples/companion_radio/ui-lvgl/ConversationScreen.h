@@ -1,0 +1,314 @@
+#pragma once
+// Conversations beyond plain sending -- ui-new's Messages extras:
+//  - room servers: opening one logs in first (the saved password silently, else
+//    a password popup), then the thread shows each post under its author;
+//  - conversation options (hold a DM / room row, or the ⚙ in its thread):
+//    alerts and favourite for a contact; favourite, log in again / log out
+//    for a room;
+//  - message actions (hold a bubble): reply ("@[name] " in the compose field),
+//    the path it came by / the repeaters that relayed it, set as target;
+//  - the favourites-only filters of the Chats sections and the contact picker.
+// Logic in the UI Core: RoomSessions (logins), contactctl (prefs, reply
+// prefix, room post author, path hops), shared with ui-new.
+//
+// Single-TU fragment: included at the end of ui-lvgl/UITask.cpp (uses the
+// thread's s_msg_meta).
+
+namespace convview {
+
+enum : uint8_t { A_FAV, A_READ, A_LOGIN, A_LOGOUT };
+enum : uint8_t { M_REPLY, M_TARGET };
+
+static uint8_t s_key[PUB_KEY_SIZE];     // the conversation the popup is about
+static uint8_t s_login_key[PUB_KEY_SIZE];
+static bool s_login_wait = false;       // open the room once this login answers
+static lv_obj_t* s_fav_btn = nullptr;
+static int s_msg = -1;                  // s_msg_meta index the message popup is about
+
+static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, lv_event_cb_t cb) {
+  lv_obj_t* seg = lv_buttonmatrix_create(parent);
+  lv_buttonmatrix_set_map(seg, map);
+  lv_buttonmatrix_set_button_ctrl_all(seg, LV_BUTTONMATRIX_CTRL_CHECKABLE);
+  lv_buttonmatrix_set_one_checked(seg, true);
+  lv_buttonmatrix_set_button_ctrl(seg, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
+  lv_obj_set_size(seg, w, 36);
+  lv_obj_align(seg, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_set_style_pad_all(seg, 0, 0);
+  lv_obj_set_style_pad_column(seg, 3, 0);
+  lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(seg, 0, 0);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(seg, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
+  lv_obj_set_style_text_font(seg, THEME_FONT_SMALL, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(seg, 0, LV_PART_ITEMS);
+  lv_obj_set_style_radius(seg, 8, LV_PART_ITEMS);
+  lv_obj_add_event_cb(seg, cb, LV_EVENT_VALUE_CHANGED, NULL);
+  return seg;
+}
+
+static lv_obj_t* actionRow(lv_obj_t* panel) {
+  lv_obj_t* acts = lv_obj_create(panel);
+  styleSurface(acts, theme::BG);
+  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
+  return acts;
+}
+
+static lv_obj_t* actionButton(lv_obj_t* acts, const char* text, lv_event_cb_t cb, uint8_t act, bool on) {
+  lv_obj_t* bt = lv_button_create(acts);
+  lv_obj_set_height(bt, 40);
+  lv_obj_set_flex_grow(bt, 1);
+  lv_obj_set_style_pad_hor(bt, 4, 0);
+  lv_obj_set_style_radius(bt, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(bt, 0, 0);
+  lv_obj_set_style_bg_color(bt, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
+  lv_obj_add_event_cb(bt, cb, LV_EVENT_CLICKED, (void*)(uintptr_t)act);
+  lv_obj_center(label(bt, text, THEME_FONT_SMALL, theme::TEXT));
+  return bt;
+}
+
+}  // namespace convview
+
+static void onConvAction(lv_event_t* e) { s_ui->conversationAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+static void onConvNotif(lv_event_t* e) {
+  s_ui->conversationNotif((int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
+}
+static void onMsgAction(lv_event_t* e) { s_ui->messageAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+static void onRoomLoginKb(lv_event_t* e) { s_ui->roomLoginDone(lv_event_get_code(e) == LV_EVENT_READY); }
+
+static void onDMRowHold(lv_event_t* e) {
+  lv_indev_wait_release(lv_indev_active());   // the hold isn't also a tap that opens it
+  s_ui->conversationMenu(s_dm_rows[(uintptr_t)lv_event_get_user_data(e)]);
+}
+static void onRoomRow(lv_event_t* e) { s_ui->openRoom(s_room_rows[(uintptr_t)lv_event_get_user_data(e)]); }
+static void onRoomRowHold(lv_event_t* e) {
+  lv_indev_wait_release(lv_indev_active());
+  s_ui->conversationMenu(s_room_rows[(uintptr_t)lv_event_get_user_data(e)]);
+}
+static void onConvThreadMenu(lv_event_t* e) { (void)e; s_ui->conversationMenu(nullptr); }
+static void onMsgHold(lv_event_t* e) {
+  lv_indev_wait_release(lv_indev_active());
+  s_ui->messageMenu((int)(uintptr_t)lv_event_get_user_data(e));
+}
+static void onChatFilter(lv_event_t* e) { s_ui->toggleChatFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+
+// ── Rooms ─────────────────────────────────────────────────────────────────────
+
+void UITask::openRoom(const uint8_t* pub_key) {
+  using namespace convview;
+  ContactInfo ci;
+  if (!MessageHistory::contactByPrefix(pub_key, ci)) return;
+  _core->clearRoomUnread();
+  switch (_core->rooms.open(ci)) {
+    case RoomSessions::OPEN_NOW:
+      openDM(ci.id.pub_key);
+      break;
+    case RoomSessions::LOGGING_IN:   // saved password: opens when the room answers
+      memcpy(s_login_key, ci.id.pub_key, PUB_KEY_SIZE);
+      s_login_wait = true;
+      showToast(LV_SYMBOL_REFRESH "  Logging in...", 8000);
+      break;
+    case RoomSessions::NEED_PASSWORD:
+      roomLoginPopup(ci.id.pub_key);
+      break;
+    default:
+      showToast("Login failed - not sent");
+      break;
+  }
+}
+
+void UITask::roomLoginPopup(const uint8_t* pub_key) {
+  using namespace convview;
+  ContactInfo ci;
+  if (!MessageHistory::contactByPrefix(pub_key, ci)) return;
+  memcpy(s_login_key, ci.id.pub_key, PUB_KEY_SIZE);
+  lv_obj_t* panel = navPopupPanel(ci.name, false);
+  lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
+  _nav_ta = wifiField(panel, "Room password (may be empty)", true);
+  lv_obj_remove_event_cb(_nav_ta, onWifiField);
+  lv_textarea_set_max_length(_nav_ta, 15);
+  lv_obj_add_state(_nav_ta, LV_STATE_FOCUSED);   // draws the cursor
+  _nav_kb = kb::create(_nav_overlay, _prefs);
+  lv_obj_set_size(_nav_kb, LV_PCT(100), 124);
+  lv_obj_align(_nav_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_keyboard_set_textarea(_nav_kb, _nav_ta);
+  lv_obj_add_event_cb(_nav_kb, onRoomLoginKb, LV_EVENT_READY, NULL);
+  lv_obj_add_event_cb(_nav_kb, onRoomLoginKb, LV_EVENT_CANCEL, NULL);
+}
+
+void UITask::roomLoginDone(bool ok) {
+  using namespace convview;
+  ContactInfo ci;
+  if (!ok || !_nav_ta || !MessageHistory::contactByPrefix(s_login_key, ci)) { navClosePopup(); return; }
+  bool sent = _core->rooms.login(ci, lv_textarea_get_text(_nav_ta));
+  navClosePopup();
+  s_login_wait = sent;
+  showToast(sent ? LV_SYMBOL_REFRESH "  Logging in..." : "Login failed - not sent", sent ? 8000 : 2500);
+}
+
+// From loop(), on any screen: a login answer (or its timeout).
+void UITask::roomPoll() {
+  using namespace convview;
+  uint8_t key[4];
+  RoomSessions::Outcome o = _core->rooms.take(key);
+  if (o == RoomSessions::NONE) return;
+  bool mine = s_login_wait && memcmp(key, s_login_key, 4) == 0;
+  if (mine) s_login_wait = false;
+  if (o == RoomSessions::LOGGED_IN) {
+    showToast("Logged in", 1200);
+    if (mine && _screen == SCR_CHATS && !_nav_overlay) openDM(s_login_key);
+    else if (_screen == SCR_CHATS && !_nav_overlay) buildChats();
+  } else if (o == RoomSessions::LOGIN_FAILED) {
+    showToast("Login failed - wrong password?", 3000);
+    if (mine && _screen == SCR_CHATS && !_nav_overlay) roomLoginPopup(s_login_key);
+  } else {
+    showToast("No answer from the room", 3000);
+  }
+}
+
+// ── Conversation options ──────────────────────────────────────────────────────
+
+void UITask::conversationMenu(const uint8_t* pub_key) {
+  using namespace convview;
+  ContactInfo ci;
+  if (!MessageHistory::contactByPrefix(pub_key ? pub_key : _thread_key, ci)) return;
+  memcpy(s_key, ci.id.pub_key, PUB_KEY_SIZE);
+  lv_obj_t* panel = navPopupPanel(ci.name, false);
+  bool room = ci.type == ADV_TYPE_ROOM;
+
+  if (!room) {   // alerts: three segments (a dropdown's list runs off screen this low)
+    static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
+    lv_obj_t* row = radioview::settingRow(panel, "Alerts", NULL);
+    segmented(row, NOTIF, contactctl::notif(_prefs, ci.id.pub_key), 200, onConvNotif);
+  } else {
+    bool in = _core->rooms.isLoggedIn(ci.id.pub_key);
+    lv_obj_t* st = label(panel, in ? LV_SYMBOL_OK "  Logged in: you can post"
+                                   : "Not logged in this session", THEME_FONT_SMALL, in ? theme::OK : theme::TEXT_MUTED);
+    lv_obj_set_width(st, LV_PCT(100));
+  }
+
+  lv_obj_t* acts = actionRow(panel);
+  s_fav_btn = actionButton(acts, UI_SYMBOL_STAR " Fav", onConvAction, A_FAV, contactctl::favourite(ci));
+  if (!room && _core->dmUnread(ci.id.pub_key) > 0) actionButton(acts, LV_SYMBOL_OK " Read", onConvAction, A_READ, false);
+  if (room) {
+    actionButton(acts, LV_SYMBOL_EDIT " Login", onConvAction, A_LOGIN, false);
+    if (_core->rooms.isLoggedIn(ci.id.pub_key)) actionButton(acts, LV_SYMBOL_CLOSE " Logout", onConvAction, A_LOGOUT, false);
+  }
+}
+
+void UITask::conversationNotif(int v) {
+  if (!_prefs || v < 0 || v > 2) return;
+  contactctl::setNotif(_prefs, convview::s_key, (uint8_t)v);
+  the_mesh.savePrefs();
+}
+
+void UITask::conversationAction(uint8_t act) {
+  using namespace convview;
+  ContactInfo ci;
+  if (!MessageHistory::contactByPrefix(s_key, ci)) { navClosePopup(); return; }
+  switch (act) {
+    case A_FAV: {
+      bool on = !contactctl::favourite(ci);
+      if (!contactctl::setFavourite(ci.id.pub_key, on)) break;
+      if (s_fav_btn) lv_obj_set_style_bg_color(s_fav_btn, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
+      showToast(on ? "Added to favourites" : "Removed from favourites", 1200);
+      if (_screen == SCR_CHATS) { buildChats(); conversationMenu(s_key); }   // star / filter
+      break;
+    }
+    case A_READ:
+      _core->clearDMUnread(ci.id.pub_key);
+      navClosePopup();
+      if (_screen == SCR_CHATS) buildChats();
+      break;
+    case A_LOGIN:
+      roomLoginPopup(ci.id.pub_key);
+      break;
+    case A_LOGOUT:
+      _core->rooms.logout(ci.id.pub_key);
+      navClosePopup();
+      showToast("Logged out - password forgotten", 2000);
+      if (_screen == SCR_THREAD) showChats();
+      else if (_screen == SCR_CHATS) buildChats();
+      break;
+  }
+}
+
+// ── Message actions ───────────────────────────────────────────────────────────
+
+void UITask::messageMenu(int idx) {
+  using namespace convview;
+  if (idx < 0 || idx >= s_msg_meta_n) return;
+  const MsgMeta& m = s_msg_meta[idx];
+  s_msg = idx;
+  lv_obj_t* panel = navPopupPanel(m.own ? "My message" : (m.from[0] ? m.from : "Message"), false);
+
+  // The way it came: hops of an incoming message, or the repeaters heard
+  // relaying our own channel post.
+  const MessageHistory& h = _core->history;
+  uint8_t packed = 0; const uint8_t* path = nullptr; bool relay = false;
+  if (m.pos >= 0) {
+    if (m.channel) { const ChHistEntry& e = h.chAtPos(m.pos); packed = e.path_len; path = e.path; relay = e.relay_seq != 0; }
+    else           { const DmHistEntry& e = h.dmAtPos(m.pos); packed = e.path_len; path = e.path; }
+  }
+  uint8_t hops = contactctl::hopCount(packed);
+  char text[200];
+  int o = 0;
+  if (hops > 0) {
+    o = snprintf(text, sizeof(text), relay ? "Relayed by: " : "Path (%u hop%s): ", hops, hops == 1 ? "" : "s");
+    for (uint8_t i = 0; i < hops && o < (int)sizeof(text) - 40; i++) {
+      char nm[33];
+      contactctl::hopName(packed, path, i, nm, sizeof(nm));
+      o += snprintf(text + o, sizeof(text) - o, "%s%s", i ? (relay ? ", " : " > ") : "", nm);
+    }
+  } else if (!m.own) {
+    snprintf(text, sizeof(text), "Heard directly (no repeaters)");
+  } else if (m.channel) {
+    snprintf(text, sizeof(text), "No repeater heard relaying it yet");
+  } else {
+    snprintf(text, sizeof(text), "Delivery is shown under the message");   // no path kept for our own DMs
+  }
+  lv_obj_t* t = label(panel, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(t, LV_PCT(100));
+
+  bool can_reply = !m.own && m.from[0] && _compose_ta;
+  if (!can_reply && m.loc < 0) return;
+  lv_obj_t* acts = actionRow(panel);
+  if (can_reply) actionButton(acts, LV_SYMBOL_EDIT " Reply", onMsgAction, M_REPLY, false);
+  if (m.loc >= 0) actionButton(acts, UI_SYMBOL_COMPASS " Set target", onMsgAction, M_TARGET, false);
+}
+
+void UITask::messageAction(uint8_t act) {
+  using namespace convview;
+  if (s_msg < 0 || s_msg >= s_msg_meta_n) { navClosePopup(); return; }
+  const MsgMeta& m = s_msg_meta[s_msg];
+  navClosePopup();
+  if (act == M_REPLY && _compose_ta) {
+    char pre[40];
+    contactctl::replyPrefix(m.from, pre, sizeof(pre));
+    lv_textarea_set_text(_compose_ta, pre);
+    setKeyboardVisible(true);
+  } else if (act == M_TARGET && m.loc >= 0 && m.loc < s_msg_loc_n) {
+    const MsgLoc& l = s_msg_locs[m.loc];
+    navSetTarget(0, nullptr, l.lat, l.lon, l.label);   // a place snapshotted from the text
+    char msg[48];
+    snprintf(msg, sizeof(msg), "Target: %s", l.label);
+    showToast(msg);
+  }
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+
+void UITask::toggleChatFilter(uint8_t which) {
+  if (!_prefs) return;
+  switch (which) {
+    case CF_CHANNELS: _prefs->ch_fav_only ^= 1; break;
+    case CF_ROOMS:    _prefs->room_fav_only ^= 1; break;
+    case CF_CONTACTS: _prefs->dm_show_all ^= 1; break;
+  }
+  the_mesh.savePrefs();
+  if (_screen == SCR_CONTACTS) buildContacts(); else buildChats();
+}

@@ -25,6 +25,8 @@
 #include "WaypointModel.h"
 #include "ChannelControl.h"
 #include "AdminSession.h"
+#include "RoomSessions.h"
+#include "ContactControl.h"
 
 class UiCore : public MyMesh::Listener {
 public:
@@ -53,6 +55,7 @@ public:
     locator.loop();
     trail.loop();
     admin.loop();
+    rooms.loop();
   }
 
   UiEventQueue events;      // Core → frontend; drained by the frontend's loop()
@@ -65,6 +68,7 @@ public:
   LocatorEngine locator;    // active target, geofence crossings, proximity beeper
   TrailEngine  trail;       // GPS trail store, sampling, auto-pause, shutdown save
   AdminSession admin;       // remote repeater / room admin: login + CLI round trips
+  RoomSessions rooms;       // room server logins for posting (messages screens)
 
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread
@@ -240,9 +244,12 @@ public:
   }
 
   // Login answers go to the admin session when it's the one waiting, else to
-  // the frontend (room server logins from its messages screen).
+  // the room sessions (logins from the messages screen), then the frontend.
   void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) override {
-    if (!admin.onLoginResult(pub_key, success, permissions)) _host->onRoomLoginResult(pub_key, success, permissions);
+    if (!admin.onLoginResult(pub_key, success, permissions)) {
+      rooms.onLoginResult(pub_key, success);
+      _host->onRoomLoginResult(pub_key, success, permissions);
+    }
     _host->onAdminStateChanged();
   }
   void onAdminReply(const uint8_t* pub_key, const char* text) override {
