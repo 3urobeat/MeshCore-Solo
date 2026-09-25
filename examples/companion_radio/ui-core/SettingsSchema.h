@@ -1,0 +1,222 @@
+#pragma once
+// Declarative settings (docs/development/ui-core.md, step 4): one table of
+// NodePrefs options with their labels, value lists and side effects, so every
+// frontend renders the same settings without its own per-item code. ui-lvgl
+// draws it as switches and dropdowns, one page per Page below; ui-new still has
+// its hand-written screens and moves over later.
+//
+// Each entry picks one of `count` values. By default the NodePrefs field is a
+// uint8_t holding that index; with a `values` table the field (1, 2 or 4 bytes,
+// `size`) holds values[index] instead -- seconds, millivolts, an hour offset,
+// or {1, 0} for a switch whose field is stored inverted. count == 2 with no
+// option labeller is an on/off switch.
+
+#include <stddef.h>
+#include "../NodePrefs.h"
+#include "../Trail.h"
+
+namespace settings {
+
+// Pages (one screen each) and the sections on them, in display order.
+enum Page : uint8_t { PG_NAV, PG_DEVICE, PG_MESSAGES, PG_COUNT };
+enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_UNITS,
+                         SEC_DISPLAY, SEC_POWER, SEC_TIME,
+                         SEC_MESSAGES, SEC_CONTACTS, SEC_COUNT };
+
+static const char* pageTitle(uint8_t p) {
+  static const char* T[PG_COUNT] = { "Trail, live share, alerts", "Display & power", "Messages & contacts" };
+  return p < PG_COUNT ? T[p] : "";
+}
+static const char* sectionTitle(uint8_t s) {
+  static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "UNITS",
+                                      "DISPLAY", "POWER", "TIME",
+                                      "MESSAGES", "CONTACTS" };
+  return s < SEC_COUNT ? T[s] : "";
+}
+static uint8_t sectionPage(uint8_t s) {
+  static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_NAV,
+                                        PG_DEVICE, PG_DEVICE, PG_DEVICE,
+                                        PG_MESSAGES, PG_MESSAGES };
+  return s < SEC_COUNT ? P[s] : PG_NAV;
+}
+
+struct Setting {
+  const char* label;
+  const char* hint;       // one short line under the label, or nullptr
+  uint8_t     section;
+  uint16_t    offset;     // offsetof(NodePrefs, field)
+  uint8_t     count;      // number of values
+  // Label for value v (nullptr: an on/off switch).
+  void (*option)(uint8_t v, char* buf, int n, const NodePrefs& p);
+  // Side effect after a change (nullptr: none). The caller saves the prefs.
+  void (*changed)(UiCore& core);
+  const int32_t* values;  // stored value per index; nullptr: the index itself
+  uint8_t     size;       // field bytes (1, 2, 4)
+};
+
+// ── Value labels ──────────────────────────────────────────────────────────────
+static void optMinDelta(uint8_t v, char* b, int n, const NodePrefs& p) {
+  snprintf(b, n, "%s", TrailStore::minDeltaLabel(v, p.units_imperial));
+}
+static void optAutoPause(uint8_t v, char* b, int n, const NodePrefs&) {
+  uint16_t s = NodePrefs::trailAutoPauseSecs(v);
+  if (s == 0) snprintf(b, n, "Off"); else snprintf(b, n, "%u min", (unsigned)(s / 60));
+}
+static void optGpsAvg(uint8_t v, char* b, int n, const NodePrefs&) {
+  uint16_t s = NodePrefs::gpsAvgSecs(v);
+  if (s == 0) snprintf(b, n, "Off"); else snprintf(b, n, "%u s", (unsigned)s);
+}
+static void optDuration(uint8_t v, char* b, int n, const NodePrefs&) {
+  snprintf(b, n, "%u h", (unsigned)(NodePrefs::locShareDurationMins(v) / 60));
+}
+static void optMove(uint8_t v, char* b, int n, const NodePrefs&) {
+  snprintf(b, n, "%u m", (unsigned)NodePrefs::locShareMoveMeters(v));
+}
+static void optGap(uint8_t v, char* b, int n, const NodePrefs&) {
+  uint16_t s = NodePrefs::locShareIntervalSecs(v);
+  if (s < 60) snprintf(b, n, "%u s", (unsigned)s); else snprintf(b, n, "%u min", (unsigned)(s / 60));
+}
+static void optHeartbeat(uint8_t v, char* b, int n, const NodePrefs&) {
+  uint16_t s = NodePrefs::locShareHeartbeatSecs(v);
+  if (s == 0) snprintf(b, n, "Off"); else snprintf(b, n, "%u min", (unsigned)(s / 60));
+}
+static void optRadius(uint8_t v, char* b, int n, const NodePrefs&) {
+  uint16_t m = NodePrefs::locatorRadiusMeters(v);
+  if (m < 1000) snprintf(b, n, "%u m", (unsigned)m); else snprintf(b, n, "%u km", (unsigned)(m / 1000));
+}
+static void optLocMode(uint8_t v, char* b, int n, const NodePrefs&) {
+  snprintf(b, n, "%s", NodePrefs::locatorModeLabel(v));
+}
+static void optBrightness(uint8_t v, char* b, int n, const NodePrefs&) {
+  static const char* L[5] = { "Lowest", "Low", "Medium", "High", "Max" };
+  snprintf(b, n, "%s", L[v < 5 ? v : 2]);
+}
+// Seconds -> "30 s" / "2 min" / "1 h"; 0 reads as `zero`.
+static void fmtSecs(char* b, int n, int32_t s, const char* zero) {
+  if (s == 0) snprintf(b, n, "%s", zero);
+  else if (s < 60) snprintf(b, n, "%ld s", (long)s);
+  else if (s < 3600) snprintf(b, n, "%ld min", (long)(s / 60));
+  else snprintf(b, n, "%ld h", (long)(s / 3600));
+}
+static const int32_t AUTO_OFF[] = { 15, 30, 60, 120, 300, 0 };
+static void optAutoOff(uint8_t v, char* b, int n, const NodePrefs&) { fmtSecs(b, n, AUTO_OFF[v], "Never"); }
+static const int32_t GPS_DUTY[] = { 0, 60, 300, 900, 1800, 3600 };
+static void optGpsDuty(uint8_t v, char* b, int n, const NodePrefs&) { fmtSecs(b, n, GPS_DUTY[v], "Always on"); }
+static const int32_t LOW_BATT[] = { 0, 3000, 3100, 3200, 3300, 3400, 3500 };
+static void optLowBatt(uint8_t v, char* b, int n, const NodePrefs&) {
+  if (LOW_BATT[v] == 0) snprintf(b, n, "Off");
+  else snprintf(b, n, "%ld.%ld V", (long)(LOW_BATT[v] / 1000), (long)(LOW_BATT[v] % 1000 / 100));
+}
+static const int32_t TZ[] = { -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0,
+                              1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
+static void optTz(uint8_t v, char* b, int n, const NodePrefs&) {
+  if (TZ[v] == 0) snprintf(b, n, "UTC"); else snprintf(b, n, "UTC%+ld", (long)TZ[v]);
+}
+static const int32_t INVERTED[] = { 1, 0 };   // switch over a field stored as "off" flag
+static void optResend(uint8_t v, char* b, int n, const NodePrefs&) {
+  if (v == 0) snprintf(b, n, "Off"); else snprintf(b, n, "%u more", (unsigned)v);
+}
+static void optExpiry(uint8_t v, char* b, int n, const NodePrefs&) {
+  snprintf(b, n, "%s", NodePrefs::contactExpiryLabel(v));
+}
+
+// ── Side effects ──────────────────────────────────────────────────────────────
+static void rearmLocator(UiCore& c)      { c.locator.reset(); }
+static void restartShareClock(UiCore& c) { c.live_share.restartClock(); }   // a new length starts over
+static void applyDisplay(UiCore& c)      { c.host()->applyDisplayPrefs(); }
+static void applyGpsDuty(UiCore& c)      { c.applyGpsInterval(); }
+
+#define NP_OFF(f)  (uint16_t)offsetof(NodePrefs, f)
+#define NP_SIZE(f) (uint8_t)sizeof(((NodePrefs*)0)->f)
+#define COUNT_OF(a) (uint8_t)(sizeof(a) / sizeof(a[0]))
+// Index fields (uint8_t index), switches, and fields holding values[index].
+#define IDX(label, hint, sec, f, count, opt, chg) { label, hint, sec, NP_OFF(f), count, opt, chg, nullptr, 1 }
+#define SW(label, hint, sec, f, chg)             { label, hint, sec, NP_OFF(f), 2, nullptr, chg, nullptr, 1 }
+#define MAP(label, hint, sec, f, vals, opt, chg) { label, hint, sec, NP_OFF(f), COUNT_OF(vals), opt, chg, vals, NP_SIZE(f) }
+static const Setting ALL[] = {
+  IDX("Point spacing", "Distance between trail points", SEC_TRAIL, trail_min_delta_idx,
+      TrailStore::MIN_DELTA_COUNT, optMinDelta, nullptr),
+  IDX("Auto-pause", "Pause the trail when standing still", SEC_TRAIL, trail_autopause_idx,
+      NodePrefs::TRAIL_AUTOPAUSE_COUNT, optAutoPause, nullptr),
+  SW("Save on low battery", "Keep the trail when the battery runs out", SEC_TRAIL, trail_autosave_lowbatt, nullptr),
+  IDX("Waypoint averaging", "Average GPS fixes when marking", SEC_TRAIL, gps_avg_idx,
+      NodePrefs::GPS_AVG_COUNT, optGpsAvg, nullptr),
+
+  SW("Show others' positions", "People sharing [LOC] on the map", SEC_LIVE_SHARE, track_shared_loc, nullptr),
+  IDX("Stop sharing after", nullptr, SEC_LIVE_SHARE, loc_share_duration_idx,
+      NodePrefs::LOC_SHARE_DURATION_COUNT, optDuration, restartShareClock),
+  IDX("Send after moving", nullptr, SEC_LIVE_SHARE, loc_share_move_idx,
+      NodePrefs::LOC_SHARE_MOVE_COUNT, optMove, nullptr),
+  IDX("At most every", nullptr, SEC_LIVE_SHARE, loc_share_interval_idx,
+      NodePrefs::LOC_SHARE_INTERVAL_COUNT, optGap, nullptr),
+  IDX("Heartbeat", "Resend while standing still", SEC_LIVE_SHARE, loc_share_heartbeat_idx,
+      NodePrefs::LOC_SHARE_HEARTBEAT_COUNT, optHeartbeat, nullptr),
+
+  SW("Arrival alert", "When you reach the target", SEC_LOCATOR, locator_enabled, rearmLocator),
+  IDX("Radius", nullptr, SEC_LOCATOR, locator_radius_idx,
+      NodePrefs::LOCATOR_RADIUS_COUNT, optRadius, rearmLocator),
+  IDX("Alert on", nullptr, SEC_LOCATOR, locator_mode,
+      NodePrefs::LOCATOR_MODE_COUNT, optLocMode, rearmLocator),
+  SW("Proximity beeper", "Faster ticks as you get closer", SEC_LOCATOR, locator_beeper, nullptr),
+
+  SW("Imperial units", "Miles and feet", SEC_UNITS, units_imperial, nullptr),
+
+  IDX("Brightness", nullptr, SEC_DISPLAY, display_brightness, 5, optBrightness, applyDisplay),
+  MAP("Screen off after", "Without a touch", SEC_DISPLAY, auto_off_secs, AUTO_OFF, optAutoOff, nullptr),
+  MAP("Wake on message", "Turn the screen on for new messages", SEC_DISPLAY, msg_wake_screen_off, INVERTED,
+      nullptr, nullptr),
+
+  MAP("Battery shutdown", "Power off below this voltage", SEC_POWER, low_batt_mv, LOW_BATT, optLowBatt, nullptr),
+  MAP("GPS power saving", "Sleep between fixes", SEC_POWER, gps_interval, GPS_DUTY, optGpsDuty, applyGpsDuty),
+
+  MAP("Time zone", "For the clock and the alarm", SEC_TIME, tz_offset_hours, TZ, optTz, nullptr),
+
+  IDX("Resend direct messages", "Extra tries without a delivery tick", SEC_MESSAGES, dm_resend_count, 6,
+      optResend, nullptr),
+
+  IDX("Contact expiry", "Inactive this long can be pruned", SEC_CONTACTS, contact_expiry_idx,
+      NodePrefs::CONTACT_EXPIRY_COUNT, optExpiry, nullptr),
+  MAP("Favourites first", "In contact and node lists", SEC_CONTACTS, fav_sort_off, INVERTED, nullptr, nullptr),
+};
+#undef IDX
+#undef SW
+#undef MAP
+#undef COUNT_OF
+#undef NP_SIZE
+#undef NP_OFF
+static const int COUNT = (int)(sizeof(ALL) / sizeof(ALL[0]));
+
+static int32_t readRaw(const NodePrefs& p, const Setting& s) {
+  const uint8_t* f = (const uint8_t*)&p + s.offset;
+  bool sgn = false;   // a table with negative values is over a signed field
+  for (uint8_t i = 0; s.values && i < s.count; i++) if (s.values[i] < 0) sgn = true;
+  if (s.size == 2) { uint16_t v; memcpy(&v, f, 2); return sgn ? (int32_t)(int16_t)v : (int32_t)v; }
+  if (s.size == 4) { uint32_t v; memcpy(&v, f, 4); return (int32_t)v; }
+  return sgn ? (int32_t)(int8_t)f[0] : (int32_t)f[0];
+}
+static void writeRaw(NodePrefs& p, const Setting& s, int32_t v) {
+  uint8_t* f = (uint8_t*)&p + s.offset;
+  if (s.size == 2) { uint16_t w = (uint16_t)v; memcpy(f, &w, 2); }
+  else if (s.size == 4) { uint32_t w = (uint32_t)v; memcpy(f, &w, 4); }
+  else f[0] = (uint8_t)v;
+}
+
+// Current index. A stored value outside the table reads as the nearest entry
+// (e.g. an auto-off time set on another frontend).
+static uint8_t get(const NodePrefs& p, const Setting& s) {
+  int32_t raw = readRaw(p, s);
+  if (!s.values) return raw >= 0 && raw < s.count ? (uint8_t)raw : 0;
+  uint8_t best = 0;
+  int32_t best_d = INT32_MAX;
+  for (uint8_t i = 0; i < s.count; i++) {
+    int32_t d = s.values[i] > raw ? s.values[i] - raw : raw - s.values[i];
+    if (d < best_d) { best_d = d; best = i; }
+  }
+  return best;
+}
+static void set(NodePrefs& p, const Setting& s, uint8_t v) {
+  if (v >= s.count) return;
+  writeRaw(p, s, s.values ? s.values[v] : v);
+}
+
+}  // namespace settings

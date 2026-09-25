@@ -22,18 +22,21 @@
 #include "LiveShareEngine.h"
 #include "LocatorEngine.h"
 #include "TrailEngine.h"
+#include "WaypointModel.h"
 
 class UiCore : public MyMesh::Listener {
 public:
   void begin(NodePrefs* prefs, SensorManager* sensors, UiCoreHost* host) {
     _host = host;
     _prefs = prefs;
+    _sensors = sensors;
     clock.begin(prefs, &events);
     ping.begin(prefs);
     course.begin(sensors);
     live_share.begin(prefs, &course, &events);
     locator.begin(prefs, &course, &live_share, &events);
     trail.begin(prefs, &course);
+    waypoints.begin(&locator);   // loads /waypoints
   }
 
   // Driven from the frontend's loop(), before it drains `events`.
@@ -62,6 +65,7 @@ public:
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread
   DmUnreadTable  dm_unread; // per-contact DM unread counters
+  WaypointModel  waypoints; // saved places, persisted to /waypoints
 
   // ── Unread ────────────────────────────────────────────────────────────────
   // Messages waiting in the companion-app offline queue (0 = the app synced).
@@ -110,6 +114,32 @@ public:
     history.setChUnread(channel_idx, 0);
     return true;
   }
+
+  // GPS power: the sensor manager's "gps" setting, persisted as
+  // NodePrefs::gps_enabled (MyMesh::applyGpsPrefs() restores it at boot).
+  bool gpsAvailable() const { return gpsSettingIndex() >= 0; }
+  bool gpsEnabled() const {
+    int i = gpsSettingIndex();
+    return i >= 0 && strcmp(_sensors->getSettingValue(i), "1") == 0;
+  }
+  // False when the board has no GPS.
+  bool setGpsEnabled(bool on) {
+    if (gpsSettingIndex() < 0) return false;
+    _sensors->setSettingValue("gps", on ? "1" : "0");
+    if (_prefs) _prefs->gps_enabled = on ? 1 : 0;
+    the_mesh.savePrefs();
+    return true;
+  }
+
+  // GPS duty cycle (NodePrefs::gps_interval, seconds; 0 = always on) to the sensor layer.
+  void applyGpsInterval() {
+    if (!_sensors || !_prefs) return;
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)_prefs->gps_interval);
+    _sensors->setSettingValue("gps_interval", buf);
+  }
+
+  UiCoreHost* host() { return _host; }
 
   // ════ MyMesh::Listener ════════════════════════════════════════════════════
 
@@ -226,8 +256,16 @@ private:
     return ev;
   }
 
+  int gpsSettingIndex() const {
+    if (!_sensors) return -1;
+    for (int i = 0; i < _sensors->getNumSettings(); i++)
+      if (strcmp(_sensors->getSettingName(i), "gps") == 0) return i;
+    return -1;
+  }
+
   UiCoreHost* _host = nullptr;
   NodePrefs*  _prefs = nullptr;
+  SensorManager* _sensors = nullptr;
   int _queue_len = 0;     // last onQueueSizeChanged()
   int _room_unread = 0;
 };

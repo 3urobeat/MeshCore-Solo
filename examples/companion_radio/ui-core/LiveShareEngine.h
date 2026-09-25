@@ -78,6 +78,16 @@ public:
   // changed. No-op before a session has started (loop() sets the clock then).
   void restartClock() { if (_was_enabled) _session_ms = millis(); }
 
+  // Seconds left in the running session (the whole length before its first
+  // tick), 0 when sharing is off.
+  uint32_t remainingSecs() const {
+    if (!_prefs || !_prefs->loc_share_enabled) return 0;
+    uint32_t total = (uint32_t)NodePrefs::locShareDurationMins(_prefs->loc_share_duration_idx) * 60UL;
+    if (!_was_enabled) return total;
+    uint32_t el = (uint32_t)(millis() - _session_ms) / 1000UL;
+    return el >= total ? 0 : total - el;
+  }
+
   // Send one [LOC] message to the configured live-share target. Returns false
   // if the target can't be resolved (no such channel / contact).
   bool send(int32_t lat, int32_t lon) {

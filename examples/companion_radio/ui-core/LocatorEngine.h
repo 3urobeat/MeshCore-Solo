@@ -36,7 +36,9 @@ public:
 
   // ── Target ─────────────────────────────────────────────────────────────────
   // setTarget() only *defines* the target (fields + re-arm); the caller decides
-  // when to persist. kind 0 = waypoint (key ignored), 1 = person (key required).
+  // when to persist. kind 0 = waypoint (key ignored), 1 = person (key required),
+  // 2 = channel live share (no key: followed by the sender name in `name`,
+  // lat/lon = where they were, used once their share goes stale).
   void setTarget(uint8_t kind, const uint8_t* key, int32_t lat, int32_t lon, const char* name) {
     if (!_prefs) return;
     _prefs->locator_target_kind = kind;
@@ -104,6 +106,11 @@ public:
     if (!_prefs || !_prefs->locator_has_target) return false;
     if (_prefs->locator_target_kind == 1)
       return resolvePersonPos(_prefs->locator_key, lat, lon);
+    if (_prefs->locator_target_kind == 2) {
+      const LiveTrackStore::Entry* e = _live->track().activeByName(
+          _prefs->locator_label, sizeof(_prefs->locator_label) - 1, (uint32_t)rtc_clock.getCurrentTime());
+      if (e) { lat = e->lat_1e6; lon = e->lon_1e6; return true; }
+    }
     lat = _prefs->locator_lat_1e6;
     lon = _prefs->locator_lon_1e6;
     return true;
@@ -148,7 +155,7 @@ private:
 
   void fireCrossing(bool arrived) {
     const char* lbl = _prefs->locator_label[0] ? _prefs->locator_label : "target";
-    bool person = _prefs->locator_target_kind == 1;
+    bool person = _prefs->locator_target_kind != 0;
     char msg[sizeof(UiEvent::text)];
     // "Near/Away" reads naturally for a moving person; "Arrived/Left" for a place.
     snprintf(msg, sizeof(msg),

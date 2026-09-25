@@ -454,6 +454,9 @@ struct NodePrefs {  // persisted to file
   // locShareDurationMins). There is deliberately no "never" option. 0 = the
   // shortest/default, so a zeroed field is already valid.
   uint8_t  loc_share_duration_idx;
+  // Backlight as a percentage (1-100) for frontends with a brightness slider
+  // (ui-lvgl); 0 = use the 0-4 display_brightness level (ui-new, and the default).
+  uint8_t  display_brightness_pct;
   // Locator — a single geofence around a saved point. When enabled the device
   // watches its own GPS fix and beeps + shows an alert when it crosses into
   // (arrive) or out of (leave) the radius. The target coordinate/label is a
@@ -469,7 +472,8 @@ struct NodePrefs {  // persisted to file
   // Target can be a static waypoint or a live contact: for a contact the engine
   // re-reads the latest [LOC] position each evaluation (keyed by pubkey prefix),
   // so the geofence follows a moving person ("alert when my friend is near").
-  uint8_t  locator_target_kind;  // 0=waypoint (static), 1=live contact
+  // Kind 2 is a channel [LOC] share: no key, followed by sender name (label).
+  uint8_t  locator_target_kind;  // 0=waypoint (static), 1=live contact, 2=channel live share
   uint8_t  locator_key[6];       // contact pubkey prefix when target_kind==1 [del→onContactRemoved]
   // Locator proximity beeper — when on (and the alert is armed with a target),
   // the device ticks while inside the radius and shortens the gap between ticks
@@ -623,7 +627,7 @@ struct NodePrefs {  // persisted to file
   // repeat_* fields) instead of at the tail, which shifted every field after
   // them by 25 bytes when loading an older file. Never released, but a dev
   // build wrote it, so the number must not be reused for anything else.
-  static const uint32_t SCHEMA_SENTINEL = 0xC0DE002E;
+  static const uint32_t SCHEMA_SENTINEL = 0xC0DE002F;
 
   // Bit-index for each home page. Used by page_order (entries store bit+1) and
   // by home_pages_mask. Single source of truth — both HomeScreen::pageBit/bitToPage
@@ -776,7 +780,8 @@ struct NodePrefs {  // persisted to file
 // loc_share_* bytes -- confirmed via real sim_companion_radio (native),
 // WioTrackerL1_companion_solo_dual (nRF52/ARM) and Heltec_v3_companion_radio_ble
 // (ESP32) builds, sizeof unchanged at 2824. loc_share_duration_idx (0xC0DE002E)
-// likewise (sim build; see the check below).
+// likewise (sim build; see the check below). display_brightness_pct (0xC0DE002F)
+// likewise (L2 ESP32 + L1 nRF52 builds).
 static_assert(sizeof(NodePrefs) == 2824,
               "NodePrefs layout changed — sync DataStore save/load + clamp, bump "
               "SCHEMA_SENTINEL, then update this size (see steps above).");

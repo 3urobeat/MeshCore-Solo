@@ -118,7 +118,6 @@ class UITask : public UITaskBase, public UiCoreHost {
   UIScreen* gpio_screen = nullptr;
 #endif
   UIScreen* curr = nullptr;
-  WaypointStore _waypoints;
 
   // Runs the UI Core engines and reacts to their events (alert overlay, buzzer,
   // display wake). Driven from loop() regardless of the current screen.
@@ -343,7 +342,7 @@ public:
   bool isRinging() const;
   void dismissRing();
   TrailStore& trail();
-  WaypointStore& waypoints() { return _waypoints; }
+  WaypointStore& waypoints();   // the Core's (ui-core/WaypointModel.h)
   LiveTrackStore& liveTrack();
   // Shared on-screen keyboard — only one screen drives it at a time.
   KeyboardWidget& keyboard() { return _kb; }

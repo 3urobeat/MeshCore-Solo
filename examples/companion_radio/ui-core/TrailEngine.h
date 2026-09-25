@@ -1,8 +1,8 @@
 #pragma once
 // GPS trail: the RAM TrailStore plus its background sampling (runs while the
-// trail is active, independent of which screen is shown), auto-pause, and the
-// pre-shutdown auto-save. Recording control (start/stop/clear/save/load) is
-// still done by TrailScreen directly on the store.
+// trail is active, independent of which screen is shown), auto-pause, the
+// pre-shutdown auto-save, and the recording actions both frontends use
+// (start/stop, reset, save/load of the one saved trail in /trail).
 
 #include "../Trail.h"
 #include "../GeoUtils.h"
@@ -64,6 +64,41 @@ public:
   }
 
   TrailStore& store() { return _trail; }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  enum FileResult : uint8_t { FILE_OK, FILE_NO_FS, FILE_MISSING, FILE_FAILED };
+  static constexpr const char* TRAIL_FILE = "/trail";
+
+  bool isActive() const { return _trail.isActive(); }
+  void setActive(bool on) { _trail.setActive(on); }
+  void reset() { _trail.setActive(false); _trail.clear(); }
+
+  FileResult save() {
+    DataStore* ds = the_mesh.getDataStore();
+    if (!ds) return FILE_NO_FS;
+    File f = ds->openWrite(TRAIL_FILE);
+    if (!f) return FILE_FAILED;
+    bool ok = _trail.writeTo(f);
+    f.close();
+    return ok ? FILE_OK : FILE_FAILED;
+  }
+  FileResult load() {
+    DataStore* ds = the_mesh.getDataStore();
+    if (!ds) return FILE_NO_FS;
+    File f = ds->openRead(TRAIL_FILE);
+    if (!f) return FILE_MISSING;
+    bool ok = _trail.readFrom(f);
+    f.close();
+    return ok ? FILE_OK : FILE_FAILED;
+  }
+  static bool savedExists() {
+    DataStore* ds = the_mesh.getDataStore();
+    if (!ds) return false;
+    File f = ds->openRead(TRAIL_FILE);
+    bool ok = (bool)f;
+    if (f) f.close();
+    return ok;
+  }
 
 private:
   NodePrefs*          _prefs  = nullptr;

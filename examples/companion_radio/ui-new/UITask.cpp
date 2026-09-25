@@ -168,6 +168,7 @@ static const int QUICK_MSGS_MAX = 10;
 #include "BotScreen.h"
 #include "AdminScreen.h"
 #include "../ui-core/NearbyModel.h"
+#include "../ui-core/RadioControl.h"
 #include "NearbyScreen.h"
 #include "DashboardConfigScreen.h"
 #include "AutoAdvertScreen.h"
@@ -1638,16 +1639,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _alert_expiry = 0;
   _batt_mv = UITaskBase::getBattMilliVolts();  // seed EMA with first reading
 
-  // Load persisted waypoints (table survives reboots, unlike the RAM trail).
-  {
-    DataStore* ds = the_mesh.getDataStore();
-    if (ds) {
-      File f = ds->openRead("/waypoints");
-      if (f) { _waypoints.readFrom(f); f.close(); }
-    }
-  }
-
-  _core = new UiCore();   // before any screen -- MessagesScreen binds to its history
+  _core = new UiCore();   // also loads the persisted waypoints   // before any screen -- MessagesScreen binds to its history
   _core->begin(node_prefs, sensors, this);
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
@@ -3031,19 +3023,12 @@ void UITask::quickShareMyLocation() {
   shareToMessage(text);
 }
 
-void UITask::saveWaypoints() {
-  DataStore* ds = the_mesh.getDataStore();
-  if (!ds) return;
-  File f = ds->openWrite("/waypoints");
-  if (!f) return;
-  _waypoints.writeTo(f);
-  f.close();
-}
+WaypointStore& UITask::waypoints() { return _core->waypoints.store(); }
+void UITask::saveWaypoints() { _core->waypoints.save(); }
 
 bool UITask::addWaypoint(int32_t lat, int32_t lon, uint32_t ts, const char* label) {
-  if (_waypoints.full()) { showAlert("Waypoints full", 1000); return false; }
-  if (_waypoints.add(lat, lon, ts, label)) {
-    saveWaypoints();
+  if (_core->waypoints.full()) { showAlert("Waypoints full", 1000); return false; }
+  if (_core->waypoints.add(lat, lon, ts, label)) {
     showAlert("Waypoint saved", 800);
     return true;
   }
@@ -3138,19 +3123,10 @@ void UITask::toggleGPS() {
 // Home-page manual toggle and the bot's !gps on/off command, which needs to
 // set a specific state rather than flip whatever it currently is.
 void UITask::applyGpsState(bool on) {
-  if (_sensors == NULL) return;
-  int num = _sensors->getNumSettings();
-  for (int i = 0; i < num; i++) {
-    if (strcmp(_sensors->getSettingName(i), "gps") == 0) {
-      _sensors->setSettingValue("gps", on ? "1" : "0");
-      _node_prefs->gps_enabled = on ? 1 : 0;
-      notify(UIEventType::ack);
-      the_mesh.savePrefs();
-      showAlert(_node_prefs->gps_enabled ? "GPS: Enabled" : "GPS: Disabled", 800);
-      _next_refresh = 0;
-      break;
-    }
-  }
+  if (!_core->setGpsEnabled(on)) return;   // no GPS on this board
+  notify(UIEventType::ack);
+  showAlert(on ? "GPS: Enabled" : "GPS: Disabled", 800);
+  _next_refresh = 0;
 }
 
 void UITask::botSetGPS(bool on) {
@@ -3355,11 +3331,7 @@ bool UITask::botGetGPIOAnalog(int idx, int& millivolts) {
 }
 
 void UITask::applyTxPower() {
-  if (_node_prefs == NULL) return;
-  // With APC on, tx_power_dbm is the ceiling — re-baseline the controller to it
-  // (which also sets the radio) so the live power tracks the new ceiling at once.
-  if (_node_prefs->tx_apc) { the_mesh.applyApc(); return; }
-  radio_driver.setTxPower(_node_prefs->tx_power_dbm);
+  radioctl::applyTxPower(_node_prefs);
 }
 
 void UITask::applyPowerSave() {
@@ -3375,7 +3347,7 @@ void UITask::applyPowerSave() {
 }
 
 void UITask::applyApc() {
-  the_mesh.applyApc();   // (re)initialise Adaptive Power Control from prefs
+  radioctl::applyApc();
 }
 
 #if ENV_INCLUDE_GPS == 1
@@ -3389,7 +3361,7 @@ void UITask::applyGpsInterval() {
 
 void UITask::applyRadioParams() {
   if (_node_prefs == NULL) return;
-  the_mesh.applyRepeaterRadio();   // companion params, or the repeater profile if relaying with one set
+  radioctl::applyParams();   // companion params, or the repeater profile if relaying with one set
 }
 
 void UITask::applyBrightness() {

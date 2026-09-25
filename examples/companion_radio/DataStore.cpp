@@ -431,7 +431,7 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
   // Locator can target a live contact (kind + pubkey prefix).
   rd(&_prefs.locator_target_kind, sizeof(_prefs.locator_target_kind));
   rd(_prefs.locator_key,          sizeof(_prefs.locator_key));
-  if (_prefs.locator_target_kind > 1) _prefs.locator_target_kind = 0;
+  if (_prefs.locator_target_kind > 2) _prefs.locator_target_kind = 0;
   // GPS-averaging duration for waypoint marking.
   rd(&_prefs.gps_avg_idx, sizeof(_prefs.gps_avg_idx));
   if (_prefs.gps_avg_idx >= NodePrefs::GPS_AVG_COUNT) _prefs.gps_avg_idx = 0;
@@ -622,6 +622,11 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
   rd(&_prefs.loc_share_duration_idx, sizeof(_prefs.loc_share_duration_idx));
   if (_prefs.loc_share_duration_idx >= NodePrefs::LOC_SHARE_DURATION_COUNT) _prefs.loc_share_duration_idx = 0;
 
+  // display_brightness_pct. Over 100 -> 0 (use the level); an older file's
+  // sentinel byte landing here is zeroed below on the sentinel mismatch.
+  rd(&_prefs.display_brightness_pct, sizeof(_prefs.display_brightness_pct));
+  if (_prefs.display_brightness_pct > 100) _prefs.display_brightness_pct = 0;
+
   // Schema sentinel: bumped on layout changes. Mismatch means an older file
   // (or a different schema); rd() and the clamps above already keep every
   // field within its valid range regardless, so we just log it here —
@@ -631,6 +636,9 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
   if (sentinel != NodePrefs::SCHEMA_SENTINEL) {
     MESH_DEBUG_PRINTLN("prefs schema sentinel mismatch: got 0x%08X, expected 0x%08X — re-saving on next change",
                        (unsigned)sentinel, (unsigned)NodePrefs::SCHEMA_SENTINEL);
+    // 0xC0DE002E → 0xC0DE002F: display_brightness_pct appended; from an older
+    // file it holds a stray sentinel byte (0x2E = "46 %"), so start from the level.
+    _prefs.display_brightness_pct = 0;
     // 0xC0DE002A (v1.27) → 0xC0DE002B: repeat_extra_scope_mask + ch_scope_idx
     // appended. Unlike the range-clamped fields, these can't be left with whatever
     // stray bytes rd() picked up from a pre-0x2B file's own sentinel tail:
@@ -819,6 +827,7 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.contact_expiry_idx, sizeof(_prefs.contact_expiry_idx));
     file.write((uint8_t *)&_prefs.loc_share_scope, sizeof(_prefs.loc_share_scope));
     file.write((uint8_t *)&_prefs.loc_share_duration_idx, sizeof(_prefs.loc_share_duration_idx));
+    file.write((uint8_t *)&_prefs.display_brightness_pct, sizeof(_prefs.display_brightness_pct));
 
     // Tail sentinel — must be last. See NodePrefs::SCHEMA_SENTINEL. Its write is
     // the one we check: once the flash fills, writes return 0, so a good

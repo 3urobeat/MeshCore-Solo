@@ -30,6 +30,10 @@ public:
   virtual bool botGetGPIO(int idx, bool& is_output, bool& value) { return false; }
   virtual bool botGetGPIOAnalog(int idx, int& millivolts) { return false; }
 
+  // A display pref changed through the settings schema (brightness, ...):
+  // push it to the panel.
+  virtual void applyDisplayPrefs() {}
+
   // Controlled power-down / restart (flush state first). See
   // AbstractUITask::shutdown().
   virtual void shutdown(bool restart) = 0;

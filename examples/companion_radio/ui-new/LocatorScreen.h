@@ -84,7 +84,7 @@ public:
         if (_prefs && _prefs->locator_has_target) {
           const char* nm = _prefs->locator_label[0] ? _prefs->locator_label : "(unnamed)";
           // '@' prefix marks a live contact target (a moving person) vs a waypoint.
-          if (_prefs->locator_target_kind == 1) snprintf(buf, n, "@%s", nm);
+          if (_prefs->locator_target_kind != 0) snprintf(buf, n, "@%s", nm);
           else                                    snprintf(buf, n, "%s", nm);
         } else {
           snprintf(buf, n, "none");

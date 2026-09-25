@@ -84,6 +84,20 @@ public:
     return nullptr;
   }
 
+  // Latest active position for a channel share by sender name. `name` may be
+  // cut short (the Locator keeps 11 bytes): then it matches as a prefix.
+  const Entry* activeByName(const char* name, size_t stored_max, uint32_t now) const {
+    if (!name || !name[0]) return nullptr;
+    size_t n = strlen(name);
+    for (int i = 0; i < CAPACITY; i++) {
+      if (!isActive(i, now)) continue;
+      const Entry& e = _e[i];
+      if (e.verified) continue;
+      if (n >= stored_max ? strncmp(e.name, name, n) == 0 : strcmp(e.name, name) == 0) return &e;
+    }
+    return nullptr;
+  }
+
 private:
   Entry _e[CAPACITY] = {};
 

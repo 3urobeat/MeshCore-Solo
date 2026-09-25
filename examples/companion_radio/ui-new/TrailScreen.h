@@ -272,27 +272,17 @@ private:
                       was ? 800 : 1000);
   }
   void handleReset() {
-    if (_store->isActive()) _store->setActive(false);
-    _store->clear();
+    _task->core().trail.reset();
     _task->showAlert("Trail reset", 800);
   }
   void handleSave() {
-    DataStore* ds = the_mesh.getDataStore();
-    if (!ds) { _task->showAlert("FS unavailable", 800); return; }
-    File f = ds->openWrite(TRAIL_FILE);
-    if (!f) { _task->showAlert("Save failed", 800); return; }
-    bool ok = _store->writeTo(f);
-    f.close();
-    _task->showAlert(ok ? "Trail saved" : "Save failed", 800);
+    TrailEngine::FileResult r = _task->core().trail.save();
+    _task->showAlert(r == TrailEngine::FILE_OK ? "Trail saved" : r == TrailEngine::FILE_NO_FS ? "FS unavailable" : "Save failed", 800);
   }
   void handleLoad() {
-    DataStore* ds = the_mesh.getDataStore();
-    if (!ds) { _task->showAlert("FS unavailable", 800); return; }
-    File f = ds->openRead(TRAIL_FILE);
-    if (!f) { _task->showAlert("No saved trail", 800); return; }
-    bool ok = _store->readFrom(f);
-    f.close();
-    _task->showAlert(ok ? "Trail loaded" : "Load failed", 800);
+    TrailEngine::FileResult r = _task->core().trail.load();
+    _task->showAlert(r == TrailEngine::FILE_OK ? "Trail loaded" : r == TrailEngine::FILE_NO_FS ? "FS unavailable"
+                     : r == TrailEngine::FILE_MISSING ? "No saved trail" : "Load failed", 800);
   }
   void handleExport() {
     if (!Serial) { _task->showAlert("Connect USB first", 1200); return; }
@@ -448,14 +438,7 @@ private:
     return false;
   }
 
-  static bool savedTrailExists() {
-    DataStore* ds = the_mesh.getDataStore();
-    if (!ds) return false;
-    File f = ds->openRead(TRAIL_FILE);
-    bool ok = (bool)f;
-    if (f) f.close();
-    return ok;
-  }
+  static bool savedTrailExists() { return TrailEngine::savedExists(); }
 
   // GPS / unit helpers shared by the trail views and the map. (Waypoint list /
   // navigation / add / mark / rename / delete / send moved to WaypointsView.)

@@ -14,6 +14,8 @@
 #include "PopupMenu.h"
 #include "NavView.h"
 #include "DigitEditor.h"
+#include "../ui-core/GpsAverager.h"
+#include "../ui-core/TrackBack.h"
 
 class WaypointsView {
   UITask*     _task;
@@ -26,23 +28,14 @@ class WaypointsView {
   int     _scroll = 0;
 
   // Track-back (Tools › Trail › Track back): retrace the recorded trail in
-  // reverse using NavView. _tb_idx is the current target breadcrumb; it walks
-  // down to 0 (the start) as each is reached within TB_ARRIVE_M.
-  static const int TB_ARRIVE_M = 20;
-  int                 _tb_idx = 0;
+  // reverse using NavView (ui-core/TrackBack.h picks the breadcrumb).
+  TrackBack           _tb;
   navview::EtaTracker _tb_eta;
   navview::EtaTracker _wp_eta;   // same readout for plain waypoint navigation
 
-  // GPS averaging (Tools › Trail › Settings › Mark avg). When enabled, markHere()
-  // accumulates fixes for gps_avg_idx seconds and marks the mean position — a
-  // steadier mark than one instantaneous fix. Sampling runs in poll() on a 1 s
-  // gate, independent of (slow, on e-ink) redraws. int64 sums: 30 samples ×
-  // ~180e6 overflows int32.
-  long long _avg_sum_lat = 0, _avg_sum_lon = 0;
-  uint32_t  _avg_n       = 0;       // fixes accumulated so far
-  uint32_t  _avg_end_ms  = 0;       // millis() when the averaging window closes
-  uint32_t  _avg_next_ms = 0;       // millis() of the next sample
-  uint16_t  _avg_total_s = 0;       // configured window length (for the readout)
+  // GPS averaging (Tools › Trail › Settings › Mark avg): markHere() averages
+  // fixes for gps_avg_idx seconds (ui-core/GpsAverager.h), sampled from poll().
+  GpsAverager _avg;
 
   PopupMenu      _ctx;               // Rename / Delete / Send on a selected waypoint
   bool      _kb_active = false;
@@ -181,12 +174,10 @@ class WaypointsView {
     display.drawCenteredHeader("AVERAGING GPS");
     const int top  = display.listStart();
     const int step = display.lineStep();
-    int remain = (int)((int32_t)(_avg_end_ms - millis()) / 1000);
-    if (remain < 0) remain = 0;
     char line[28];
-    snprintf(line, sizeof(line), "%ds left (of %us)", remain, (unsigned)_avg_total_s);
+    snprintf(line, sizeof(line), "%ds left (of %us)", _avg.remainingSecs(), (unsigned)_avg.totalSecs());
     display.setCursor(2, top);            display.print(line);
-    snprintf(line, sizeof(line), "Samples: %u", (unsigned)_avg_n);
+    snprintf(line, sizeof(line), "Samples: %u", (unsigned)_avg.samples());
     display.setCursor(2, top + step);     display.print(line);
     display.setCursor(2, top + 2 * step); display.print("Cancel to abort");
   }
@@ -242,13 +233,12 @@ class WaypointsView {
   // Navigate to the current track-back breadcrumb. The header doubles as the
   // progress readout: "Trail start" on the last leg, else points still to go.
   void renderTrackBack(DisplayDriver& display) {
-    if (_tb_idx < 0 || _tb_idx >= _store->count()) { _mode = OFF; return; }
-    const TrailPoint& t = _store->at(_tb_idx);
+    if (!_tb.active() || _tb.index() >= _store->count()) { _mode = OFF; return; }
+    const TrailPoint& t = _store->at(_tb.index());
     int32_t mylat, mylon; bool have = ownPos(mylat, mylon);
     int cog; bool cogv = _task->currentCourse(cog);
     char label[20];
-    if (_tb_idx == 0) snprintf(label, sizeof(label), "Trail start");
-    else              snprintf(label, sizeof(label), "Back: %d pt", _tb_idx);
+    _tb.label(label, sizeof(label));
     navview::draw(display, have, mylat, mylon, t.lat_1e6, t.lon_1e6,
                   label, cogv, cog, useImperial(), &_tb_eta);
   }
@@ -296,11 +286,7 @@ public:
     uint8_t avg_idx = p ? p->gps_avg_idx : 0;
     if (avg_idx == 0) { beginLabel(lat, lon); return; }   // instant mark (default)
     // Averaging: seed with the current fix, then sample for N more seconds.
-    _avg_total_s = NodePrefs::gpsAvgSecs(avg_idx);
-    _avg_sum_lat = lat; _avg_sum_lon = lon; _avg_n = 1;
-    uint32_t now = millis();
-    _avg_end_ms  = now + (uint32_t)_avg_total_s * 1000;
-    _avg_next_ms = now + 1000;
+    _avg.start(NodePrefs::gpsAvgSecs(avg_idx), lat, lon);
     _mode = AVG;
   }
 
@@ -308,17 +294,9 @@ public:
   // nearest recorded point, then NavView guides to each earlier breadcrumb in
   // turn (poll() advances the target) until the start is reached.
   void startTrackBack() {
-    if (_store->count() < 2) { _task->showAlert("No trail", 1000); return; }
-    int idx = _store->count() - 1;        // default: the newest end of the trail
-    int32_t lat, lon;
-    if (ownPos(lat, lon)) {               // else snap to the nearest recorded point
-      float best = 1e30f;
-      for (int i = 0; i < _store->count(); i++) {
-        float d = geo::haversineKm(lat, lon, _store->at(i).lat_1e6, _store->at(i).lon_1e6);
-        if (d < best) { best = d; idx = i; }
-      }
-    }
-    _tb_idx = idx;
+    int32_t lat = 0, lon = 0;
+    bool have = ownPos(lat, lon);
+    if (!_tb.start(*_store, have, lat, lon)) { _task->showAlert("No trail", 1000); return; }
     _tb_eta.reset();
     _mode = TRACKBACK;
   }
@@ -332,30 +310,22 @@ public:
 
   // Accumulate GPS fixes while averaging; mark the mean when the window closes.
   void pollAvg() {
-    uint32_t now = millis();
-    if ((int32_t)(now - _avg_next_ms) >= 0) {
-      int32_t lat, lon;
-      if (ownPos(lat, lon)) { _avg_sum_lat += lat; _avg_sum_lon += lon; _avg_n++; }
-      _avg_next_ms = now + 1000;
-    }
-    if ((int32_t)(now - _avg_end_ms) >= 0) {       // window closed → mark the mean
-      if (_avg_n == 0) { _task->showAlert("No GPS fix", 1000); _mode = OFF; return; }
-      int32_t mlat = (int32_t)(_avg_sum_lat / (long long)_avg_n);
-      int32_t mlon = (int32_t)(_avg_sum_lon / (long long)_avg_n);
-      beginLabel(mlat, mlon);                       // opens the label keyboard
-    }
+    int32_t lat = 0, lon = 0, mlat, mlon;
+    bool fix = ownPos(lat, lon);
+    GpsAverager::Step st = _avg.poll(fix, lat, lon, mlat, mlon);
+    if (st == GpsAverager::DONE) beginLabel(mlat, mlon);   // window closed: opens the label keyboard
+    else if (st == GpsAverager::NO_FIX) { _task->showAlert("No GPS fix", 1000); _mode = OFF; }
   }
 
   // Advance the track-back target when the current breadcrumb is reached; once
   // at the start (index 0) and within range, announce arrival and exit.
   void pollTrackBack() {
-    int32_t lat, lon;
-    if (!ownPos(lat, lon)) return;
-    float d_m = geo::haversineKm(lat, lon, _store->at(_tb_idx).lat_1e6,
-                                 _store->at(_tb_idx).lon_1e6) * 1000.0f;
-    if (d_m > (float)TB_ARRIVE_M) return;
-    if (_tb_idx > 0) { _tb_idx--; _tb_eta.reset(); }
-    else { _task->showAlert("Back at start", 1500); _mode = OFF; }
+    int32_t lat = 0, lon = 0;
+    bool have = ownPos(lat, lon);
+    TrackBack::Step st = _tb.poll(*_store, have, lat, lon);
+    if (st == TrackBack::ADVANCED) _tb_eta.reset();
+    else if (st == TrackBack::ARRIVED) { _task->showAlert("Back at start", 1500); _mode = OFF; }
+    else if (!_tb.active()) _mode = OFF;   // trail went away
   }
 
   // Only called while active().
@@ -430,7 +400,7 @@ public:
 
     // Averaging window — any cancel aborts the mark; otherwise just wait it out.
     if (_mode == AVG) {
-      if (c == KEY_CANCEL) _mode = OFF;
+      if (c == KEY_CANCEL) { _avg.cancel(); _mode = OFF; }
       return true;
     }
 
@@ -472,7 +442,7 @@ public:
     // Track-back — launched from the action menu, so Cancel returns to the
     // trail views (not the waypoint list).
     if (_mode == TRACKBACK) {
-      if (c == KEY_CANCEL) _mode = OFF;
+      if (c == KEY_CANCEL) { _tb.stop(); _mode = OFF; }
       return true;
     }
 
