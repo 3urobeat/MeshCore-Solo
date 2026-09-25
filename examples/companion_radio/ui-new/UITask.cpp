@@ -424,8 +424,7 @@ class HomeScreen : public UIScreen {
     int low_mv = _node_prefs ? (int)_node_prefs->low_batt_mv : 0;
     int pct = battMvToPercent((int)batteryMilliVolts, low_mv);
 
-    uint8_t mode = (_node_prefs && _node_prefs->batt_display_mode < 3)
-                     ? _node_prefs->batt_display_mode : 0;
+    uint8_t mode = battery::mode(_node_prefs ? _node_prefs->batt_display_mode : 0);
 
     display.setTextSize(1);
     display.setColor(DisplayDriver::LIGHT);
@@ -437,13 +436,13 @@ class HomeScreen : public UIScreen {
     const int ind_gap = display.isLandscape() ? 3 : 1;  // gap between indicator boxes
 
     int battLeftX;
-    if (mode == 1) {  // percent
+    if (mode == battery::PERCENT) {
       char buf[6];
       snprintf(buf, sizeof(buf),"%d%%", pct);
       battLeftX = display.width() - display.getTextWidth(buf) - 1;
       display.setCursor(battLeftX, 0);
       display.print(buf);
-    } else if (mode == 2) {  // voltage
+    } else if (mode == battery::VOLTAGE) {
       char buf[8];
       snprintf(buf, sizeof(buf),"%u.%02uV", batteryMilliVolts / 1000, (batteryMilliVolts % 1000) / 10);
       battLeftX = display.width() - display.getTextWidth(buf) - 1;
@@ -1591,7 +1590,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   }
 
 #ifdef PIN_BUZZER
-  buzzer.quiet(_node_prefs->buzzer_quiet);
+  soundctl::applyMode(_node_prefs, buzzer, false);
   buzzer.setVolume(_node_prefs->buzzer_volume);
   buzzer.begin();
 #endif
@@ -3258,14 +3257,10 @@ void UITask::setBuzzerVolumeLevel(uint8_t level) {
 
 void UITask::toggleBuzzer() {
   #ifdef PIN_BUZZER
-    if (_node_prefs) _node_prefs->buzzer_auto = 0;  // exit auto mode
-    if (buzzer.isQuiet()) {
-      buzzer.quiet(false);
-      notify(UIEventType::ack);
-    } else {
-      buzzer.quiet(true);
-    }
-    if (_node_prefs) _node_prefs->buzzer_quiet = buzzer.isQuiet();
+    if (!_node_prefs) return;
+    bool on = buzzer.isQuiet();   // leaves Auto too
+    soundctl::setMode(_node_prefs, buzzer, on ? soundctl::MODE_ON : soundctl::MODE_OFF, isClientConnected());
+    if (on) notify(UIEventType::ack);
     the_mesh.savePrefs();
     showAlert(buzzer.isQuiet() ? "Buzzer: OFF" : "Buzzer: ON", 800);
     _next_refresh = 0;
@@ -3274,8 +3269,7 @@ void UITask::toggleBuzzer() {
 
 int UITask::getBuzzerMode() {
 #ifdef PIN_BUZZER
-  if (_node_prefs && _node_prefs->buzzer_auto) return soundctl::MODE_AUTO;
-  return buzzer.isQuiet() ? soundctl::MODE_OFF : soundctl::MODE_ON;
+  return soundctl::mode(_node_prefs);
 #else
   return 1;
 #endif

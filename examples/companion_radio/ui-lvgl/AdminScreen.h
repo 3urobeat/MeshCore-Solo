@@ -369,9 +369,9 @@ void UITask::adminPoll() {
     case AdminSession::NONE: return;
     case AdminSession::LOGGED_IN:     showToast("Logged in as admin", 1500); buildAdmin(); break;
     case AdminSession::NOT_ADMIN:     showToast("Not an admin on this node"); adminLeave(); break;
-    case AdminSession::LOGIN_FAILED:  showToast("Login failed (wrong password?)"); adminLeave(); break;
-    case AdminSession::LOGIN_TIMEOUT: showToast("No answer to the login (out of range?)"); adminLeave(); break;
-    case AdminSession::SEND_FAILED:   showToast("Couldn't send"); break;
+    case AdminSession::LOGIN_FAILED:  showToast("Login failed - wrong password?", 3000); adminLeave(); break;
+    case AdminSession::LOGIN_TIMEOUT: showToast("No answer to the login - out of range?"); adminLeave(); break;
+    case AdminSession::SEND_FAILED:   showToast("Send failed"); break;
     case AdminSession::FETCH_FAILED:  showToast("Couldn't read the value; try again"); break;
     case AdminSession::TIMEOUT:       showToast("No reply (timeout)"); break;
     case AdminSession::REPLY:         adminReplyPopup(S.reply()); break;
