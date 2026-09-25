@@ -1,7 +1,9 @@
 #pragma once
 // Decoded map tiles (RGB565, 128 KB each) kept for reuse while panning / zooming
 // back, least-recently-used evicted. Buffers live in PSRAM on the ESP32 and are
-// allocated on first use, then kept for the session.
+// allocated on first use, then kept for the session. Tiles found missing are
+// remembered separately (no buffer), so looking up coarser zoom levels for the
+// overzoom fallback doesn't push real tiles out.
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp only.
 
@@ -15,7 +17,7 @@ namespace mapview {
 
 class TileCache {
 public:
-  static const int SLOTS = 12;   // 6 on screen at 320x218 + a ring of neighbours
+  static const int SLOTS = 24;   // 6 on screen at 320x218 + the 14-tile read-ahead ring + a few coarser (3 MB)
 
   struct Slot {
     int16_t z = -1;
@@ -26,10 +28,13 @@ public:
     lv_image_dsc_t dsc;
   };
 
-  // The slot holding z/x/y if it was loaded (present or known missing), else nullptr.
+  // The slot holding z/x/y if it was loaded (present, or known missing: a
+  // shared slot with present == false), else nullptr.
   Slot* find(int z, int x, int y) {
     for (Slot& s : _slots)
       if (s.z == z && s.x == x && s.y == y) { s.used = ++_tick; return &s; }
+    for (const Missing& m : _missing)
+      if (m.z == z && m.x == x && m.y == y) return &_miss_slot;
     return nullptr;
   }
 
@@ -49,6 +54,12 @@ public:
     s->z = z; s->x = x; s->y = y;
     s->used = ++_tick;
     s->present = src.renderTile(z, x, y, s->px);
+    if (!s->present) {   // remember the miss without holding a buffer slot
+      Missing& m = _missing[_miss_next++ % MISSING];
+      m.z = (int16_t)z; m.x = x; m.y = y;
+      s->z = -1; s->used = 0;
+      return &_miss_slot;
+    }
     memset(&s->dsc, 0, sizeof(s->dsc));
     s->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
     s->dsc.header.cf = LV_COLOR_FORMAT_RGB565;
@@ -61,13 +72,18 @@ public:
   }
 
   // Forget the "no tile here" answers (new tiles may have been written).
-  void forgetMissing() { for (Slot& s : _slots) if (s.z >= 0 && !s.present) { s.z = -1; s.used = 0; } }
+  void forgetMissing() { for (Missing& m : _missing) m.z = -1; }
 
   // Forget everything (e.g. the card was swapped); keeps the buffers.
-  void invalidate() { for (Slot& s : _slots) { s.z = -1; s.used = 0; } }
+  void invalidate() { for (Slot& s : _slots) { s.z = -1; s.used = 0; } forgetMissing(); }
 
 private:
+  struct Missing { int16_t z = -1; int32_t x = 0, y = 0; };
+  static const int MISSING = 48;
   Slot _slots[SLOTS];
+  Missing _missing[MISSING];
+  int _miss_next = 0;
+  Slot _miss_slot;   // present == false
   uint32_t _tick = 0;
 };
 

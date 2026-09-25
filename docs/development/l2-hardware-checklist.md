@@ -1,0 +1,113 @@
+# Wio Tracker L2 (ui-lvgl) — hardware checklist
+
+Things verified only in the browser simulator so far. Tick on the device;
+note anything odd next to the item. Branch `wio-tracker-l2`.
+
+## Feedback round 1 (2026-09-25) — fixed, check on the device
+Confirmed on the device: live share sends and receives positions.
+- [ ] Map: ☰ tools moved to the left column (back, pin, ☰); nothing overlaps the crosshair
+- [ ] Target ring sits exactly on the marker (all markers were drawn ~3 px low)
+- [ ] A person sharing on a channel, picked as target, is followed as they move (was a fixed point where they were); bar shows the person icon
+- [ ] Settings: "Trail, live share, alerts" subtitle no longer covers the title (all list rows)
+- [ ] Map credit is a small "©" (tap: full line in a toast); full text also in Settings > About; long toasts wrap
+- [ ] Home: Messages, Nearby, Map, Settings — "Map" is the navigation map; the nodes map opens from Nearby's header (map icon), back returns to Nearby
+- [ ] Home tiles are wider; more apps will go on further swipeable pages (dots appear once there are two)
+- [ ] Overzoom limited to 2 levels (x4); past that "No map detail here at this zoom" — download more
+- [ ] Panning: no tile decoding while the finger moves (smooth drag, tiles fill in once you stop); tiles around the view are decoded ahead while idle; newly revealed area shows the coarser tile until the sharp one is ready
+- [ ] Note how panning feels now: ______ (next step if still slow: decode on the second core / JPEG tiles)
+
+## Feedback round 2 (2026-09-25) — fixed, check on the device
+Confirmed: settings rows OK, map pans much faster, ring centred.
+- [ ] Target ring is wider (30 px) so the green / flag marker shows inside it; a target with no marker on it (map point, message position, stale live share) gets an orange centre dot
+- [ ] "↓ Resume?" pill sits top right beside +, clear of the zoom pill; tapping it opens the download popup
+- [ ] Pin button → Waypoints list (distance, tap → Go / Name / Share / Delete) with "Here (GPS)" and "Coordinates"
+- [ ] Coordinates: digits keyboard, "50.06142, 19.93721 Name" or with a space instead of the comma; bad input keeps the field with a hint; the map centres on the new waypoint
+- [ ] Holding the map no longer adds a waypoint straight away: "This spot" popup with Add waypoint / Go here
+
+## Feedback round 3 (2026-09-25) — fixed, check on the device
+Confirmed: green dot inside the ring, waypoints much better, download works, settings OK.
+- [ ] Ring exactly on the marker at every zoom (it was computed in float: pixels off at z16+). The trail line had the same error and is fixed too
+- [ ] Home: swipe left / right anywhere (clock or tiles) turns the page; a swipe starting on a tile doesn't open it; tapping a dot also switches
+- [ ] Settings > Display & power: Brightness is a slider (5-100 %), changes live while dragging, kept after a reboot and after the screen sleeps / wakes
+- [ ] After the update: prefs load normally (new field, schema sentinel 0xC0DE002F) — brightness starts from the old level, nothing else reset
+
+## New: Clock, settings pages, radio (2026-09-25)
+- [ ] Home has two pages now: swipe left → Clock (dots under the tiles follow; Home remembers the page)
+- [ ] Clock > Alarm: hour / minute rollers (setting a time arms it), On switch, Repeat (Once / Daily / Weekdays / Weekends); rings at the local time
+- [ ] Clock > Timer: H / M / S rollers, Start → big countdown, Stop; when it ends a full-screen "Timer done" card with Dismiss appears on any screen (also wakes the display; the user button dismisses too). Silent: no speaker driver yet
+- [ ] Clock > Stopwatch: Start / Stop / Reset with tenths
+- [ ] Settings > Display & power: Screen off after; Wake on message
+- [ ] Settings > Display & power: Battery shutdown (not while on USB), GPS power saving, Time zone (clock + alarm follow)
+- [ ] Settings > Messages & contacts: Resend direct messages, Contact expiry + "Remove inactive contacts now" (first tap shows the count, second removes; favourites kept), Favourites first
+- [ ] Settings > Radio: Preset list (built-ins + your saved ones), Frequency (tap, type), SF, Bandwidth, Coding rate, TX power, Auto power; changes apply at once — check messages still flow after switching back to your usual preset
+- [ ] L1 (ui-new): Settings > Radio TX power / Auto power / presets still apply (now through the shared RadioControl)
+
+## Basics after the_mesh moved to PSRAM (`MESH_IN_PSRAM`)
+- [ ] Boots normally, contacts and channels are all there
+- [ ] Messages arrive and send (channel + DM), delivery ticks work
+- [ ] Companion app over BLE connects and syncs
+- [ ] A few hours of uptime without a reboot
+
+## WiFi map download
+- [ ] Settings > WiFi: Scan lists networks, pick one, password, Save
+- [ ] Map > download button: popup shows tile count / size, Download starts
+- [ ] Pill on the map: "Connecting..." then "↓ n / total"
+- [ ] Popup while downloading: IP, dBm, heap (internal free / largest block) — note the numbers: ______
+- [ ] Mesh messages still arrive during a download; BLE stays connected
+- [ ] Stop → popup shows "Unfinished: z…-…, N tiles" with Resume / trash
+- [ ] Power off mid-download → power on → map shows "↓ Resume?" (top right; tap it) → Resume continues (count jumps past the tiles already on the card)
+- [ ] Trash discards the unfinished job
+- [ ] Download finishes: toast "Map: Done, N new tiles", new tiles appear on the map
+
+## Overzoom (map past the downloaded detail)
+- [ ] Zoom in beyond the highest downloaded level: map stays visible (magnified), zoom pill reads e.g. "z17 (map z15)"
+- [ ] Panning over magnified tiles is smooth enough (note if it stutters)
+- [ ] From a magnified view, download a higher zoom for that area — the sharp tiles replace the magnified ones
+
+## GPS
+- [ ] Settings > Navigation shows a "GPS" switch; toggling it turns the module on/off (and survives a reboot)
+- [ ] Status bar: GPS icon grey while searching, green with a fix, gone when off
+- [ ] Map crosshair with GPS off: turns GPS on ("GPS on, waiting for a fix"), centres once a fix arrives
+- [ ] Bot `!gps on` / `!gps off` works on L2
+
+## Two maps
+- [ ] Nodes map (Nearby > map icon): contacts with a position as markers, tap → node detail, back → map
+- [ ] Map: hold the map → "This spot" → Add waypoint → "WPn" at the finger
+- [ ] Map: pin button → Waypoints → Here (GPS) → waypoint at the GPS position
+- [ ] Bar (bottom) → "Navigate to" list: waypoints with distance, Trail start (if a trail exists), people sharing live
+- [ ] Tap a waypoint → target: ring, dashed line from you, bar with distance / bearing / your course / ETA; view frames you + target
+- [ ] ✕ on the bar clears the target
+- [ ] Waypoint menu (pencil): Go / Name (Polish letters, 11-byte limit) / Share / Delete (second tap confirms)
+- [ ] Share → Messages → pick a conversation → compose holds `[WAY]lat,lon name` → send; a Solo L1 receiving it can save it
+- [ ] Settings > Trail, live share, alerts > "Show others' positions" on → someone's `[LOC]` share appears on the Map and in the list; tap → navigate to them
+- [ ] Node detail (a node with a position) has the compass button → Map with that node as target
+- [ ] Settings > … > "Arrival alert" on + target set → toast "Arrived: …" when you get within the radius
+
+## Positions in messages
+- [ ] A received message with `[WAY]lat,lon name`, `[LOC]lat,lon` or plain "lat, lon" shows Go / Save under the bubble
+- [ ] Save → waypoint named from the [WAY] label (else the sender), Polish letters not cut in half
+- [ ] Go → Map with that spot as the target
+
+## Trail & live share (Map > ☰ tools button, left column)
+- [ ] Record → pill "REC 0 m" at the top; walk: blue trail line follows, distance grows
+- [ ] Auto-pause (Settings > Trail, live share, alerts): standing still → "PAUSED", walking resumes
+- [ ] Stop / Save / Load / Reset (second tap confirms) behave; a trail saved on L2 loads (same /trail file as L1)
+- [ ] Export GPX → toast "Saved trails/trail-YYYYMMDD-HHMM.gpx"; the file opens in a GPX viewer (track + waypoints)
+- [ ] Live share: pick "Send to" (channel or favourite), Share live → pill "LIVE 1h00"; another node sees the [LOC] updates while you move; stops by itself after the chosen time
+- [ ] Send once: with sharing on → "Position sent"; with it off → Messages with `[LOC]lat,lon` waiting in the compose field
+- [ ] Track back (with a recorded trail): bar "Back: n pt" with distance / bearing, ring on the breadcrumb; walking advances it; at the start toast "Back at the trail start"; ✕ stops it
+- [ ] ☰ > Download this area opens the download popup
+- [ ] Waypoint averaging 5 s/10 s/30 s: pin → "Averaging GPS… n s" pill (tap cancels) → waypoint saved at the mean
+
+## Settings > Trail, live share, alerts (schema-driven)
+- [ ] Every row changes and survives a reboot; "Imperial units" relabels point spacing and distances
+- [ ] Changing "Stop sharing after" during a session restarts its clock
+- [ ] Radius / Alert on (arrive, leave, both) change when the arrival toast fires
+
+## Same data on L1 (ui-new) after the Core changes
+- [ ] L1: waypoints saved before the update are still listed (Tools › Trail › Waypoints)
+- [ ] L1: add / rename / delete waypoint, navigate, ETA line still shows
+- [ ] L1: Home GPS toggle still works
+- [ ] L1: Tools › Trail Save / Load / Reset still work (now via TrailEngine)
+- [ ] L1: Mark with averaging (Trail › Settings › Mark avg) still counts down and marks
+- [ ] L1: Track back still advances along the trail and ends at the start

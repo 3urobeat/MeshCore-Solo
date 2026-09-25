@@ -8,6 +8,11 @@
 
 #include "../ui-core/UiCore.h"   // shared UI Core (header-only, this TU)
 #include "../ui-core/NearbyModel.h"
+#include "../ui-core/EtaTracker.h"
+#include "../ui-core/SettingsSchema.h"
+#include "../ui-core/GpsAverager.h"
+#include "../ui-core/TrackBack.h"
+#include "../ui-core/RadioControl.h"
 #include "Theme.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
@@ -109,6 +114,7 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   lv_display_set_theme(lv_display_get_default(), th);
 
   buildStatusBar();
+  applyDisplayPrefs();   // a slider percentage overrides the level main.cpp set
   showHome();
 }
 
@@ -126,7 +132,8 @@ void UITask::loop() {
   s_sim_btn_click = false;
 #endif
   if (btn_click) {
-    if (_asleep) wake();
+    if (_core->clock.isRinging()) dismissRing();
+    else if (_asleep) wake();
     else if (_screen == SCR_HOME) sleep();
     else back();
   }
@@ -135,12 +142,17 @@ void UITask::loop() {
     if (lvport::touched()) { lvport::swallowTouch(); wake(); }
   } else {
     uint32_t aoff = autoOffMillis();
-    if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff) sleep();
+    if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging()) sleep();
   }
 
   _core->loop();
   drainCoreEvents();
+  checkLowBattery();
   mapDownloadTick();   // a map download keeps running on any screen, and asleep
+  if ((int32_t)(millis() - _next_trackback_ms) >= 0) {   // walking the trail back, on any screen
+    _next_trackback_ms = millis() + 1000;
+    navPollTrackBack();
+  }
 
   if (!_asleep) {
     if ((int32_t)(millis() - _next_status_ms) >= 0) {
@@ -148,6 +160,7 @@ void UITask::loop() {
       refreshStatusBar();
       if (_screen == SCR_HOME) refreshHome();
     }
+    if (_screen == SCR_HOME) homeSwipePoll();
     if ((_screen == SCR_NEARBY || _screen == SCR_NODE) && (int32_t)(millis() - _next_nearby_ms) >= 0) {
       // Scan results trickle in over a few seconds: poll fast while scanning.
       _next_nearby_ms = millis() + (_scanning ? 250 : 2000);
@@ -161,6 +174,10 @@ void UITask::loop() {
     }
     if (_screen == SCR_MAP) mapLoop();
     if (_screen == SCR_WIFI) pollWifiScan();
+    if (_screen == SCR_CLOCK && (int32_t)(millis() - _next_clock_ms) >= 0) {
+      _next_clock_ms = millis() + 100;   // stopwatch tenths
+      refreshClock();
+    }
     if (_screen == SCR_THREAD && (int32_t)(millis() - _next_thread_check_ms) >= 0) {
       _next_thread_check_ms = millis() + 500;
       uint32_t sig = threadSignature();
@@ -186,6 +203,22 @@ void UITask::shutdown(bool restart) {
     }
     _board->powerOff();
   }
+}
+
+// Settings > Display & power > Battery shutdown (NodePrefs::low_batt_mv), as
+// ui-new does it: a smoothed reading every 8 s, never while on USB power.
+void UITask::checkLowBattery() {
+  if ((int32_t)(millis() - _next_batt_ms) < 0) return;
+  _next_batt_ms = millis() + 8000;
+  uint16_t raw = getBattMilliVolts();
+  if (raw > 0) _batt_mv = _batt_mv == 0 ? raw : (uint16_t)((_batt_mv * 4u + raw) / 5u);   // EMA, alpha 0.2
+  uint16_t low = _prefs ? _prefs->low_batt_mv : 0;
+  if (low == 0 || _batt_mv == 0 || _batt_mv >= low || _board->isExternalPowered()) return;
+  wake();
+  showToast("Low battery - shutting down", 3000);
+  lv_timer_handler();
+  delay(2000);
+  shutdown();
 }
 
 uint32_t UITask::autoOffMillis() const {
@@ -220,10 +253,10 @@ void UITask::drainCoreEvents() {
       onMessageArrived(ev);
       break;
     case UiEventType::ClockAlert:
-      wake();
-      showToast(ev.text, ClockEngine::RING_MS);
+      showRing(ev.text);
       break;
     case UiEventType::ClockRingEnded:
+      hideRing();
       break;
     case UiEventType::LiveShareEnded:
       showToast("Live share ended");
@@ -272,6 +305,7 @@ void UITask::buildStatusBar() {
   lv_obj_align(_status_time, LV_ALIGN_LEFT_MID, 0, 0);
   _status_icons = label(bar, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_obj_align(_status_icons, LV_ALIGN_RIGHT_MID, 0, 0);
+  _status_gps = label(bar, LV_SYMBOL_GPS, THEME_FONT_SMALL, theme::TEXT_MUTED);
 
   _toast = lv_obj_create(lv_layer_top());
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
@@ -284,7 +318,10 @@ void UITask::buildStatusBar() {
   lv_obj_set_style_pad_hor(_toast, 12, 0);
   lv_obj_set_style_pad_ver(_toast, 6, 0);
   lv_obj_align(_toast, LV_ALIGN_BOTTOM_MID, 0, -12);
-  label(_toast, "", THEME_FONT_BODY, theme::TEXT);
+  lv_obj_t* tl = label(_toast, "", THEME_FONT_BODY, theme::TEXT);
+  lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);   // long texts wrap instead of running off the screen
+  lv_obj_set_style_max_width(tl, lv_display_get_horizontal_resolution(NULL) - 40, 0);
+  lv_obj_set_style_text_align(tl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_add_flag(_toast, LV_OBJ_FLAG_HIDDEN);
 
   refreshStatusBar();
@@ -305,15 +342,33 @@ void UITask::refreshStatusBar() {
   int pct = mv <= 3300 ? 0 : mv >= 4200 ? 100 : (int)(mv - 3300) * 100 / 900;
   const char* batt = pct > 80 ? LV_SYMBOL_BATTERY_FULL : pct > 55 ? LV_SYMBOL_BATTERY_3
                    : pct > 30 ? LV_SYMBOL_BATTERY_2 : pct > 10 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
-  bool gps = false;
-  if (_sensors) {
-    LocationProvider* loc = _sensors->getLocationProvider();
-    gps = loc && loc->isValid();
+  lv_label_set_text_fmt(_status_icons, "%s%s %d%%", hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, pct);
+  // GPS: green with a fix, muted while on and searching, absent when off.
+  int32_t lat, lon;
+  bool fix = _core->course.currentLocation(lat, lon);
+  if (_core->gpsEnabled() || fix) {
+    lv_obj_set_style_text_color(_status_gps, lv_color_hex(fix ? theme::OK : theme::TEXT_MUTED), 0);
+    lv_obj_remove_flag(_status_gps, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align_to(_status_gps, _status_icons, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+  } else {
+    lv_obj_add_flag(_status_gps, LV_OBJ_FLAG_HIDDEN);
   }
-  lv_label_set_text_fmt(_status_icons, "%s%s%s %d%%",
-                        hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "",
-                        gps ? LV_SYMBOL_GPS "  " : "",
-                        batt, pct);
+}
+
+void UITask::setGps(bool on) {
+  if (!_core->setGpsEnabled(on)) { showToast("No GPS on this device"); return; }
+  showToast(on ? "GPS on, waiting for a fix" : "GPS off");
+  refreshStatusBar();
+}
+
+void UITask::botSetGPS(bool on) { if (_core->setGpsEnabled(on)) refreshStatusBar(); }
+
+bool UITask::ensureGps() {
+  int32_t lat, lon;
+  if (_core->course.currentLocation(lat, lon)) return true;
+  if (_core->gpsAvailable() && !_core->gpsEnabled()) setGps(true);
+  else showToast("Waiting for a GPS fix");
+  return false;
 }
 
 // One persistent timer, paused between toasts: hides the toast when it fires.
@@ -347,7 +402,10 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _node_info = _node_ping = _node_delete_lbl = nullptr;
   _scan_overlay = _scan_list = _scan_status = nullptr;   // the popup went with the old screen
   _map_area = _map_marks = _map_me = _map_zoom_lbl = _map_hint = _map_dl_pill = nullptr;
-  _dl_overlay = _dl_info = _dl_zoom_lbl = _dl_start_lbl = nullptr;
+  _dl_overlay = _dl_info = _dl_zoom_lbl = _dl_start_lbl = _dl_job_row = _dl_job_lbl = nullptr;
+  _nav_bar = _nav_title = _nav_info = _nav_clear = nullptr;
+  _nav_overlay = _nav_ta = _nav_kb = _nav_del_lbl = _nav_rec = _nav_avg_pill = nullptr;
+  _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
   _wifi_ssid = _wifi_pass = _wifi_kb = _wifi_list = _wifi_status = nullptr;
   _wifi_scanning = false;
   for (lv_obj_t*& t : _map_tiles) t = nullptr;
@@ -398,19 +456,24 @@ void UITask::back() {
     case SCR_THREAD:   showChats(); break;
     case SCR_CONTACTS: showChats(); break;
     case SCR_SETTINGS: showHome(); break;
+    case SCR_SETTINGS_NAV: showSettings(); break;
+    case SCR_CLOCK:    showHome(); break;
+    case SCR_RADIO:    if (radioPopupOpen()) radioCloseFreq(); else showSettings(); break;
     case SCR_CHATS:    showHome(); break;
     case SCR_NEARBY:
       if (_scan_overlay) closeScanPopup();
       else showHome();
       break;
     case SCR_NODE:     // back to where the node was picked: map, the list, or the scan popup over it
-      if (_node_from_map) { showMap(); break; }
+      if (_node_from_map) { openMap(false); break; }
       _screen = SCR_NEARBY;
       buildNearby();
       if (_node_from_scan) showScanPopup();
       break;
     case SCR_MAP:
-      if (_dl_overlay) mapDownloadClose();
+      if (_nav_overlay) navClosePopup();
+      else if (_dl_overlay) mapDownloadClose();
+      else if (!_map_nav) showNearby();   // the Nodes map opens from Nearby
       else showHome();
       break;
     case SCR_WIFI:     if (_wifi_from_map) showMap(); else showSettings(); break;
@@ -424,9 +487,40 @@ static void onOpenChats(lv_event_t* e) { (void)e; s_ui->showChats(); }
 static void onOpenSettings(lv_event_t* e) { (void)e; s_ui->showSettings(); }
 
 static void onOpenNearby(lv_event_t* e) { (void)e; s_ui->showNearby(); }
-static void onOpenMap(lv_event_t* e) { (void)e; s_ui->showMap(); }
+static void onOpenNodesMap(lv_event_t* e) { (void)e; s_ui->openMap(false); }
+static void onOpenNav(lv_event_t* e) { (void)e; s_ui->openMap(true); }
+static void onOpenClock(lv_event_t* e);   // ClockScreen.h
 
-// Home tile: icon over label, one of a row of three; optional amber value
+// Home apps, in order; PER_PAGE to a page, further pages are swiped to (with
+// dots underneath), so new apps don't squeeze the row.
+namespace home {
+struct App { const char* icon; const char* text; lv_event_cb_t cb; bool unread; };
+static const App APPS[] = {
+  { LV_SYMBOL_ENVELOPE, "Messages", onOpenChats,    true  },
+  { UI_SYMBOL_USERS,    "Nearby",   onOpenNearby,   false },
+  { UI_SYMBOL_MAP,      "Map",      onOpenNav,      false },
+  { LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, false },
+  // Page 2: tools
+  { UI_SYMBOL_CLOCK,    "Clock",    onOpenClock,    false },
+};
+static const int COUNT = sizeof(APPS) / sizeof(APPS[0]);
+static const int PER_PAGE = 4;
+static const int PAGES = (COUNT + PER_PAGE - 1) / PER_PAGE;
+static lv_obj_t* s_row = nullptr;    // the current page's tiles
+static lv_obj_t* s_dots = nullptr;
+static int s_page = 0;   // kept across rebuilds (the home screen is rebuilt on return)
+
+// A horizontal swipe anywhere on Home turns the page (the tiles row alone is
+// too small a target), tracked from the touch itself: LVGL's gesture detector
+// drops a slow swipe (its sum resets on every read without movement). Tapping
+// a dot also goes to that page.
+static bool     s_touching = false, s_swiped = false;
+static lv_point_t s_start;
+static const int SWIPE_PX = 40;
+static void onDot(lv_event_t* e) { s_ui->setHomePage((int)(uintptr_t)lv_event_get_user_data(e)); }
+}  // namespace home
+
+// Home tile: icon over label, one of a page's row; optional amber value
 // (unread count) in its top-right corner.
 static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, lv_event_cb_t cb,
                           lv_obj_t** value_out) {
@@ -450,6 +544,7 @@ static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, 
 
 void UITask::showHome() {
   _screen = SCR_HOME;
+  _share_text[0] = '\0';   // a share not sent to anyone
   buildHome();
   refreshHome();
 }
@@ -463,16 +558,72 @@ void UITask::buildHome() {
   lv_obj_t* name = label(body, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
   lv_obj_set_style_pad_bottom(name, 4, 0);
 
-  lv_obj_t* tiles = lv_obj_create(body);
-  styleSurface(tiles, theme::BG);
-  lv_obj_remove_flag(tiles, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(tiles, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(tiles, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(tiles, theme::GAP, 0);
-  homeTile(tiles, LV_SYMBOL_ENVELOPE, "Messages", onOpenChats, &_home_unread);
-  homeTile(tiles, UI_SYMBOL_USERS, "Nearby", onOpenNearby, NULL);
-  homeTile(tiles, UI_SYMBOL_MAP, "Map", onOpenMap, NULL);
-  homeTile(tiles, LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, NULL);
+  lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);   // a drag is a page swipe, not a scroll
+  home::s_row = lv_obj_create(body);
+  styleSurface(home::s_row, theme::BG);
+  lv_obj_remove_flag(home::s_row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(home::s_row, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(home::s_row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(home::s_row, theme::GAP, 0);
+  home::s_dots = nullptr;
+  if (home::PAGES > 1) {
+    home::s_dots = lv_obj_create(body);
+    lv_obj_remove_style_all(home::s_dots);
+    lv_obj_set_size(home::s_dots, LV_SIZE_CONTENT, 22);
+    lv_obj_set_flex_flow(home::s_dots, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(home::s_dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(home::s_dots, 12, 0);
+    for (int p = 0; p < home::PAGES; p++) {
+      lv_obj_t* d = lv_obj_create(home::s_dots);
+      lv_obj_remove_style_all(d);
+      lv_obj_set_size(d, 8, 8);
+      lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+      lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+      lv_obj_set_ext_click_area(d, 8);
+      lv_obj_add_flag(d, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_event_cb(d, home::onDot, LV_EVENT_CLICKED, (void*)(uintptr_t)p);
+    }
+  }
+  setHomePage(home::s_page);
+}
+
+// From loop() on Home: turn the page once a press has moved SWIPE_PX sideways.
+void UITask::homeSwipePoll() {
+  lv_indev_t* in = lv_indev_get_next(NULL);
+  if (!in || home::PAGES < 2) return;
+  bool down = lv_indev_get_state(in) == LV_INDEV_STATE_PRESSED;
+  lv_point_t p;
+  lv_indev_get_point(in, &p);
+  if (!down) { home::s_touching = false; return; }
+  if (!home::s_touching) { home::s_touching = true; home::s_swiped = false; home::s_start = p; return; }
+  if (home::s_swiped) return;
+  int dx = p.x - home::s_start.x, dy = p.y - home::s_start.y;
+  if (abs(dx) < home::SWIPE_PX || abs(dx) < 2 * abs(dy)) return;
+  home::s_swiped = true;
+  lv_indev_wait_release(in);   // the swipe isn't also a tap on the tile it started on
+  setHomePage(home::s_page + (dx < 0 ? 1 : -1));
+}
+
+void UITask::setHomePage(int page) {
+  if (_screen != SCR_HOME || !home::s_row) return;   // s_row went with an older screen
+  if (page < 0 || page >= home::PAGES) return;
+  home::s_page = page;
+  lv_obj_clean(home::s_row);
+  _home_unread = nullptr;
+  for (int i = page * home::PER_PAGE; i < (page + 1) * home::PER_PAGE; i++) {
+    if (i < home::COUNT) {
+      const home::App& a = home::APPS[i];
+      homeTile(home::s_row, a.icon, a.text, a.cb, a.unread ? &_home_unread : NULL);
+    } else {   // keep a short last page's tiles the same width
+      lv_obj_t* gap = lv_obj_create(home::s_row);
+      lv_obj_remove_style_all(gap);
+      lv_obj_set_height(gap, 1);
+      lv_obj_set_flex_grow(gap, 1);
+    }
+  }
+  for (int i = 0; home::s_dots && i < (int)lv_obj_get_child_count(home::s_dots); i++)
+    lv_obj_set_style_bg_color(lv_obj_get_child(home::s_dots, i), lv_color_hex(i == page ? theme::ACCENT : theme::SURFACE_2), 0);
+  refreshHome();
 }
 
 void UITask::refreshHome() {
@@ -491,6 +642,7 @@ void UITask::refreshHome() {
     lv_label_set_text(_home_clock, "--:--");
     lv_label_set_text(_home_date, "time not synced");
   }
+  if (!_home_unread) return;
   int unread = _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
   if (unread > 0) lv_label_set_text_fmt(_home_unread, "%d", unread);
   else lv_label_set_text(_home_unread, "");
@@ -532,7 +684,7 @@ static lv_obj_t* listRow(lv_obj_t* parent, const char* title, const char* sub,
   if (sub) {
     lv_obj_t* s = label(row, sub, THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_label_set_long_mode(s, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s, 230);
+    lv_obj_set_size(s, 230, 15);   // fixed height: LONG_DOT cuts instead of wrapping over the title
     lv_obj_align(s, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
   }
   return row;
@@ -631,7 +783,7 @@ void UITask::buildContacts() {
 // model, since it is a different set: who is in range, not who is known.
 
 static NearbyModel::Entry s_node;   // the node open in SCR_NODE (a copy: the list re-sorts)
-enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE };
+enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV };
 
 static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
@@ -668,7 +820,8 @@ void UITask::buildNearby() {
   lv_obj_set_style_pad_row(body, 4, 0);
   if (_header) {
     headerButton(_header, LV_SYMBOL_REFRESH " Scan", onNearbyScan, 4, NULL);
-    headerButton(_header, "", onNearbySort, 84, &_nearby_sort_lbl);
+    lv_obj_set_width(headerButton(_header, "", onNearbySort, 84, &_nearby_sort_lbl), 62);   // fits "Recent" / "Dist"
+    headerButton(_header, UI_SYMBOL_MAP, onOpenNodesMap, 152, NULL);   // the Nodes map
   }
 
   // Type filter chips
@@ -939,6 +1092,7 @@ void UITask::buildNode() {
   bool contact = e.contact_idx >= 0;
   if (contact && e.type == ADV_TYPE_CHAT) actionButton(acts, LV_SYMBOL_ENVELOPE " Message", NODE_MSG, true);
   if (e.has_key) actionButton(acts, LV_SYMBOL_LOOP " Ping", NODE_PING, false);
+  if (e.lat_e6 != 0 || e.lon_e6 != 0) actionButton(acts, UI_SYMBOL_COMPASS, NODE_NAV, false);
   if (contact) actionButton(acts, e.fav ? UI_SYMBOL_STAR " Unfav" : UI_SYMBOL_STAR " Fav", NODE_FAV, false);
   if (!contact && e.has_key && !e.is_known) actionButton(acts, LV_SYMBOL_PLUS " Add", NODE_ADD, true);
   if (contact) _node_delete_lbl = actionButton(acts, LV_SYMBOL_TRASH, NODE_DELETE, false);
@@ -1046,6 +1200,17 @@ void UITask::nodeAction(uint8_t action) {
         showToast("Contacts full");
       }
       break;
+    case NODE_NAV:
+      // Followed by key when there is one (the Locator resolves live share,
+      // then advert position); otherwise a fixed point where it was seen.
+      if (e.has_prefix) navToNode(e.pub_key, e.lat_e6, e.lon_e6, e.name[0] ? e.name : "Node");
+      else {
+        _core->locator.setTarget(0, nullptr, e.lat_e6, e.lon_e6, e.name[0] ? e.name : "Node");
+        the_mesh.savePrefs();
+        openMap(true);
+        navFrameTarget();
+      }
+      break;
     case NODE_DELETE:
       if (!_delete_armed_ms) {   // destructive: second tap within 3 s confirms
         _delete_armed_ms = millis();
@@ -1063,6 +1228,9 @@ void UITask::nodeAction(uint8_t action) {
 }
 
 #include "MapScreen.h"
+#include "NavMap.h"
+#include "ClockScreen.h"
+#include "RadioScreen.h"
 #include "WifiScreen.h"
 
 // ── Conversation ──────────────────────────────────────────────────────────────
@@ -1194,6 +1362,12 @@ void UITask::buildThread() {
     lv_obj_add_event_cb(_compose_ta, onComposeClicked, LV_EVENT_CLICKED, _keyboard);
   }
   refreshThread();
+  if (_compose_ta && _share_text[0]) {   // shareToMessage(): the text waits in the field
+    lv_textarea_set_text(_compose_ta, _share_text);
+    _share_text[0] = '\0';
+    lv_obj_update_layout(lv_screen_active());
+    setKeyboardVisible(true);
+  }
 }
 
 // Changes whenever the open conversation's content or delivery markers change.
@@ -1218,9 +1392,34 @@ uint32_t UITask::threadSignature() const {
   return sig;
 }
 
+// Positions found in the shown messages ([WAY] / [LOC] / plain "lat,lon"),
+// for the Go / Save buttons under such a bubble.
+struct MsgLoc { int32_t lat, lon; char label[WAYPOINT_LABEL_LEN * 2]; };
+static const int THREAD_MAX_SHOWN = 30;
+static MsgLoc s_msg_locs[THREAD_MAX_SHOWN];
+static int    s_msg_loc_n = 0;
+
+static void onMsgLoc(lv_event_t* e) {
+  uintptr_t v = (uintptr_t)lv_event_get_user_data(e);
+  s_ui->messageLocationAction((int)(v >> 1), (v & 1) != 0);
+}
+
+static void msgLocButton(lv_obj_t* parent, const char* text, int idx, bool save, bool accent) {
+  lv_obj_t* b = lv_button_create(parent);
+  lv_obj_set_size(b, LV_SIZE_CONTENT, 28);
+  lv_obj_set_style_pad_hor(b, 10, 0);
+  lv_obj_set_style_pad_ver(b, 0, 0);
+  lv_obj_set_style_radius(b, 14, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? theme::ACCENT : theme::SURFACE_2), 0);
+  lv_obj_add_event_cb(b, onMsgLoc, LV_EVENT_CLICKED, (void*)(uintptr_t)((idx << 1) | (save ? 1 : 0)));
+  lv_obj_center(label(b, text, THEME_FONT_SMALL, accent ? theme::BG : theme::TEXT));
+}
+
 // One message bubble. Own messages right-aligned in amber, others left.
+// loc_idx >= 0: the text carries a position (s_msg_locs[loc_idx]).
 static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
-                   uint32_t ts, const char* status, uint32_t status_col) {
+                   uint32_t ts, const char* status, uint32_t status_col, int loc_idx = -1) {
   // Full-width row that pushes the bubble to its side.
   lv_obj_t* row = lv_obj_create(list);
   styleSurface(row, theme::BG);
@@ -1267,6 +1466,20 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   lv_obj_set_style_max_width(t, 238, 0);
   lv_obj_set_width(t, LV_SIZE_CONTENT);
 
+  if (loc_idx >= 0) {   // position: navigate there / keep it as a waypoint
+    lv_obj_t* acts = lv_obj_create(b);
+    styleSurface(acts, theme::BG);
+    lv_obj_set_style_bg_opa(acts, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(acts, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(acts, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(acts, 6, 0);
+    lv_obj_set_style_pad_top(acts, 2, 0);
+    msgLocButton(acts, UI_SYMBOL_COMPASS " Go", loc_idx, false, true);
+    msgLocButton(acts, UI_SYMBOL_FLAG " Save", loc_idx, true, false);
+  }
+
   if (!meta_in_header) {
     lv_obj_t* m = label(b, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
     if (status) {
@@ -1276,13 +1489,43 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   }
 }
 
+// Remember the position in `text` (if any) for its bubble's buttons; label
+// from a [WAY] tag, else the sender. Returns the slot or -1.
+static int noteMsgLocation(const char* text, const char* sender) {
+  if (s_msg_loc_n >= THREAD_MAX_SHOWN) return -1;
+  MsgLoc& m = s_msg_locs[s_msg_loc_n];
+  if (!geo::parseLatLon(text, m.lat, m.lon, m.label, sizeof(m.label))) return -1;
+  if (!m.label[0]) snprintf(m.label, sizeof(m.label), "%s", sender && sender[0] ? sender : "Msg loc");
+  return s_msg_loc_n++;
+}
+
+void UITask::messageLocationAction(int idx, bool save) {
+  if (idx < 0 || idx >= s_msg_loc_n) return;
+  const MsgLoc& m = s_msg_locs[idx];
+  if (save) {
+    if (_core->waypoints.full()) { showToast("Waypoints full (16)"); return; }
+    if (_core->waypoints.add(m.lat, m.lon, rtc_clock.getCurrentTime(), m.label)) {
+      char t[48];
+      snprintf(t, sizeof(t), "Saved %s", _core->waypoints.at(_core->waypoints.count() - 1).label);
+      showToast(t);
+    }
+    return;
+  }
+  // A place snapshotted from the text (kind 0): nothing to keep re-resolving.
+  navSetTarget(0, nullptr, m.lat, m.lon, m.label);
+  openMap(true);
+  navFrameTarget();
+  refreshNavBar();
+}
+
 void UITask::refreshThread() {
   if (!_thread_list) return;
   _thread_dirty = false;
   _thread_sig = threadSignature();
   lv_obj_clean(_thread_list);
   const MessageHistory& h = _core->history;
-  const int MAX_SHOWN = 30;
+  const int MAX_SHOWN = THREAD_MAX_SHOWN;
+  s_msg_loc_n = 0;
 
   if (_thread_is_channel) {
     int n = h.histCountForChannel(_thread_channel);
@@ -1302,7 +1545,8 @@ void UITask::refreshThread() {
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
       if (own && e.relay_status == ACK_OK)      { st = LV_SYMBOL_OK " relayed"; col = theme::OK; }
       else if (own && e.relay_status == ACK_PENDING) st = "sent";
-      bubble(_thread_list, own ? NULL : from, body, own, e.timestamp, st, col);
+      bubble(_thread_list, own ? NULL : from, body, own, e.timestamp, st, col,
+             own ? -1 : noteMsgLocation(body, from));
     }
   } else {
     int n = h.dmHistCountForContact(_thread_key);
@@ -1318,7 +1562,10 @@ void UITask::refreshThread() {
           default:          st = "sent"; break;
         }
       }
-      bubble(_thread_list, NULL, e.text, e.outgoing, e.timestamp, st, col);
+      char who[33] = "";
+      if (!e.outgoing) contactName(_thread_key, who, sizeof(who));
+      bubble(_thread_list, NULL, e.text, e.outgoing, e.timestamp, st, col,
+             e.outgoing ? -1 : noteMsgLocation(e.text, who));
     }
   }
   if (lv_obj_get_child_count(_thread_list) == 0)
@@ -1375,12 +1622,197 @@ static lv_obj_t* dropdownRow(lv_obj_t* parent, const char* text, const char* opt
   return dd;
 }
 
+// A preference toggle (0/1 byte in NodePrefs), saved on change.
+static void onPrefSwitch(lv_event_t* e) {
+  uint8_t* pref = (uint8_t*)lv_event_get_user_data(e);
+  *pref = lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED) ? 1 : 0;
+  the_mesh.savePrefs();
+}
+
+static void onGpsSwitch(lv_event_t* e) {
+  s_ui->setGps(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
+// pref == nullptr: the caller wires the switch itself.
+static lv_obj_t* switchRow(lv_obj_t* parent, const char* text, const char* sub, uint8_t* pref) {
+  lv_obj_t* row = lv_obj_create(parent);
+  styleSurface(row, theme::SURFACE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
+  lv_obj_set_style_radius(row, theme::RADIUS, 0);
+  lv_obj_t* l = label(row, text, THEME_FONT_BODY, theme::TEXT);
+  lv_obj_align(l, LV_ALIGN_TOP_LEFT, theme::PAD, sub ? 5 : 13);
+  if (sub) {
+    lv_obj_t* h = label(row, sub, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(h, 236, 15);   // clear of the switch
+    lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
+  }
+  lv_obj_t* sw = lv_switch_create(row);
+  lv_obj_set_size(sw, 46, 24);
+  lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+  if (pref) {
+    if (*pref) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, onPrefSwitch, LV_EVENT_VALUE_CHANGED, pref);
+  }
+  return sw;
+}
+
+// ── Schema-driven settings (ui-core/SettingsSchema.h) ─────────────────────────
+
+static void onSchemaSwitch(lv_event_t* e) {
+  s_ui->setSchemaValue((int)(uintptr_t)lv_event_get_user_data(e),
+                       lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED) ? 1 : 0);
+}
+static void onSchemaDropdown(lv_event_t* e) {
+  s_ui->setSchemaValue((int)(uintptr_t)lv_event_get_user_data(e),
+                       (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+}
+static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
+
+void UITask::showSchemaSettings(int page) {
+  _screen = SCR_SETTINGS_NAV;
+  _settings_page = (uint8_t)(page < settings::PG_COUNT ? page : 0);
+  buildSchemaSettings();
+}
+
+// Contacts > prune now: first tap shows how many, the second (within 3 s) removes them.
+void UITask::pruneContacts() {
+  int n = the_mesh.countStaleContacts();
+  if (n == 0) {
+    showToast(_prefs && _prefs->contact_expiry_idx == 0 ? "Contact expiry is off" : "No inactive contacts");
+    return;
+  }
+  if (!_prune_armed_ms || millis() - _prune_armed_ms > 3000) {
+    _prune_armed_ms = millis() | 1;
+    if (_prune_lbl) lv_label_set_text_fmt(_prune_lbl, LV_SYMBOL_TRASH "  Remove %d contact%s?", n, n == 1 ? "" : "s");
+    return;
+  }
+  _prune_armed_ms = 0;
+  int removed = the_mesh.pruneStaleContacts();
+  char t[40];
+  snprintf(t, sizeof(t), "Removed %d contact%s", removed, removed == 1 ? "" : "s");
+  showToast(t);
+  if (_prune_lbl) lv_label_set_text(_prune_lbl, LV_SYMBOL_TRASH "  Remove inactive contacts now");
+}
+
+void UITask::applyDisplayPrefs() {
+  if (!_prefs) return;
+  if (_prefs->display_brightness_pct) lvport::setBacklightPct(_prefs->display_brightness_pct);
+  else if (_display) _display->setBrightness(_prefs->display_brightness);
+}
+
+// Brightness slider: live while dragging, saved on release.
+static void onBrightnessSlider(lv_event_t* e) {
+  lv_obj_t* sl = (lv_obj_t*)lv_event_get_target(e);
+  s_ui->setBrightnessPct((uint8_t)lv_slider_get_value(sl), lv_event_get_code(e) == LV_EVENT_RELEASED);
+}
+
+void UITask::setBrightnessPct(uint8_t pct, bool save) {
+  if (!_prefs) return;
+  _prefs->display_brightness_pct = pct;
+  _prefs->display_brightness = (uint8_t)((pct + 12) / 25 > 4 ? 4 : (pct + 12) / 25);   // nearest level, for anything reading it
+  applyDisplayPrefs();
+  if (save) the_mesh.savePrefs();
+}
+
+void UITask::buildSchemaSettings() {
+  lv_obj_t* body = newScreen(settings::pageTitle(_settings_page), true);
+  _prune_lbl = nullptr;
+  _prune_armed_ms = 0;
+  uint8_t sec = 0xFF;
+  for (int i = 0; i < settings::COUNT; i++) {
+    const settings::Setting& st = settings::ALL[i];
+    if (settings::sectionPage(st.section) != _settings_page) continue;
+    if (st.section != sec) { sec = st.section; sectionTitle(body, settings::sectionTitle(sec)); }
+    uint8_t v = settings::get(*_prefs, st);
+    if (st.offset == offsetof(NodePrefs, display_brightness)) {   // a slider here instead of five steps
+      lv_obj_t* row = lv_obj_create(body);
+      styleSurface(row, theme::SURFACE);
+      lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
+      lv_obj_set_style_radius(row, theme::RADIUS, 0);
+      lv_obj_align(label(row, st.label, THEME_FONT_BODY, theme::TEXT), LV_ALIGN_LEFT_MID, theme::PAD, 0);
+      lv_obj_t* sl = lv_slider_create(row);
+      lv_slider_set_range(sl, 5, 100);
+      uint8_t pct = _prefs->display_brightness_pct ? _prefs->display_brightness_pct
+                                                   : (uint8_t)(_prefs->display_brightness * 25 > 5 ? _prefs->display_brightness * 25 : 5);
+      lv_slider_set_value(sl, pct, LV_ANIM_OFF);
+      lv_obj_set_size(sl, 170, 10);
+      lv_obj_align(sl, LV_ALIGN_RIGHT_MID, -18, 0);
+      lv_obj_set_ext_click_area(sl, 14);
+      lv_obj_add_event_cb(sl, onBrightnessSlider, LV_EVENT_VALUE_CHANGED, NULL);
+      lv_obj_add_event_cb(sl, onBrightnessSlider, LV_EVENT_RELEASED, NULL);
+      continue;
+    }
+    if (!st.option) {
+      lv_obj_t* sw = switchRow(body, st.label, st.hint, nullptr);
+      if (v) lv_obj_add_state(sw, LV_STATE_CHECKED);
+      lv_obj_add_event_cb(sw, onSchemaSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
+      continue;
+    }
+    char opts[160];
+    int o = 0;
+    for (uint8_t k = 0; k < st.count && o < (int)sizeof(opts) - 16; k++) {
+      if (k) opts[o++] = '\n';
+      st.option(k, opts + o, sizeof(opts) - o, *_prefs);
+      o += strlen(opts + o);
+    }
+    opts[o] = '\0';
+    lv_obj_t* row = lv_obj_create(body);
+    styleSurface(row, theme::SURFACE);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
+    lv_obj_set_style_radius(row, theme::RADIUS, 0);
+    lv_obj_t* l = label(row, st.label, THEME_FONT_BODY, theme::TEXT);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, theme::PAD, st.hint ? 5 : 13);
+    if (st.hint) {
+      lv_obj_t* h = label(row, st.hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
+      lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
+      lv_obj_set_size(h, 176, 15);   // fixed height: cut, don't wrap onto the label
+      lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
+    }
+    lv_obj_t* dd = lv_dropdown_create(row);
+    lv_dropdown_set_options(dd, opts);
+    lv_dropdown_set_selected(dd, v);
+    lv_obj_set_width(dd, 112);
+    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_add_event_cb(dd, onSchemaDropdown, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
+  }
+  if (_settings_page == settings::PG_MESSAGES) {   // the action that goes with "Contact expiry"
+    lv_obj_t* b = lv_button_create(body);
+    lv_obj_set_size(b, LV_PCT(100), 38);
+    lv_obj_set_style_shadow_width(b, 0, 0);
+    lv_obj_set_style_radius(b, theme::RADIUS, 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
+    lv_obj_add_event_cb(b, onPruneContacts, LV_EVENT_CLICKED, NULL);
+    _prune_lbl = label(b, LV_SYMBOL_TRASH "  Remove inactive contacts now", THEME_FONT_BODY, theme::TEXT);
+    lv_obj_center(_prune_lbl);
+  }
+}
+
+void UITask::setSchemaValue(int idx, int v) {
+  if (!_prefs || idx < 0 || idx >= settings::COUNT) return;
+  const settings::Setting& st = settings::ALL[idx];
+  settings::set(*_prefs, st, (uint8_t)v);
+  if (st.changed) st.changed(*_core);
+  the_mesh.savePrefs();
+  if (st.offset == offsetof(NodePrefs, units_imperial)) {   // other labels depend on it
+    lv_obj_t* body = _body;
+    int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
+    buildSchemaSettings();
+    if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_to_y(_body, y, LV_ANIM_OFF); }
+  }
+}
+
 void UITask::showSettings() {
   _screen = SCR_SETTINGS;
   buildSettings();
 }
 
 static void onOpenWifi(lv_event_t* e) { (void)e; s_ui->showWifi(false); }
+static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
 
 void UITask::buildSettings() {
   lv_obj_t* body = newScreen("Settings", true);
@@ -1388,6 +1820,29 @@ void UITask::buildSettings() {
   char ssid[33], pass[65];
   bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
   listRow(body, LV_SYMBOL_WIFI "  WiFi", have ? ssid : "Not set (for map downloads)", onOpenWifi, NULL);
+  if (_prefs) {
+    char sub[48];
+    int pi = radioctl::currentPreset(_prefs);
+    const char* pn = "Custom"; float f, b; uint8_t sf, cr;
+    if (pi >= 0) radioctl::presetAt(_prefs, pi, pn, f, b, sf, cr);
+    snprintf(sub, sizeof(sub), "%s  -  %.3f MHz, %d dBm", pn, _prefs->freq, _prefs->tx_power_dbm);
+    listRow(body, UI_SYMBOL_RADIO "  Radio", sub, onOpenRadio, NULL);
+  }
+  if (_prefs) {   // the same NodePrefs switches as ui-new's Home GPS toggle / Live share / Locator screens
+    sectionTitle(body, "NAVIGATION");
+    if (_core->gpsAvailable()) {
+      lv_obj_t* sw = switchRow(body, "GPS", "Position for maps, sharing and adverts", nullptr);
+      if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
+      lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
+    }
+    listRow(body, UI_SYMBOL_COMPASS "  Trail, live share, alerts", "Point spacing, auto-pause, sharing, radius",
+            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_NAV);
+    sectionTitle(body, "DEVICE");
+    listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Brightness, screen off, battery, GPS, time zone",
+            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_DEVICE);
+    listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resending, contact expiry, sorting",
+            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
+  }
   sectionTitle(body, "KEYBOARD");
   uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
   uint8_t alt_a  = _prefs ? _prefs->keyboard_alt_alphabet : 0;
@@ -1399,6 +1854,16 @@ void UITask::buildSettings() {
   s_kb_alt_dd  = dropdownRow(body, "Additional", "None\nLatin\nCyrillic\nGreek",
                              alt_a == main_a ? 0 : alt_a + 1);
   label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+
+  sectionTitle(body, "ABOUT");
+  char about[200], built[24] = "";
+  if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) snprintf(built, sizeof(built), " (%s)", FIRMWARE_BUILD_DATE);
+  snprintf(about, sizeof(about), "%s\nFirmware %s%s\n\nMap data: %s", the_mesh.getNodeName(), FIRMWARE_VERSION, built,
+           (lvport::mountStorage() && mapview::s_provider->available()) ? mapview::s_provider->attribution()
+                                                                         : "\xC2\xA9 OpenStreetMap contributors");
+  lv_obj_t* a = label(body, about, THEME_FONT_SMALL, theme::TEXT);
+  lv_label_set_long_mode(a, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(a, LV_PCT(100));
 }
 
 void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {

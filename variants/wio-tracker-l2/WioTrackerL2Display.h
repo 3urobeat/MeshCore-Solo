@@ -162,6 +162,12 @@ class WioTrackerL2Display : public LGFXDisplay {
 public:
   WioTrackerL2Display() : LGFXDisplay(320, 240, disp) {}
 
+  // NodePrefs::display_brightness level 0-4 -> backlight PWM
+  void setBrightness(uint8_t level) override {
+    static const uint8_t PWM[5] = { 20, 60, 120, 190, 255 };
+    display->setBrightness(PWM[level > 4 ? 4 : level]);
+  }
+
   // direct access to the LGFX device (LVGL flush/touch glue)
   lgfx::LGFX_Device* lgfxDevice() { return &disp; }
 

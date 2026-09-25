@@ -87,6 +87,12 @@ static bool touched() {
 
 static void swallowTouch() { s_swallow = true; }
 
+// Backlight 1-100 % (the brightness slider), on the LP5814 PWM.
+static void setBacklightPct(uint8_t pct) {
+  if (pct > 100) pct = 100;
+  s_gfx->setBrightness((uint8_t)(8 + (uint16_t)pct * 247 / 100));   // never fully dark
+}
+
 // microSD over SDMMC, 1-bit (CLK 2, CMD 3, D0 1); its power rail (expander
 // P14) is switched on in WioTrackerL2Board::begin(). Retried on every call
 // until it works, so a card inserted later is picked up the next time.
@@ -328,6 +334,7 @@ static bool begin() {
 
 static bool touched() { return SimLcdDisplay::touchState().down; }
 static void swallowTouch() { s_swallow = true; }
+static void setBacklightPct(uint8_t pct) { (void)pct; }   // the browser canvas has no backlight
 
 // The host page preloads map tiles into the in-memory FS under /sdcard/maps.
 static bool mountStorage() { return true; }

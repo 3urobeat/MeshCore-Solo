@@ -4,6 +4,10 @@
 // alternative is tools/maps/fetch_tiles.py). Tiles already on the card are
 // skipped, so a download can be repeated to fill gaps or extend an area.
 //
+// The job (area + zoom range) is kept in <root>/.job until it completes, so a
+// download cut short by a power-off, a lost network or Stop can be resumed:
+// resuming re-runs the same job, and the tiles already written are skipped.
+//
 // Driven by loop() from the UI loop: one small step per call, the HTTP GET
 // itself runs asynchronously in the board's fetcher (lvport::fetch*), so the
 // mesh keeps being serviced during a long download.
@@ -78,6 +82,20 @@ public:
   const char* message() const { return _msg; }
   const char* sourceHost() { loadSource(); return _host; }
 
+  // Unfinished job from <root>/.job (read once, then tracked in memory).
+  bool savedJob(TileArea& a) {
+    if (!_job_checked) { _job_checked = true; _has_job = readJob(_job); }
+    if (_has_job) a = _job;
+    return _has_job;
+  }
+  void discardJob() {
+    char path[64];
+    jobPath(path, sizeof(path));
+    remove(path);
+    _has_job = false;
+    _job_checked = true;
+  }
+
   bool start(const TileArea& a, const char* ssid, const char* pass) {
     if (active()) return false;
     _area = a;
@@ -88,6 +106,7 @@ public:
     if (_total == 0 || _total > MAX_TILES) { fail("Area too large: use the PC tool"); return false; }
     loadSource();
     writeAttribution();
+    writeJob(a);
     _z = a.zmin;
     tileRange(a, _z, _x0, _y0, _x1, _y1);
     _x = _x0; _y = _y0;
@@ -174,6 +193,8 @@ private:
   char     _attr[96] = "";
   char     _host[48] = "";
   char     _msg[64] = "";
+  TileArea _job = {0, 0, 0, 0, 0, 0};
+  bool     _has_job = false, _job_checked = false;
 
   void fail(const char* m) { snprintf(_msg, sizeof(_msg), "%s", m); _state = FAILED; }
 
@@ -181,6 +202,35 @@ private:
     snprintf(_msg, sizeof(_msg), "%s", m);
     _state = s;
     lvport::netEnd();
+    if (s == DONE) discardJob();   // anything else stays resumable
+  }
+
+  void jobPath(char* out, size_t n) const { snprintf(out, n, "%s/.job", _root); }
+
+  void writeJob(const TileArea& a) {
+    char path[64];
+    jobPath(path, sizeof(path));
+    makeParents(path);
+    if (FILE* f = fopen(path, "w")) {
+      fprintf(f, "%.6f %.6f %.6f %.6f %d %d\n", a.lon0, a.lat0, a.lon1, a.lat1, a.zmin, a.zmax);
+      fclose(f);
+    }
+    _job = a;
+    _has_job = true;
+    _job_checked = true;
+  }
+
+  bool readJob(TileArea& a) const {
+    char path[64];
+    jobPath(path, sizeof(path));
+    FILE* f = fopen(path, "r");
+    if (!f) return false;
+    TileArea t;
+    int n = fscanf(f, "%lf %lf %lf %lf %d %d", &t.lon0, &t.lat0, &t.lon1, &t.lat1, &t.zmin, &t.zmax);
+    fclose(f);
+    if (n != 6 || t.zmin < 0 || t.zmax > 20 || t.zmin > t.zmax) return false;
+    a = t;
+    return true;
   }
 
   void onFailure(const char* m) {
