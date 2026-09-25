@@ -639,9 +639,7 @@ class MessagesScreen : public UIScreen {
 
   void pinContactToSlot(const ContactInfo& ci, int slot) {
     if (slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT) return;
-    int existing = _task->findFavouriteSlot(ci.id.pub_key);
-    if (existing >= 0 && existing != slot) _task->clearFavouriteSlot(existing);
-    _task->setFavouriteSlot(slot, ci.id.pub_key);
+    favslots::pinContact(_task->getNodePrefs(), slot, ci.id.pub_key);
     the_mesh.savePrefs();
     char alert[24];
     snprintf(alert, sizeof(alert), "Pinned to slot %d", slot + 1);
@@ -669,9 +667,7 @@ class MessagesScreen : public UIScreen {
 
   void pinChannelToSlot(uint8_t ch_idx, int slot) {
     if (slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT) return;
-    int existing = _task->findFavouriteChannelSlot(ch_idx);
-    if (existing >= 0 && existing != slot) _task->clearFavouriteSlot(existing);
-    _task->setFavouriteChannelSlot(slot, ch_idx);
+    favslots::pinChannel(_task->getNodePrefs(), slot, ch_idx);
     the_mesh.savePrefs();
     char alert[24];
     snprintf(alert, sizeof(alert), "Pinned to slot %d", slot + 1);

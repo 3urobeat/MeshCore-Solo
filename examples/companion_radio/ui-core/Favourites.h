@@ -58,4 +58,16 @@ inline void clear(NodePrefs* p, int slot) {
   p->favourite_kinds[slot] = NodePrefs::FAV_KIND_CONTACT;
 }
 
+// Pin into `slot`, moving it there if it already sits in another one.
+inline void pinContact(NodePrefs* p, int slot, const uint8_t* pub_key) {
+  int existing = findContact(p, pub_key);
+  if (existing >= 0 && existing != slot) clear(p, existing);
+  setContact(p, slot, pub_key);
+}
+inline void pinChannel(NodePrefs* p, int slot, uint8_t ch_idx) {
+  int existing = findChannel(p, ch_idx);
+  if (existing >= 0 && existing != slot) clear(p, existing);
+  setChannel(p, slot, ch_idx);
+}
+
 }  // namespace favslots

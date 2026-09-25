@@ -165,11 +165,13 @@ static const Setting ALL[] = {
   MAP("Screen off after", "Without a touch", SEC_DISPLAY, auto_off_secs, AUTO_OFF, optAutoOff, nullptr),
   MAP("Wake on message", "Turn the screen on for new messages", SEC_DISPLAY, msg_wake_screen_off, INVERTED,
       nullptr, nullptr),
+  SW("Lock screen", "Slide to unlock after the screen turns off", SEC_DISPLAY, auto_lock, nullptr),
 
   MAP("Battery shutdown", "Power off below this voltage", SEC_POWER, low_batt_mv, LOW_BATT, optLowBatt, nullptr),
   MAP("GPS power saving", "Sleep between fixes", SEC_POWER, gps_interval, GPS_DUTY, optGpsDuty, applyGpsDuty),
 
   MAP("Time zone", "For the clock and the alarm", SEC_TIME, tz_offset_hours, TZ, optTz, nullptr),
+  SW("12-hour clock", "AM / PM instead of 24 h", SEC_TIME, clock_12h, nullptr),
 
   IDX("Resend direct messages", "Extra tries without a delivery tick", SEC_MESSAGES, dm_resend_count, 6,
       optResend, nullptr),

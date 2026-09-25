@@ -84,4 +84,23 @@ inline void hopName(uint8_t path_len_packed, const uint8_t* path, int i, char* o
   snprintf(out, n, "?%s", hex);
 }
 
+// A favourites dial slot's name (ui-core/Favourites.h): contact / room or
+// channel name; false when empty or the contact / channel is gone.
+// contact_out (optional) gets the contact.
+inline bool favName(const NodePrefs* p, int slot, char* out, size_t n, ContactInfo* contact_out = nullptr) {
+  if (favslots::isEmpty(p, slot)) return false;
+  const uint8_t* pfx = p->favourite_contacts[slot];
+  if (favslots::kind(p, slot) == NodePrefs::FAV_KIND_CHANNEL) {
+    ChannelDetails ch;
+    if (!the_mesh.getChannel(pfx[0], ch) || !ch.name[0]) return false;
+    snprintf(out, n, "%s", ch.name);
+    return true;
+  }
+  ContactInfo* c = the_mesh.lookupContactByPubKey(pfx, NodePrefs::FAVOURITE_PREFIX_LEN);
+  if (!c) return false;
+  snprintf(out, n, "%s", c->name);
+  if (contact_out) *contact_out = *c;
+  return true;
+}
+
 }  // namespace contactctl

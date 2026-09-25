@@ -146,6 +146,19 @@ public:
   void messageMenu(int idx);
   void messageAction(uint8_t act);
   void toggleChatFilter(uint8_t which);
+  // DeviceScreen.h
+  void nodeNamePopup();
+  void nodeNameDone(bool ok);
+  void powerPopup(bool restart);
+  void unlockScreen();
+  bool locked() const;
+  void showFavourites();
+  void favTap(int slot);
+  void favHold(int slot);
+  void favAction(uint8_t act);
+  void favPick(int code);
+  void pinPopup(bool channel, uint8_t ch_idx, const uint8_t* pub_key);
+  void pinTo(int slot);
   void setGps(bool on);
   bool ensureGps();   // true with a fix; else turns GPS on / says it's waiting
 
@@ -154,7 +167,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -215,6 +228,11 @@ private:
   void adminLeave();
   void adminPoll();
   void roomPoll();
+  void lockScreen();
+  void refreshLock();
+  void lockPoll();
+  void buildFavourites();
+  void favPickPopup(int slot);
   void adminValuePopup();
   void adminTextPopup(const char* text, bool digits);
   void adminReplyPopup(const char* text);

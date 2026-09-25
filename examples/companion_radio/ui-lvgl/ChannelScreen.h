@@ -10,7 +10,7 @@
 
 namespace chanview {
 
-enum : uint8_t { A_FAV, A_EDIT, A_DELETE, A_READ };
+enum : uint8_t { A_FAV, A_EDIT, A_DELETE, A_READ, A_PIN };
 enum : uint8_t { T_PUBLIC, T_HASHTAG, T_PRIVATE };
 enum : uint8_t { C_NOTIF, C_SCOPE };
 
@@ -120,6 +120,7 @@ void UITask::channelMenu(int idx) {
   struct { const char* text; uint8_t act; } btns[] = {
     { UI_SYMBOL_STAR " Fav", A_FAV },
     { LV_SYMBOL_OK " Read", A_READ },
+    { UI_SYMBOL_PIN, A_PIN },
     { LV_SYMBOL_EDIT " Edit", A_EDIT },
     { LV_SYMBOL_TRASH, A_DELETE },
   };
@@ -172,6 +173,9 @@ void UITask::channelAction(uint8_t act) {
     case A_EDIT:
       navClosePopup();
       showChannelEdit(idx);
+      break;
+    case A_PIN:
+      pinPopup(true, (uint8_t)idx, nullptr);   // DeviceScreen.h
       break;
     case A_DELETE:
       if (!s_del_armed_ms || millis() - s_del_armed_ms > 3000) {   // second tap within 3 s confirms

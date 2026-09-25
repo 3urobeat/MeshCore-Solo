@@ -16,7 +16,7 @@
 
 namespace convview {
 
-enum : uint8_t { A_FAV, A_READ, A_LOGIN, A_LOGOUT };
+enum : uint8_t { A_FAV, A_READ, A_LOGIN, A_LOGOUT, A_PIN };
 enum : uint8_t { M_REPLY, M_TARGET };
 
 static uint8_t s_key[PUB_KEY_SIZE];     // the conversation the popup is about
@@ -157,13 +157,14 @@ void UITask::roomPoll() {
   if (o == RoomSessions::NONE) return;
   bool mine = s_login_wait && memcmp(key, s_login_key, 4) == 0;
   if (mine) s_login_wait = false;
+  bool picking = (_screen == SCR_CHATS || _screen == SCR_FAVS) && !_nav_overlay && !locked();   // where it was tapped
   if (o == RoomSessions::LOGGED_IN) {
     showToast("Logged in", 1200);
-    if (mine && _screen == SCR_CHATS && !_nav_overlay) openDM(s_login_key);
+    if (mine && picking) openDM(s_login_key);
     else if (_screen == SCR_CHATS && !_nav_overlay) buildChats();
   } else if (o == RoomSessions::LOGIN_FAILED) {
     showToast("Login failed - wrong password?", 3000);
-    if (mine && _screen == SCR_CHATS && !_nav_overlay) roomLoginPopup(s_login_key);
+    if (mine && picking) roomLoginPopup(s_login_key);
   } else {
     showToast("No answer from the room", 3000);
   }
@@ -193,6 +194,7 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
   lv_obj_t* acts = actionRow(panel);
   s_fav_btn = actionButton(acts, UI_SYMBOL_STAR " Fav", onConvAction, A_FAV, contactctl::favourite(ci));
   if (!room && _core->dmUnread(ci.id.pub_key) > 0) actionButton(acts, LV_SYMBOL_OK " Read", onConvAction, A_READ, false);
+  actionButton(acts, UI_SYMBOL_PIN, onConvAction, A_PIN, favslots::findContact(_prefs, ci.id.pub_key) >= 0);
   if (room) {
     actionButton(acts, LV_SYMBOL_EDIT " Login", onConvAction, A_LOGIN, false);
     if (_core->rooms.isLoggedIn(ci.id.pub_key)) actionButton(acts, LV_SYMBOL_CLOSE " Logout", onConvAction, A_LOGOUT, false);
@@ -225,6 +227,9 @@ void UITask::conversationAction(uint8_t act) {
       break;
     case A_LOGIN:
       roomLoginPopup(ci.id.pub_key);
+      break;
+    case A_PIN:
+      pinPopup(false, 0, ci.id.pub_key);   // DeviceScreen.h
       break;
     case A_LOGOUT:
       _core->rooms.logout(ci.id.pub_key);

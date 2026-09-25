@@ -66,6 +66,17 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: Node name, reboot, lock screen, favourites dial (2026-09-25)
+- [ ] Settings > NODE > Name: popup with the current name, Enter saves; Home and Settings show the new name; another node sees it after your next advert
+- [ ] Settings > SYSTEM > Reboot / Power off: confirm popup (red button); reboot comes back normally, messages and settings kept
+- [ ] Settings > Display & power > Lock screen on; > TIME > 12-hour clock changes status bar ("2:05 PM"), Home and lock screen (AM/PM before the date)
+- [ ] With Lock screen on: screen off (timeout or the button on Home) → wake → clock card with "N new messages"; tapping anywhere does nothing; the knob follows the finger; sliding to the right end unlocks; letting go early springs it back
+- [ ] Locked: a new message still wakes the screen and shows the toast; the button turns the screen off again; alarm ring shows over the lock
+- [ ] In the pocket for a while with Lock screen on: nothing changed / sent
+- [ ] Home page 2 > Favourites: 6 slots; tap an empty one → pick a channel / contact / room; filled slot shows # / person / house icon and unread badge; tap opens it (a room logs in first); hold → Change / Remove
+- [ ] Channel options and conversation options: pin icon → "Pin to favourites" with six slots (current one highlighted, tap it again to unpin)
+- [ ] L1 (ui-new): favourites dial and Pin to dial work as before
+
 ## New: Rooms, conversation options, message actions (2026-09-25)
 - [ ] Messages: sections CHANNELS / DIRECT / ROOMS; "All" / "★ Fav" pill on CHANNELS and ROOMS shows only favourites (and survives a reboot)
 - [ ] ROOMS lists room servers ("Tap to log in" / last post); "ROOMS - N new" when posts arrived

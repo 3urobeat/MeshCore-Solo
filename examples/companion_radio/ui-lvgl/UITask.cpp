@@ -79,6 +79,33 @@ static void formatAge(char* buf, size_t n, uint32_t ts) {
   else                 snprintf(buf, n, "%lud", (unsigned long)(d / 86400));
 }
 
+// Local time (NodePrefs::tz_offset_hours); false before the clock is set.
+static bool localTime(const NodePrefs* p, struct tm& out) {
+  uint32_t now = rtc_clock.getCurrentTime();
+  if (now <= 1000000000UL) return false;
+  time_t t = (time_t)((int64_t)now + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
+  out = *gmtime(&t);
+  return true;
+}
+// "14:05", or "2:05" (+ " PM" with suffix) with Settings > 12-hour clock.
+static void fmtClock(char* b, size_t n, const struct tm& ti, const NodePrefs* p, bool suffix) {
+  if (p && p->clock_12h) {
+    int h = ti.tm_hour % 12;
+    snprintf(b, n, "%d:%02d%s", h ? h : 12, ti.tm_min, suffix ? (ti.tm_hour < 12 ? " AM" : " PM") : "");
+  } else {
+    snprintf(b, n, "%02d:%02d", ti.tm_hour, ti.tm_min);
+  }
+}
+// "Thu 25 Sep 2026" ("PM  Thu 25 Sep 2026" on a 12-hour clock, whose big
+// digits have no room for it).
+static void fmtDate(char* b, size_t n, const struct tm& ti, const NodePrefs* p) {
+  static const char* DOW[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+  static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  snprintf(b, n, "%s%s %d %s %d", (p && p->clock_12h) ? (ti.tm_hour < 12 ? "AM  " : "PM  ") : "",
+           DOW[ti.tm_wday], ti.tm_mday, MON[ti.tm_mon], ti.tm_year + 1900);
+}
+
 static void contactName(const uint8_t* prefix, char* out, size_t n) {
   ContactInfo c;
   if (MessageHistory::contactByPrefix(prefix, c) && c.name[0]) snprintf(out, n, "%s", c.name);
@@ -136,7 +163,7 @@ void UITask::loop() {
   if (btn_click) {
     if (_core->clock.isRinging()) dismissRing();
     else if (_asleep) wake();
-    else if (_screen == SCR_HOME) sleep();
+    else if (_screen == SCR_HOME || locked()) sleep();
     else back();
   }
 
@@ -160,9 +187,11 @@ void UITask::loop() {
     if ((int32_t)(millis() - _next_status_ms) >= 0) {
       _next_status_ms = millis() + 1000;
       refreshStatusBar();
+      refreshLock();
       if (_screen == SCR_HOME) refreshHome();
     }
-    if (_screen == SCR_HOME) homeSwipePoll();
+    if (locked()) lockPoll();
+    else if (_screen == SCR_HOME) homeSwipePoll();
     if ((_screen == SCR_NEARBY || _screen == SCR_NODE) && (int32_t)(millis() - _next_nearby_ms) >= 0) {
       // Scan results trickle in over a few seconds: poll fast while scanning.
       _next_nearby_ms = millis() + (_scanning ? 250 : 2000);
@@ -234,6 +263,7 @@ void UITask::sleep() {
   if (_asleep) return;
   _asleep = true;
   if (_display) _display->turnOff();
+  if (_prefs && _prefs->auto_lock) lockScreen();   // Settings > Display & power > Lock screen
 }
 
 void UITask::wake() {
@@ -333,11 +363,11 @@ void UITask::buildStatusBar() {
 
 void UITask::refreshStatusBar() {
   if (!_status_time) return;
-  uint32_t now = rtc_clock.getCurrentTime();
-  if (now > 1000000000UL) {
-    time_t t = (time_t)((int64_t)now + (int64_t)(_prefs ? _prefs->tz_offset_hours : 0) * 3600);
-    struct tm* ti = gmtime(&t);
-    lv_label_set_text_fmt(_status_time, "%02d:%02d", ti->tm_hour, ti->tm_min);
+  struct tm ti;
+  if (localTime(_prefs, ti)) {
+    char clk[12];
+    fmtClock(clk, sizeof(clk), ti, _prefs, true);
+    lv_label_set_text(_status_time, clk);
   } else {
     lv_label_set_text(_status_time, "--:--");
   }
@@ -461,8 +491,9 @@ void UITask::back() {
     case SCR_CONTACTS: showChats(); break;
     case SCR_CHANNEL_EDIT: showChats(); break;
     case SCR_BOT:      if (_nav_overlay) navClosePopup(); else showHome(); break;
+    case SCR_FAVS:     if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
-    case SCR_SETTINGS: showHome(); break;
+    case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
     case SCR_CLOCK:    showHome(); break;
     case SCR_RADIO:    if (radioPopupOpen()) radioCloseFreq(); else showSettings(); break;
@@ -498,6 +529,9 @@ static void onOpenNodesMap(lv_event_t* e) { (void)e; s_ui->openMap(false); }
 static void onOpenNav(lv_event_t* e) { (void)e; s_ui->openMap(true); }
 static void onOpenClock(lv_event_t* e);   // ClockScreen.h
 static void onOpenBot(lv_event_t* e);     // BotScreen.h
+static void onOpenFavourites(lv_event_t* e);   // DeviceScreen.h
+static void onNodeName(lv_event_t* e);
+static void onPowerRow(lv_event_t* e);
 
 // Home apps, in order; PER_PAGE to a page, further pages are swiped to (with
 // dots underneath), so new apps don't squeeze the row.
@@ -509,6 +543,7 @@ static const App APPS[] = {
   { UI_SYMBOL_MAP,      "Map",      onOpenNav,      false },
   { LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, false },
   // Page 2: tools
+  { UI_SYMBOL_STAR,     "Favourites", onOpenFavourites, false },
   { UI_SYMBOL_CLOCK,    "Clock",    onOpenClock,    false },
   { LV_SYMBOL_CHARGE,   "Bot",      onOpenBot,      false },
 };
@@ -637,16 +672,13 @@ void UITask::setHomePage(int page) {
 
 void UITask::refreshHome() {
   if (!_home_clock) return;
-  uint32_t now = rtc_clock.getCurrentTime();
-  if (now > 1000000000UL) {
-    time_t t = (time_t)((int64_t)now + (int64_t)(_prefs ? _prefs->tz_offset_hours : 0) * 3600);
-    struct tm* ti = gmtime(&t);
-    static const char* DOW[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-    static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-    lv_label_set_text_fmt(_home_clock, "%02d:%02d", ti->tm_hour, ti->tm_min);
-    lv_label_set_text_fmt(_home_date, "%s %d %s %d", DOW[ti->tm_wday], ti->tm_mday, MON[ti->tm_mon],
-                          ti->tm_year + 1900);
+  struct tm ti;
+  if (localTime(_prefs, ti)) {
+    char clk[12], date[48];
+    fmtClock(clk, sizeof(clk), ti, _prefs, false);
+    fmtDate(date, sizeof(date), ti, _prefs);
+    lv_label_set_text(_home_clock, clk);
+    lv_label_set_text(_home_date, date);
   } else {
     lv_label_set_text(_home_clock, "--:--");
     lv_label_set_text(_home_date, "time not synced");
@@ -1954,6 +1986,8 @@ static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
 
 void UITask::buildSettings() {
   lv_obj_t* body = newScreen("Settings", true);
+  sectionTitle(body, "NODE");
+  listRow(body, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
   sectionTitle(body, "CONNECTIVITY");
   char ssid[33], pass[65];
   bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
@@ -1993,6 +2027,10 @@ void UITask::buildSettings() {
                              alt_a == main_a ? 0 : alt_a + 1);
   label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
+  sectionTitle(body, "SYSTEM");
+  listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
+  listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
+
   sectionTitle(body, "ABOUT");
   char about[200], built[24] = "";
   if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) snprintf(built, sizeof(built), " (%s)", FIRMWARE_BUILD_DATE);
@@ -2012,3 +2050,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 }
 
 #include "ConversationScreen.h"
+#include "DeviceScreen.h"

@@ -295,6 +295,7 @@ void UITask::showRing(const char* text) {
   }
   lv_label_set_text(s_ring_lbl, text);
   lv_obj_remove_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(s_ring);   // over the lock screen too
 }
 
 void UITask::dismissRing() {
