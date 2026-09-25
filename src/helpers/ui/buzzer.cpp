@@ -8,7 +8,7 @@ void genericBuzzer::begin() {
     // file included) activate at all; variants/sim/arduino/Arduino.h
     // deliberately has no pinMode()/digitalWrite() shim since nothing else
     // ever needed one before this.
-#ifndef SIM_PLATFORM
+#if !defined(SIM_PLATFORM) && !defined(BUZZER_I2S)
     #ifdef PIN_BUZZER_EN
       pinMode(PIN_BUZZER_EN, OUTPUT);
       digitalWrite(PIN_BUZZER_EN, HIGH);
@@ -30,6 +30,9 @@ void genericBuzzer::begin() {
     NVIC_ClearPendingIRQ(TIMER1_IRQn);
     NVIC_EnableIRQ(TIMER1_IRQn);
 #endif
+#if defined(BUZZER_I2S)
+    if (!_i2sBegin()) return;   // no codec: stay silent
+#endif
     startup();
 }
 
@@ -50,7 +53,7 @@ void genericBuzzer::shutdown() { play(shutdown_song); }
 // the NRF52 direct-PWM player and the sim's poll-only player (below) reuse
 // it verbatim instead of each carrying their own copy.
 // ---------------------------------------------------------------------------
-#if defined(NRF52_PLATFORM) || defined(SIM_PLATFORM)
+#if defined(NRF52_PLATFORM) || defined(SIM_PLATFORM) || defined(BUZZER_I2S)
 
 // Chromatic frequencies for octave 4 (Hz): C C# D D# E F F# G G# A A# B
 static const uint16_t CHROM4[12] = { 262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494 };
@@ -109,7 +112,9 @@ bool genericBuzzer::_parseNext(const char*& p, uint8_t def_dur, uint8_t def_oct,
     return true;
 }
 
-#endif // NRF52_PLATFORM || SIM_PLATFORM
+int genericBuzzer::noteIndex() const { return _note_idx; }
+
+#endif // NRF52_PLATFORM || SIM_PLATFORM || BUZZER_I2S
 
 // ---------------------------------------------------------------------------
 // nRF52 path — direct NRF_PWM2 control, bypasses tone()
@@ -216,6 +221,7 @@ void genericBuzzer::_timer1ISR() {
 void genericBuzzer::_nrfBegin(const char* melody) {
     _disarmNoteTimer();   // drop any in-flight/pending note advance before reconfiguring
     _nrfStopPwm();
+    _note_idx = -1;
     if (!melody || !*melody) { _rtttl_done = true; return; }
     const char* notes;
     _parseHeader(melody, _def_dur, _def_oct, _def_bpm, notes);
@@ -227,10 +233,12 @@ void genericBuzzer::_nrfBegin(const char* melody) {
 void genericBuzzer::_nrfAdvance() {
     uint16_t freq; uint32_t dur_ms;
     if (_parseNext(_rtttl_pos, _def_dur, _def_oct, _def_bpm, freq, dur_ms)) {
+        _note_idx++;
         _armNoteTimer(dur_ms);
         if (freq > 0) _nrfStartPwm(freq); else _nrfStopPwm();
     } else {
         _nrfStopPwm();
+        _note_idx = -1;
         _rtttl_done = true;
     }
 }
@@ -257,6 +265,7 @@ bool genericBuzzer::isPlaying() { return !_rtttl_done; }
 void genericBuzzer::stop() {
     _disarmNoteTimer();   // ensure no latched note-advance fires after we stop
     _nrfStopPwm();
+    _note_idx = -1;
     _rtttl_done = true;
 }
 
@@ -288,9 +297,11 @@ void genericBuzzer::setVolume(uint8_t level) {
 void genericBuzzer::_advance() {
     uint16_t freq; uint32_t dur_ms;
     if (_parseNext(_rtttl_pos, _def_dur, _def_oct, _def_bpm, freq, dur_ms)) {
+        _note_idx++;
         _cur_freq = freq;
         _note_end_ms = millis() + dur_ms;
     } else {
+        _note_idx = -1;
         _cur_freq = 0;
         _rtttl_done = true;
     }
@@ -309,6 +320,7 @@ void genericBuzzer::play(const char* melody) {
 void genericBuzzer::playForced(const char* melody) {
     _rtttl_done = true;
     _cur_freq = 0;
+    _note_idx = -1;
     if (!melody || !*melody) return;
     const char* notes;
     _parseHeader(melody, _def_dur, _def_oct, _def_bpm, notes);
@@ -322,6 +334,7 @@ bool genericBuzzer::isPlaying() { return !_rtttl_done; }
 void genericBuzzer::stop() {
     _rtttl_done = true;
     _cur_freq = 0;
+    _note_idx = -1;
 }
 
 void genericBuzzer::loop() {
@@ -333,7 +346,277 @@ void genericBuzzer::setVolume(uint8_t level) {
     _volume_level = level < 5 ? level : 4;
 }
 
-#else  // NRF52_PLATFORM / SIM_PLATFORM
+#elif defined(BUZZER_I2S)
+
+// ---------------------------------------------------------------------------
+// I2S codec path -- a speaker behind an ES8311 (Wio Tracker L2). An audio
+// task synthesises a sine per note and counts samples to end it, so timing
+// holds however long the UI loop stalls (map tiles, SD). The task only
+// touches I2S; the codec (I2C) and the amp (the board's IO expander, I2C
+// too) are driven from the caller's thread, which owns the bus.
+// ---------------------------------------------------------------------------
+
+#include <driver/i2s.h>
+#include <esp_heap_caps.h>
+#include "ES8311.h"
+
+#ifndef AUDIO_AMP_SETTLE_MS
+  // Silence after amp power-up, so the first note isn't clipped. Seeed's
+  // Meshtastic port waits 250 ms, PR #3381's player 3 ms: in between.
+  #define AUDIO_AMP_SETTLE_MS 100
+#endif
+
+static const int      SAMPLE_RATE   = 16000;
+static const i2s_port_t I2S_PORT    = I2S_NUM_0;
+static const uint32_t AMP_LINGER_MS = 3000;   // amp stays on between close sounds (no settle wait each time)
+static const uint32_t CLK_SETTLE_MS = 30;     // codec clocked this long before the amp comes on
+// Note edges follow a raised cosine (a linear 3 ms ramp still ticked): the
+// attack, the release, and the fade of a note cut short by the next sound.
+static const uint32_t ATTACK        = 80;     // 5 ms
+static const uint32_t RELEASE       = 160;    // 10 ms
+static const int      CUT_FADE      = 240;    // 15 ms
+static const int      CHUNK         = 128;    // frames per i2s_write
+static portMUX_TYPE   s_mux         = portMUX_INITIALIZER_UNLOCKED;
+static int16_t        s_sine[256];
+static int16_t        s_ease[65];     // (1 - cos(pi x)) / 2 over 0..1, Q15
+
+// Gain `peak` eased in over `n` samples: position x of n.
+static int32_t ease(int32_t peak, uint32_t x, uint32_t n) {
+  if (x >= n) return peak;
+  return peak * s_ease[x * 64 / n] / 32767;
+}
+static uint32_t       s_amp_on_ms   = 0;
+
+// Peak sample per volume level: -24/-16/-9/-3/0 dB like the nRF52 duty
+// steps, under an -8 dBFS ceiling (the class-D amp is loud near full scale;
+// PR #3381 played at about -21 dBFS and called it gentle).
+static int16_t peakFor(uint8_t level) {
+  static const int16_t PEAK[5] = { 820, 2060, 4620, 9220, 13000 };
+  return PEAK[level < 5 ? level : 4];
+}
+
+bool genericBuzzer::_i2sBegin() {
+  // i2s_driver_install() crashes in IDF's cleanup when its DMA allocation
+  // fails (PR #3381 saw a boot loop): don't try without clear headroom.
+  if (heap_caps_get_free_size(MALLOC_CAP_DMA) < 32000) return false;
+  for (int i = 0; i < 256; i++) s_sine[i] = (int16_t)(32767.0f * sinf(i * 2.0f * (float)M_PI / 256.0f));
+  for (int i = 0; i <= 64; i++) s_ease[i] = (int16_t)(32767.0f * 0.5f * (1.0f - cosf(i * (float)M_PI / 64.0f)));
+
+  i2s_config_t cfg = {};
+  cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
+  cfg.sample_rate = SAMPLE_RATE;
+  cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+  cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+  cfg.dma_buf_count = 6;   // 48 ms queued: short, since the task keeps it topped up
+  cfg.dma_buf_len = CHUNK;
+  cfg.tx_desc_auto_clear = true;   // an underrun plays silence, not the last buffer again
+  cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  i2s_pin_config_t pins = {};
+  pins.mck_io_num = PIN_I2S_MCLK;
+  pins.bck_io_num = PIN_I2S_BCK;
+  pins.ws_io_num = PIN_I2S_WS;
+  pins.data_out_num = PIN_I2S_DOUT;
+  pins.data_in_num = I2S_PIN_NO_CHANGE;
+  if (i2s_driver_install(I2S_PORT, &cfg, 0, nullptr) != ESP_OK) return false;
+  if (i2s_set_pin(I2S_PORT, &pins) != ESP_OK) { i2s_driver_uninstall(I2S_PORT); return false; }
+  i2s_zero_dma_buffer(I2S_PORT);
+
+  // MCLK is running now, so the codec's clock tree comes up with it.
+  if (!es8311::begin(Wire, BUZZER_CODEC_ES8311)) {
+    i2s_driver_uninstall(I2S_PORT);
+    return false;
+  }
+  _clk_on_ms = millis();
+  _clk_running = true;
+  delay(CLK_SETTLE_MS);   // settled before the startup sound powers the amp
+  // Above the UI loop and LVGL (priority 1), so rendering never starves it.
+  _i2s_ok = xTaskCreate(_taskEntry, "buzzer", 3072, this, 6, (TaskHandle_t*)&_task) == pdPASS;
+  return _i2s_ok;
+}
+
+void genericBuzzer::_taskEntry(void* self) { ((genericBuzzer*)self)->_taskLoop(); }
+
+// Waits for play()/stop(), then plays the latest melody; a newer request
+// (_req changed) cuts the one playing within a chunk plus the DMA queue,
+// fading the cut note out so it doesn't click.
+void genericBuzzer::_taskLoop() {
+  static int16_t buf[CHUNK * 2];
+  static const int16_t zeros[CHUNK * 2] = {0};
+  static char mel[MEL_MAX];
+  uint32_t done_req = 0;
+  size_t w;
+  for (;;) {
+    // Between sounds, while the codec is clocked, keep the DMA queue full of
+    // silence: a sound starting into a queue that had run dry could be played
+    // from a half-written buffer -- a knock at slow taps, never at fast ones.
+    // Idle past the amp's linger, stop the clocks: only with the amp off (and
+    // not about to come on), or the codec's output step pops through it.
+    uint32_t idle_since = millis();
+    while (_req == done_req) {
+      if (!_clk_running) { ulTaskNotifyTake(pdTRUE, portMAX_DELAY); idle_since = millis(); continue; }
+      i2s_write(I2S_PORT, zeros, sizeof(zeros), &w, pdMS_TO_TICKS(50));
+      if (millis() - idle_since < AMP_LINGER_MS + 500) continue;
+      bool stop = false;
+      portENTER_CRITICAL(&s_mux);
+      if (!_amp_on && !_amp_pending && _req == done_req) { _clk_running = false; stop = true; }
+      portEXIT_CRITICAL(&s_mux);
+      if (stop) i2s_stop(I2S_PORT); else idle_since = millis();
+    }
+    ulTaskNotifyTake(pdTRUE, 0);   // its request is being taken now
+    for (;;) {
+      uint32_t req; bool stop; uint16_t settle;
+      portENTER_CRITICAL(&s_mux);
+      req = _req; stop = _stop_req; settle = _settle_ms; _settle_ms = 0;
+      memcpy(mel, _mel, MEL_MAX);
+      portEXIT_CRITICAL(&s_mux);
+      if (req == done_req) break;
+      done_req = req;
+      _note_idx = -1;
+      if (stop || !mel[0]) { _task_playing = false; break; }
+      if (!_clk_running) {
+        i2s_zero_dma_buffer(I2S_PORT);
+        i2s_start(I2S_PORT);
+        portENTER_CRITICAL(&s_mux);
+        _clk_on_ms = millis();
+        _clk_running = true;   // loop() powers the amp once the codec settles
+        portEXIT_CRITICAL(&s_mux);
+      }
+
+      bool cut = false;
+      memset(buf, 0, sizeof(buf));
+      for (uint32_t n = (uint32_t)settle * SAMPLE_RATE / 1000; n > 0 && !cut; ) {
+        uint32_t k = n < CHUNK ? n : CHUNK;
+        i2s_write(I2S_PORT, buf, k * 4, &w, portMAX_DELAY);
+        n -= k;
+        cut = _req != req;
+      }
+
+      uint8_t def_dur, def_oct; uint16_t bpm; const char* pos;
+      _parseHeader(mel, def_dur, def_oct, bpm, pos);
+      uint16_t freq; uint32_t dur_ms;
+      int16_t idx = -1;
+      while (!cut && _parseNext(pos, def_dur, def_oct, bpm, freq, dur_ms)) {
+        _note_idx = ++idx;
+        uint32_t total = dur_ms * SAMPLE_RATE / 1000;
+        uint32_t phase = 0, step = (uint32_t)(((uint64_t)freq << 32) / SAMPLE_RATE);
+        int32_t peak = peakFor(_volume_level), g = 0;
+        // Short notes (1/32 at 180 BPM is 41 ms) get shorter edges.
+        uint32_t att = total / 4 < ATTACK ? total / 4 : ATTACK;
+        uint32_t rel = total / 3 < RELEASE ? total / 3 : RELEASE;
+        uint32_t i = 0;
+        while (i < total && !cut) {
+          uint32_t k = total - i < CHUNK ? total - i : CHUNK;
+          for (uint32_t j = 0; j < k; j++, i++) {
+            int16_t s = 0;
+            if (freq) {
+              uint32_t left = total - 1 - i;
+              g = i < att ? ease(peak, i, att) : ease(peak, left, rel);
+              s = (int16_t)((int32_t)s_sine[phase >> 24] * g / 32767);
+              phase += step;
+            }
+            buf[j * 2] = buf[j * 2 + 1] = s;
+          }
+          i2s_write(I2S_PORT, buf, k * 4, &w, portMAX_DELAY);
+          cut = _req != req;
+        }
+        if (cut && freq && g) {   // fade out from where the note was cut
+          for (int j = 0; j < CUT_FADE; j += CHUNK) {
+            int k = CUT_FADE - j < CHUNK ? CUT_FADE - j : CHUNK;
+            for (int m = 0; m < k; m++) {
+              int32_t gj = ease(g, CUT_FADE - 1 - (j + m), CUT_FADE);
+              buf[m * 2] = buf[m * 2 + 1] = (int16_t)((int32_t)s_sine[phase >> 24] * gj / 32767);
+              phase += step;
+            }
+            i2s_write(I2S_PORT, buf, k * 4, &w, portMAX_DELAY);
+          }
+        }
+      }
+      _note_idx = -1;
+      if (cut) continue;   // a newer request: take it at once
+      // Let the DMA queue play out before reporting the melody done.
+      for (int i = 0; i < 6; i++) i2s_write(I2S_PORT, zeros, sizeof(zeros), &w, portMAX_DELAY);
+      if (_req == req) _task_playing = false;
+    }
+  }
+}
+
+void genericBuzzer::_start(const char* melody) {
+  if (!_i2s_ok) return;
+  if (!melody || !*melody) { stop(); return; }
+  uint16_t settle = 0;
+  bool power_now = false;
+  portENTER_CRITICAL(&s_mux);
+  if (_amp_on) {   // a replay within the settle time still waits out the rest
+    uint32_t since = millis() - s_amp_on_ms;
+    settle = since < AUDIO_AMP_SETTLE_MS ? (uint16_t)(AUDIO_AMP_SETTLE_MS - since) : 0;
+  } else if (_clk_running && millis() - _clk_on_ms >= CLK_SETTLE_MS) {
+    _amp_on = power_now = true;   // claimed here, so the task keeps the clocks
+    settle = AUDIO_AMP_SETTLE_MS;
+  } else {
+    _amp_pending = true;          // loop() powers it once the clocks have settled
+    settle = CLK_SETTLE_MS + AUDIO_AMP_SETTLE_MS;
+  }
+  strncpy(_mel, melody, MEL_MAX - 1);
+  _mel[MEL_MAX - 1] = 0;
+  _stop_req = false;
+  _settle_ms = settle;
+  _req++;
+  _task_playing = true;
+  portEXIT_CRITICAL(&s_mux);
+  if (power_now) { buzzerAmpPower(true); s_amp_on_ms = millis(); }
+  _amp_off_at = millis() + AMP_LINGER_MS;
+  xTaskNotifyGive((TaskHandle_t)_task);
+}
+
+void genericBuzzer::applyVolume() {}   // the task reads _volume_level per note
+
+void genericBuzzer::play(const char* melody) {
+  if (_is_quiet) return;
+  _start(melody);
+}
+
+void genericBuzzer::playForced(const char* melody) { _start(melody); }
+
+bool genericBuzzer::isPlaying() { return _task_playing; }
+
+void genericBuzzer::stop() {
+  if (!_i2s_ok) return;
+  portENTER_CRITICAL(&s_mux);
+  _stop_req = true;
+  _req++;
+  _task_playing = false;
+  portEXIT_CRITICAL(&s_mux);
+  xTaskNotifyGive((TaskHandle_t)_task);
+}
+
+// The amp: on once the codec's clocks have settled (a pending start), off
+// once nothing has played for AMP_LINGER_MS.
+void genericBuzzer::loop() {
+  if (!_i2s_ok) return;
+  if (_amp_pending) {
+    bool power = false;
+    portENTER_CRITICAL(&s_mux);
+    if (!_task_playing) _amp_pending = false;   // stopped before it got going
+    else if (_clk_running && millis() - _clk_on_ms >= CLK_SETTLE_MS) { _amp_pending = false; _amp_on = power = true; }
+    portEXIT_CRITICAL(&s_mux);
+    if (power) { buzzerAmpPower(true); s_amp_on_ms = millis(); }
+  }
+  if (!_amp_on) return;
+  if (_task_playing) _amp_off_at = millis() + AMP_LINGER_MS;
+  else if ((int32_t)(millis() - _amp_off_at) >= 0) {
+    buzzerAmpPower(false);
+    portENTER_CRITICAL(&s_mux);
+    _amp_on = false;
+    portEXIT_CRITICAL(&s_mux);
+  }
+}
+
+void genericBuzzer::setVolume(uint8_t level) {
+  _volume_level = level < 5 ? level : 4;
+}
+
+#else  // NRF52_PLATFORM / SIM_PLATFORM / BUZZER_I2S
 
 // ---------------------------------------------------------------------------
 // Non-nRF52, non-sim path — NonBlockingRtttl + analogWrite for volume
@@ -359,6 +642,8 @@ void genericBuzzer::playForced(const char* melody) {
 
 bool genericBuzzer::isPlaying() { return rtttl::isPlaying(); }
 
+int genericBuzzer::noteIndex() const { return -1; }   // the library doesn't say
+
 void genericBuzzer::stop() { rtttl::stop(); }
 
 void genericBuzzer::loop() {
@@ -373,6 +658,6 @@ void genericBuzzer::setVolume(uint8_t level) {
     if (isPlaying()) applyVolume();
 }
 
-#endif  // NRF52_PLATFORM / SIM_PLATFORM
+#endif  // NRF52_PLATFORM / SIM_PLATFORM / BUZZER_I2S
 
 #endif  // PIN_BUZZER

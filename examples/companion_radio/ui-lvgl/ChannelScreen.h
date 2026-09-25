@@ -12,7 +12,7 @@ namespace chanview {
 
 enum : uint8_t { A_FAV, A_EDIT, A_DELETE, A_READ, A_PIN };
 enum : uint8_t { T_PUBLIC, T_HASHTAG, T_PRIVATE };
-enum : uint8_t { C_NOTIF, C_SCOPE };
+enum : uint8_t { C_NOTIF, C_SCOPE, C_MELODY };
 
 static int s_idx = -1;           // channel the popup / form is about (-1: adding)
 static uint8_t s_type = T_HASHTAG;
@@ -41,8 +41,9 @@ static void onChanDropdown(lv_event_t* e) {
   s_ui->channelSet((uint8_t)(uintptr_t)lv_event_get_user_data(e),
                    (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
 }
-static void onChanNotif(lv_event_t* e) {
-  s_ui->channelSet(chanview::C_NOTIF, (int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
+static void onChanSegment(lv_event_t* e) {   // user data: C_NOTIF / C_MELODY
+  s_ui->channelSet((uint8_t)(uintptr_t)lv_event_get_user_data(e),
+                   (int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onChanRowHold(lv_event_t* e) {
   lv_indev_wait_release(lv_indev_active());   // the hold isn't also a tap that opens the channel
@@ -81,25 +82,11 @@ void UITask::channelMenu(int idx) {
   // Notifications: three segments in the row (a dropdown's list ran off the
   // bottom of the screen from a popup this low).
   static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
+  static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
   lv_obj_t* row = radioview::settingRow(panel, "Alerts", NULL);
-  lv_obj_t* seg = lv_buttonmatrix_create(row);
-  lv_buttonmatrix_set_map(seg, NOTIF);
-  lv_buttonmatrix_set_button_ctrl_all(seg, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-  lv_buttonmatrix_set_one_checked(seg, true);
-  lv_buttonmatrix_set_button_ctrl(seg, chanctl::notif(_prefs, idx), LV_BUTTONMATRIX_CTRL_CHECKED);
-  lv_obj_set_size(seg, 200, 36);
-  lv_obj_align(seg, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_set_style_pad_all(seg, 0, 0);
-  lv_obj_set_style_pad_column(seg, 3, 0);
-  lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(seg, 0, 0);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-  lv_obj_set_style_text_color(seg, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(seg, THEME_FONT_SMALL, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(seg, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(seg, 8, LV_PART_ITEMS);
-  lv_obj_add_event_cb(seg, onChanNotif, LV_EVENT_VALUE_CHANGED, NULL);
+  radioview::rowSegmented(row, NOTIF, chanctl::notif(_prefs, idx), 200, onChanSegment, C_NOTIF);
+  row = radioview::settingRow(panel, "Sound", NULL);
+  radioview::rowSegmented(row, MELODY, chanctl::melody(_prefs, idx), 200, onChanSegment, C_MELODY);
   const ScopeList& sl = the_mesh.scopeList();
   if (sl.count > 0) {   // only once regions are set up (Settings in the app)
     row = radioview::settingRow(panel, "Scope", "Region it's sent in");
@@ -148,6 +135,7 @@ void UITask::channelSet(uint8_t which, int v) {
   if (!chanctl::exists(s_idx) || !_prefs) return;
   if (which == C_NOTIF) chanctl::setNotif(_prefs, s_idx, (uint8_t)v);
   else if (which == C_SCOPE) the_mesh.setChannelScope(s_idx, (uint8_t)v);
+  else if (which == C_MELODY) { chanctl::setMelody(_prefs, s_idx, (uint8_t)v); hearMelody(v); }
   the_mesh.savePrefs();
 }
 

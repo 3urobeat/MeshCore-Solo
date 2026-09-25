@@ -171,6 +171,21 @@ static void setNotif(NodePrefs* p, uint8_t idx, uint8_t state) {
   if (state == NOTIF_MUTED) p->ch_notif_muted |= m; else p->ch_notif_muted &= ~m;
 }
 
+// Melody slot: 0 = the global channel sound, 1 / 2 = the user melodies.
+static uint8_t melody(const NodePrefs* p, uint8_t idx) {
+  uint64_t m = 1ULL << idx;
+  if (!p || !(p->ch_notif_melody_set & m)) return 0;
+  return (p->ch_notif_melody_2 & m) ? 2 : 1;
+}
+
+static void setMelody(NodePrefs* p, uint8_t idx, uint8_t slot) {
+  if (!p) return;
+  uint64_t m = 1ULL << idx;
+  if (slot == 0) { p->ch_notif_melody_set &= ~m; p->ch_notif_melody_2 &= ~m; return; }
+  p->ch_notif_melody_set |= m;
+  if (slot == 2) p->ch_notif_melody_2 |= m; else p->ch_notif_melody_2 &= ~m;
+}
+
 static bool favourite(const NodePrefs* p, uint8_t idx) { return p && (p->ch_fav_bitmask & (1ULL << idx)); }
 
 static void setFavourite(NodePrefs* p, uint8_t idx, bool on) {

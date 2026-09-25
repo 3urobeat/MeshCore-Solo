@@ -34,7 +34,7 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 ## New: Clock, settings pages, radio (2026-09-25)
 - [ ] Home has two pages now: swipe left → Clock (dots under the tiles follow; Home remembers the page)
 - [ ] Clock > Alarm: hour / minute rollers (setting a time arms it), On switch, Repeat (Once / Daily / Weekdays / Weekends); rings at the local time
-- [ ] Clock > Timer: H / M / S rollers, Start → big countdown, Stop; when it ends a full-screen "Timer done" card with Dismiss appears on any screen (also wakes the display; the user button dismisses too). Silent: no speaker driver yet
+- [ ] Clock > Timer: H / M / S rollers, Start → big countdown, Stop; when it ends a full-screen "Timer done" card with Dismiss appears on any screen (also wakes the display; the user button dismisses too). Rings with a melody since the Sound round
 - [ ] Clock > Stopwatch: Start / Stop / Reset with tenths
 - [ ] Settings > Display & power: Screen off after; Wake on message
 - [ ] Settings > Display & power: Battery shutdown (not while on USB), GPS power saving, Time zone (clock + alarm follow)
@@ -65,6 +65,21 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] "Reading... (tap to stop)" stops waiting when tapped
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
+
+## New: Sound (2026-09-26)
+The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 16, amp on expander P12). Pins come from Seeed's Meshtastic port; nothing was heard on the device yet.
+- [ ] A short startup chime after boot (sound On); a goodbye sound on Power off
+- [ ] Settings > Sound: On / Off / Auto (Auto: silent while the app is connected); Off shows a muted-speaker icon in the status bar
+- [ ] Volume slider (5 steps): a beep on release at the new level; the quietest is still audible, the loudest doesn't distort or rattle: ______
+- [x] No knock between sounds, however fast or slow the taps (fixed: notes fade in / out on a raised cosine, a cut note fades over 15 ms, and the DMA queue is kept full of silence between sounds -- a sound starting into a queue that had run dry was played from a half-written buffer)
+- [x] Known, kept: one soft knock on the first sound after >3 s of silence -- the class-D amp's own power-up pop (a longer codec settle didn't change it, only delayed the sound). Kept the amp off between sounds for battery / GNSS; alternatives if it bothers: amp on while the screen is on, or always on
+- [ ] Direct message, channel message and advert each play their sound (Built-in / Melody 1 / Melody 2 / None under PLAYS FOR); "Advert sound for: Direct only" skips adverts that came through repeaters
+- [ ] Hold a chat in Messages: Alerts (Default / Muted / Always) and Sound (Default / Melody 1 / Melody 2) apply to that chat only; Always plays even with sound Off
+- [ ] Clock alarm / timer rings with a repeating melody until Dismiss (or the user button); sound Off doesn't silence it
+- [ ] Arrival alert plays a rising / falling triple; Proximity beeper ticks faster closer to the target
+- [ ] Settings > Sound > Melodies: + adds a note (a copy of the selected one), tap a note to pick it; pitch / octave / length change it with a short preview; trash deletes; BPM; Play / Stop in the header, the note sounding lights up in full colour (the strip scrolls along); saved on Back or when switching Melody 1 / 2 ("Melody 1 saved"); the same melodies play on L1 if the prefs are shared
+- [ ] Timing stays even while the map redraws (notes are counted in samples by the audio task, not by the UI loop)
+- [ ] GPS keeps its fix while sounds play (the amp is off between sounds to keep its switching noise away from the antenna)
 
 ## New: Repeater mode (2026-09-25)
 - [ ] Settings > CONNECTIVITY > Repeater (row shows Off / On and what it relays on): switch on → "Repeater on", the loop icon appears in the status bar; off → it goes away

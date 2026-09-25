@@ -6,20 +6,17 @@ class RingtoneEditorScreen : public UIScreen {
   UITask*    _task;
   NodePrefs* _prefs;
 
-  static const int MAX_NOTES = 32;
+  static const int MAX_NOTES = soundctl::MAX_NOTES;   // melody model: ui-core/SoundControl.h
 
   // Menu item indices
   enum MenuIdx { MI_PLAY=0, MI_SWITCH, MI_DURATION, MI_BPM, MI_INSERT, MI_DELETE, MI_SAVE, MI_DISCARD, MI_COUNT };
 
   int _visible_notes = 7;  // updated in render(); used by clampScroll()
 
-  static const uint16_t BPM_OPTS[5];
-  static const char*    DUR_LABELS[4];
-  static const char     PITCH_NAMES[8];  // lowercase rtttl names
-
-  uint8_t _notes[MAX_NOTES];
-  uint8_t _len;
-  uint8_t _bpm_idx;
+  soundctl::Melody _mel;
+  uint8_t* const _notes = _mel.notes;
+  uint8_t& _len = _mel.len;
+  uint8_t& _bpm_idx = _mel.bpm_idx;
   int     _slot;   // 0=melody1, 1=melody2
   int     _cursor;
   int     _scroll;
@@ -30,12 +27,10 @@ class RingtoneEditorScreen : public UIScreen {
   char    _menu_dur_label[16];
   char    _menu_bpm_label[10];
 
-  static uint8_t notePitch(uint8_t b)  { return b & 0x07; }
-  static uint8_t noteOctave(uint8_t b) { return ((b >> 3) & 0x03) + 4; }
-  static uint8_t noteDurIdx(uint8_t b) { return (b >> 5) & 0x03; }
-  static uint8_t packNote(uint8_t pitch, uint8_t octave, uint8_t dur_idx) {
-    return (pitch & 0x07) | (((octave - 4) & 0x03) << 3) | ((dur_idx & 0x03) << 5);
-  }
+  static uint8_t notePitch(uint8_t b)  { return soundctl::notePitch(b); }
+  static uint8_t noteOctave(uint8_t b) { return soundctl::noteOctave(b); }
+  static uint8_t noteDurIdx(uint8_t b) { return soundctl::noteDur(b); }
+  static uint8_t packNote(uint8_t pitch, uint8_t octave, uint8_t dur_idx) { return soundctl::packNote(pitch, octave, dur_idx); }
 
   void clampScroll() {
     if (_cursor < _scroll)                      _scroll = _cursor;
@@ -43,14 +38,11 @@ class RingtoneEditorScreen : public UIScreen {
     if (_scroll < 0) _scroll = 0;
   }
 
-  void buildRTTTL() {
-    NodePrefs::buildRTTTLString(_notes, _len, _bpm_idx, _play_buf, sizeof(_play_buf));
-  }
+  void buildRTTTL() { soundctl::toRtttl(_mel, _play_buf, sizeof(_play_buf)); }
 
   void previewNote(uint8_t note_byte) {
-    uint8_t pitch = notePitch(note_byte);
-    if (pitch == 0) { _task->stopMelody(); return; }
-    snprintf(_play_buf, sizeof(_play_buf), "P:d=16,o=5,b=240:%c%d", PITCH_NAMES[pitch], noteOctave(note_byte));
+    soundctl::notePreview(note_byte, _play_buf, sizeof(_play_buf));
+    if (!_play_buf[0]) { _task->stopMelody(); return; }
     _task->playMelody(_play_buf);
   }
 
@@ -61,12 +53,7 @@ public:
   // setCurrScreen() (whose onShow() can't carry the slot argument).
   void selectSlot(int slot = 0) {
     _slot    = (slot == 1) ? 1 : 0;
-    bool s2  = (_slot == 1);
-    _bpm_idx = (_prefs && (s2 ? _prefs->ringtone2_bpm_idx : _prefs->ringtone_bpm_idx) < 5)
-                 ? (s2 ? _prefs->ringtone2_bpm_idx : _prefs->ringtone_bpm_idx) : 2;
-    uint8_t rlen = _prefs ? (s2 ? _prefs->ringtone2_len : _prefs->ringtone_len) : 0;
-    _len     = (rlen <= (uint8_t)MAX_NOTES) ? rlen : 0;
-    if (_prefs) memcpy(_notes, s2 ? _prefs->ringtone2_notes : _prefs->ringtone_notes, sizeof(_notes));
+    soundctl::load(_prefs, _slot, _mel);
     _cursor  = 0;
     _scroll  = 0;
     _menu.active = false;
@@ -76,8 +63,8 @@ public:
     snprintf(_menu_play_label, sizeof(_menu_play_label), "%s", _task->isMelodyPlaying() ? "Stop" : "Play");
     snprintf(_menu_slot_label, sizeof(_menu_slot_label), "Melody %d", (_slot == 0) ? 2 : 1);
     uint8_t di = (_cursor < _len) ? noteDurIdx(_notes[_cursor]) : 0;
-    snprintf(_menu_dur_label, sizeof(_menu_dur_label), "Duration: %s", DUR_LABELS[di]);
-    snprintf(_menu_bpm_label, sizeof(_menu_bpm_label), "BPM: %u", BPM_OPTS[_bpm_idx]);
+    snprintf(_menu_dur_label, sizeof(_menu_dur_label), "Duration: %s", soundctl::durLabel(di));
+    snprintf(_menu_bpm_label, sizeof(_menu_bpm_label), "BPM: %u", soundctl::bpm(_bpm_idx));
     _menu.begin("Options", 5);
     _menu.addItem(_menu_play_label);
     _menu.addItem(_menu_slot_label);
@@ -101,7 +88,7 @@ public:
     _visible_notes          = display.width() / cell_w;
 
     char hdr[32];
-    snprintf(hdr, sizeof(hdr), "M%d BPM:%u %d/%d", _slot + 1, BPM_OPTS[_bpm_idx], _len, MAX_NOTES);
+    snprintf(hdr, sizeof(hdr), "M%d BPM:%u %d/%d", _slot + 1, soundctl::bpm(_bpm_idx), _len, MAX_NOTES);
     display.setCursor(0, 0);
     display.print(hdr);
     display.fillRect(0, display.headerH() - 1, display.width(), display.sepH());
@@ -117,7 +104,7 @@ public:
         if (pitch == 0) {
           label[0] = '-'; label[1] = '-'; label[2] = '\0';
         } else {
-          label[0] = PITCH_NAMES[pitch] - 32;  // uppercase
+          label[0] = soundctl::pitchChar(pitch) - 32;  // uppercase
           label[1] = '0' + octave;
           label[2] = '\0';
         }
@@ -147,7 +134,7 @@ public:
     if (_cursor < _len) {
       char info[24];
       snprintf(info, sizeof(info), "oct:%d dur:%s",
-               noteOctave(_notes[_cursor]), DUR_LABELS[noteDurIdx(_notes[_cursor])]);
+               noteOctave(_notes[_cursor]), soundctl::durLabel(noteDurIdx(_notes[_cursor])));
       display.setCursor(display.getCharWidth() + 2, info_y);
       display.print(info);
     } else if (_cursor == _len) {
@@ -170,11 +157,11 @@ public:
       uint8_t di = noteDurIdx(_notes[_cursor]);
       di = (dir > 0) ? (di + 1) & 0x03 : (di + 3) & 0x03;
       _notes[_cursor] = packNote(p, o, di);
-      snprintf(_menu_dur_label, sizeof(_menu_dur_label), "Duration: %s", DUR_LABELS[di]);
+      snprintf(_menu_dur_label, sizeof(_menu_dur_label), "Duration: %s", soundctl::durLabel(di));
     } else if (sel == MI_BPM) {
       if (dir > 0) { if (_bpm_idx < 4) _bpm_idx++; }
       else         { if (_bpm_idx > 0) _bpm_idx--; }
-      snprintf(_menu_bpm_label, sizeof(_menu_bpm_label), "BPM: %u", BPM_OPTS[_bpm_idx]);
+      snprintf(_menu_bpm_label, sizeof(_menu_bpm_label), "BPM: %u", soundctl::bpm(_bpm_idx));
     }
   }
 
@@ -226,15 +213,7 @@ public:
             break;
           case MI_SAVE:
             if (_prefs) {
-              if (_slot == 1) {
-                _prefs->ringtone2_bpm_idx = _bpm_idx;
-                _prefs->ringtone2_len     = _len;
-                memcpy(_prefs->ringtone2_notes, _notes, sizeof(_notes));
-              } else {
-                _prefs->ringtone_bpm_idx = _bpm_idx;
-                _prefs->ringtone_len     = _len;
-                memcpy(_prefs->ringtone_notes, _notes, sizeof(_notes));
-              }
+              soundctl::store(_prefs, _slot, _mel);
               the_mesh.savePrefs();
             }
             _task->stopMelody();
@@ -294,7 +273,3 @@ public:
     return false;
   }
 };
-
-const uint16_t RingtoneEditorScreen::BPM_OPTS[5]   = { 60, 90, 120, 150, 180 };
-const char*    RingtoneEditorScreen::DUR_LABELS[4]  = { "1/4", "1/8", "1/16", "1/32" };
-const char     RingtoneEditorScreen::PITCH_NAMES[8] = { 'p', 'c', 'd', 'e', 'f', 'g', 'a', 'b' };

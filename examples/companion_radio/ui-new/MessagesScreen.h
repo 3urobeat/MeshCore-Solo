@@ -835,32 +835,6 @@ class MessagesScreen : public UIScreen {
     return p && (p->ch_fav_bitmask & (1ULL << ch_idx)) != 0;
   }
 
-  // Returns per-channel notification state: 0=follow global, 1=muted, 2=force-on
-  // Per-contact/channel notification + melody overrides share two storage
-  // shapes, so the eight accessors below are thin wrappers over two primitives:
-  //
-  //  • Channels — a 3-state packed into a pair of channel-index bitmasks: a
-  //    "presence" mask (is there an override at all) + a "variant" mask. The two
-  //    uses disagree on which state the variant bit means, so the caller passes
-  //    the state value that corresponds to variant-set (v_set).
-  //  • DMs — a small {prefix[4], value} table: find by 4-byte prefix, update or
-  //    clear (clear frees the slot), else insert into the first free slot, else
-  //    overwrite slot 0. value 0 == "no override" == empty slot.
-
-  static uint8_t maskPairGet(uint64_t presence, uint64_t variant, uint8_t idx,
-                             uint8_t v_set, uint8_t v_clr) {
-    uint64_t m = 1ULL << idx;
-    if (!(presence & m)) return 0;
-    return (variant & m) ? v_set : v_clr;
-  }
-  static void maskPairSet(uint64_t& presence, uint64_t& variant, uint8_t idx,
-                          uint8_t state, uint8_t v_set) {
-    uint64_t m = 1ULL << idx;
-    if (state == 0) { presence &= ~m; variant &= ~m; return; }
-    presence |= m;
-    if (state == v_set) variant |= m; else variant &= ~m;
-  }
-
   // Channel notif (ui-core/ChannelControl.h): 0 = default, 1 = muted, 2 = force-on.
   uint8_t chNotifState(uint8_t ch_idx) const { return chanctl::notif(_task->getNodePrefs(), ch_idx); }
   void setChNotifState(uint8_t ch_idx, uint8_t state) { chanctl::setNotif(_task->getNodePrefs(), ch_idx, state); }
@@ -869,15 +843,9 @@ class MessagesScreen : public UIScreen {
   uint8_t dmNotifState(const uint8_t* pub_key) const { return contactctl::notif(_task->getNodePrefs(), pub_key); }
   void setDmNotifState(const uint8_t* pub_key, uint8_t state) { contactctl::setNotif(_task->getNodePrefs(), pub_key, state); }
 
-  // Channel melody: slot 1 = melody 1 (variant bit clear), 2 = melody 2 (set).
-  uint8_t chNotifMelody(uint8_t ch_idx) const {
-    NodePrefs* p = _task->getNodePrefs();
-    return p ? maskPairGet(p->ch_notif_melody_set, p->ch_notif_melody_2, ch_idx, 2, 1) : 0;
-  }
-  void setChNotifMelody(uint8_t ch_idx, uint8_t slot) {
-    NodePrefs* p = _task->getNodePrefs();
-    if (p) maskPairSet(p->ch_notif_melody_set, p->ch_notif_melody_2, ch_idx, slot, 2);
-  }
+  // Channel melody (ui-core/ChannelControl.h): 0 = global, 1 / 2 = melody 1 / 2.
+  uint8_t chNotifMelody(uint8_t ch_idx) const { return chanctl::melody(_task->getNodePrefs(), ch_idx); }
+  void setChNotifMelody(uint8_t ch_idx, uint8_t slot) { chanctl::setMelody(_task->getNodePrefs(), ch_idx, slot); }
 
   uint8_t dmMelodySlot(const uint8_t* pub_key) const { return contactctl::melody(_task->getNodePrefs(), pub_key); }
   void setDmMelody(const uint8_t* pub_key, uint8_t slot) { contactctl::setMelody(_task->getNodePrefs(), pub_key, slot); }

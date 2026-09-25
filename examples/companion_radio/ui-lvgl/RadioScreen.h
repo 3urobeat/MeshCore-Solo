@@ -49,6 +49,30 @@ static lv_obj_t* rowDropdown(lv_obj_t* row, const char* opts, int sel, int width
   return dd;
 }
 
+// A few choices side by side at the right of a row (a dropdown's list can run
+// off the bottom of a popup). `map` ends with "".
+static lv_obj_t* rowSegmented(lv_obj_t* row, const char** map, int sel, int width, lv_event_cb_t cb, uintptr_t which) {
+  lv_obj_t* seg = lv_buttonmatrix_create(row);
+  lv_buttonmatrix_set_map(seg, map);
+  lv_buttonmatrix_set_button_ctrl_all(seg, LV_BUTTONMATRIX_CTRL_CHECKABLE);
+  lv_buttonmatrix_set_one_checked(seg, true);
+  lv_buttonmatrix_set_button_ctrl(seg, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
+  lv_obj_set_size(seg, width, 36);
+  lv_obj_align(seg, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_set_style_pad_all(seg, 0, 0);
+  lv_obj_set_style_pad_column(seg, 3, 0);
+  lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(seg, 0, 0);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(seg, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
+  lv_obj_set_style_text_font(seg, THEME_FONT_SMALL, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(seg, 0, LV_PART_ITEMS);
+  lv_obj_set_style_radius(seg, 8, LV_PART_ITEMS);
+  lv_obj_add_event_cb(seg, cb, LV_EVENT_VALUE_CHANGED, (void*)which);
+  return seg;
+}
+
 }  // namespace radioview
 
 static void onRadioDropdown(lv_event_t* e) {

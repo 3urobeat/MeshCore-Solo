@@ -1,5 +1,6 @@
 #include "UITask.h"
-#include "SoundNotifier.h"
+#include "../ui-core/SoundNotifier.h"
+#include "../ui-core/SoundControl.h"
 #include <helpers/TxtDataHelpers.h>
 #include "../MyMesh.h"
 #include "../MsgExpand.h"
@@ -1667,9 +1668,9 @@ void UITask::gotoGpioScreen() {
 void UITask::gotoLiveShareScreen() { setCurrScreen(live_share_screen); }
 
 // ── Clock tools (engine in ui-core/ClockEngine.h) ───────────────────────────
-// The melody overrides mute (playMelody → buzzer.playForced); the ring
-// auto-stops after ClockEngine::RING_MS if no key dismisses it (see loop()).
-static const char* CLOCK_ALARM_MELODY = "alarm:d=8,o=6,b=125:c,c,c,c,p,c,c,c,c,p";
+// The melody (soundctl::MEL_ALARM) overrides mute (playMelody →
+// buzzer.playForced); the ring auto-stops after ClockEngine::RING_MS if no key
+// dismisses it (see loop()).
 
 void UITask::wakeForAlarm() {
   if (_display != NULL) _display->turnOn();
@@ -1693,7 +1694,7 @@ void UITask::tickCore() {
   _core->loop();
   drainCoreEvents();
   // Repeat the ring melody until dismissed or the ring window elapses.
-  if (_core->clock.isRinging() && !isMelodyPlaying()) playMelody(CLOCK_ALARM_MELODY);
+  if (_core->clock.isRinging() && !isMelodyPlaying()) playMelody(soundctl::MEL_ALARM);
 }
 
 void UITask::drainCoreEvents() {
@@ -1703,7 +1704,7 @@ void UITask::drainCoreEvents() {
     case UiEventType::ClockAlert:
       wakeForAlarm();
       showAlert(ev.text, ClockEngine::RING_MS);
-      playMelody(CLOCK_ALARM_MELODY);
+      playMelody(soundctl::MEL_ALARM);
       break;
     case UiEventType::ClockRingEnded:
       stopMelody();
@@ -1715,10 +1716,10 @@ void UITask::drainCoreEvents() {
     case UiEventType::LocatorCrossed:
       showAlert(ev.text, 3000);
       if (!isBuzzerQuiet())
-        playMelody(ev.flag ? "locarr:d=8,o=6,b=140:c,e,g" : "loclv:d=8,o=6,b=140:g,e,c");
+        playMelody(ev.flag ? soundctl::MEL_ARRIVE : soundctl::MEL_LEAVE);
       break;
     case UiEventType::LocatorBeep:
-      playMelody("locp:d=32,o=7,b=200:c");
+      playMelody(soundctl::MEL_TICK);
       break;
     case UiEventType::MessageArrived:
       onMessageArrived(ev);
@@ -2681,13 +2682,8 @@ void UITask::loop() {
   userLedHandler();
 
 #ifdef PIN_BUZZER
-  if (_node_prefs && _node_prefs->buzzer_auto) {
-    bool should_quiet = isClientConnected();   // BLE bonded or an open USB port
-    if (buzzer.isQuiet() != should_quiet) {
-      buzzer.quiet(should_quiet);
-      _next_refresh = 0;
-    }
-  }
+  if (soundctl::autoTick(_node_prefs, buzzer, isClientConnected()))   // BLE bonded or an open USB port
+    _next_refresh = 0;
   if (buzzer.isPlaying())  buzzer.loop();
 #endif
 
@@ -3257,10 +3253,7 @@ void UITask::setBrightnessLevel(uint8_t level) {
 void UITask::setBuzzerVolumeLevel(uint8_t level) {
 #ifdef PIN_BUZZER
   if (_node_prefs == NULL) return;
-  if (level > 4) level = 4;
-  _node_prefs->buzzer_volume = level;
-  buzzer.setVolume(level);
-  if (level > 0) buzzer.playForced("Vol:d=16,o=6,b=120:c");
+  soundctl::setVolume(_node_prefs, buzzer, level);
   _next_refresh = 0;
 #endif
 }
@@ -3283,8 +3276,8 @@ void UITask::toggleBuzzer() {
 
 int UITask::getBuzzerMode() {
 #ifdef PIN_BUZZER
-  if (_node_prefs && _node_prefs->buzzer_auto) return 2;
-  return buzzer.isQuiet() ? 1 : 0;
+  if (_node_prefs && _node_prefs->buzzer_auto) return soundctl::MODE_AUTO;
+  return buzzer.isQuiet() ? soundctl::MODE_OFF : soundctl::MODE_ON;
 #else
   return 1;
 #endif
@@ -3294,11 +3287,9 @@ void UITask::cycleBuzzerMode() {
 #ifdef PIN_BUZZER
   if (!_node_prefs) return;
   int mode = getBuzzerMode();
-  mode = (mode + 1) % 3;  // ON(0) → OFF(1) → Auto(2) → ON
-  _node_prefs->buzzer_auto = (mode == 2) ? 1 : 0;
-  if (mode == 0) { buzzer.quiet(false); _node_prefs->buzzer_quiet = 0; notify(UIEventType::ack); }
-  if (mode == 1) { buzzer.quiet(true);  _node_prefs->buzzer_quiet = 1; }
-  if (mode == 2) { buzzer.quiet(isClientConnected()); }
+  mode = (mode + 1) % soundctl::MODE_COUNT;  // ON → OFF → Auto → ON
+  soundctl::setMode(_node_prefs, buzzer, (uint8_t)mode, isClientConnected());
+  if (mode == soundctl::MODE_ON) notify(UIEventType::ack);
   static const char* labels[] = { "Buzzer: ON", "Buzzer: OFF", "Buzzer: Auto" };
   showAlert(labels[mode], 800);
   _next_refresh = 0;

@@ -299,6 +299,7 @@ void UITask::showRing(const char* text) {
 }
 
 void UITask::dismissRing() {
+  stopMelody();
   _core->clock.dismissRing();
   hideRing();
 }

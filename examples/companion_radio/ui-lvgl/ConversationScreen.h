@@ -73,6 +73,9 @@ static lv_obj_t* actionButton(lv_obj_t* acts, const char* text, lv_event_cb_t cb
 }  // namespace convview
 
 static void onConvAction(lv_event_t* e) { s_ui->conversationAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+static void onConvMelody(lv_event_t* e) {
+  s_ui->conversationMelody((int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
+}
 static void onConvNotif(lv_event_t* e) {
   s_ui->conversationNotif((int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
 }
@@ -184,6 +187,9 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
     static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
     lv_obj_t* row = radioview::settingRow(panel, "Alerts", NULL);
     segmented(row, NOTIF, contactctl::notif(_prefs, ci.id.pub_key), 200, onConvNotif);
+    static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
+    row = radioview::settingRow(panel, "Sound", NULL);
+    segmented(row, MELODY, contactctl::melody(_prefs, ci.id.pub_key), 200, onConvMelody);
   } else {
     bool in = _core->rooms.isLoggedIn(ci.id.pub_key);
     lv_obj_t* st = label(panel, in ? LV_SYMBOL_OK "  Logged in: you can post"

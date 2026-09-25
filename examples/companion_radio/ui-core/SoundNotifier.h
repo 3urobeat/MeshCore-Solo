@@ -1,6 +1,9 @@
 #pragma once
-// Fork-specific buzzer/melody dispatch — isolated here so upstream changes to
-// UITask::notify() don't create merge conflicts.
+// Which sound an incoming message / advert plays, shared by ui-new's and
+// ui-lvgl's notify(): the global Sound settings, the per-contact / per-channel
+// alert (default / muted / always) and melody overrides, the user melodies
+// (slot 1 / 2) with a built-in fallback. Kept out of UITask::notify() itself so
+// upstream changes there don't conflict.
 #ifdef PIN_BUZZER
 #include <helpers/ui/buzzer.h>
 #include "../NodePrefs.h"

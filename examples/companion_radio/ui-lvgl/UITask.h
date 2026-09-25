@@ -9,6 +9,9 @@
 #include <helpers/SensorManager.h>
 #include <helpers/BaseSerialInterface.h>
 #include <lvgl.h>
+#ifdef PIN_BUZZER
+  #include <helpers/ui/buzzer.h>
+#endif
 
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
@@ -24,7 +27,7 @@ public:
 
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
   void loop() override;
-  void notify(UIEventType t = UIEventType::none) override { (void)t; }   // no speaker driver yet
+  void notify(UIEventType t = UIEventType::none) override;
   void shutdown(bool restart = false) override;
   MyMesh::Listener* meshListener() override;
 
@@ -33,6 +36,7 @@ public:
   bool isViewingDM(const uint8_t* pub_key) override;
   void onViewedHistoryGrew(bool channel) override { (void)channel; _thread_dirty = true; }
   void botSetGPS(bool on) override;
+  void applySoundPrefs() override;
 
   // ── Navigation (called from LVGL event callbacks) ────────────────────────
   void showHome();
@@ -104,6 +108,26 @@ public:
   void clockAction(uint8_t act);
   void setAlarm(int which, int v);
   void dismissRing();
+  // Sound (SoundScreen.h): the speaker, Settings > Sound, the melody editor
+  void playMelody(const char* melody);   // through mute (alarms, previews)
+  void stopMelody();
+  bool melodyPlaying();
+  int melodyNote();                      // the note sounding now, -1 silent
+  void setSoundMode(int mode);
+  void setSoundVolume(int level);
+  void showMelodies(int slot);
+  void melodySlot(int slot);
+  void melodyPick(int idx);
+  void melodySet(uint8_t which, int v);
+  void melodyAction(uint8_t act);
+  void conversationMelody(int v);
+  void hearMelody(int slot);
+#ifdef PIN_BUZZER
+  // For the sim page's Web Audio speaker (sim_buzzer_* in UITask.cpp).
+  bool isBuzzerPlaying() { return _buzzer.isPlaying(); }
+  uint16_t buzzerFreqHz() const;
+  uint8_t buzzerVolume() const { return _buzzer.getVolume(); }
+#endif
   // Settings > Radio (RadioScreen.h)
   void showRadio();
   void radioSet(int which, int v);
@@ -185,7 +209,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -243,6 +267,10 @@ private:
   void buildScopes();
   void buildRepeater();
   void rebuildRepeater();
+  void buildSoundRows(lv_obj_t* body, bool top);
+  void buildMelodies();
+  void refreshMelody();
+  void melodySave();
   void radioCloseFreq();
   void buildChannelEdit();
   void buildAdmin();
@@ -273,6 +301,15 @@ private:
   void sleep();
   uint32_t autoOffMillis() const;
   void checkLowBattery();
+
+#ifdef PIN_BUZZER
+  genericBuzzer _buzzer;
+  char _notif_mel_buf[220];    // a user melody's RTTTL while it plays (the player copies it)
+#endif
+  // Who the message being notified came from (SoundNotifier's overrides).
+  bool    _notif_dm_valid = false;
+  uint8_t _notif_dm_prefix[4] = {0};
+  int     _notif_ch_idx = -1;
 
   DisplayDriver* _display = nullptr;
   SensorManager* _sensors = nullptr;

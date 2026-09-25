@@ -18,6 +18,8 @@
 #include "../ui-core/Battery.h"
 #include "../ui-core/ChannelControl.h"
 #include "../ui-core/BotConfig.h"
+#include "../ui-core/SoundControl.h"
+#include "../ui-core/SoundNotifier.h"
 #include "Theme.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
@@ -34,6 +36,10 @@ static UITask* s_ui = nullptr;   // for LVGL's C callbacks
 // The board's one button, pressed from the simulator page (web/lvgl.html).
 static bool s_sim_btn_click = false;
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_lcd_button() { s_sim_btn_click = true; }
+// The speaker, polled every frame by the page's Web Audio oscillator.
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_is_playing() { return s_ui && s_ui->isBuzzerPlaying() ? 1 : 0; }
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_freq_hz() { return s_ui ? (int)s_ui->buzzerFreqHz() : 0; }
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_get_volume() { return s_ui ? (int)s_ui->buzzerVolume() : 0; }
 #endif
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -137,6 +143,11 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
 #ifdef PIN_USER_BTN
   user_btn.begin();
 #endif
+#ifdef PIN_BUZZER
+  soundctl::applyMode(_prefs, _buzzer, isClientConnected());
+  _buzzer.setVolume(_prefs ? _prefs->buzzer_volume : 4);
+  _buzzer.begin();   // plays the startup sound unless muted
+#endif
 
   lv_init();
   lv_tick_set_cb([]() -> uint32_t { return (uint32_t)millis(); });
@@ -182,6 +193,12 @@ void UITask::loop() {
 
   _core->loop();
   drainCoreEvents();
+#ifdef PIN_BUZZER
+  _buzzer.loop();
+  if (soundctl::autoTick(_prefs, _buzzer, isClientConnected()) && !_asleep) refreshStatusBar();
+  // The alarm melody repeats until dismissed or the ring window ends.
+  if (_core->clock.isRinging() && !_buzzer.isPlaying()) playMelody(soundctl::MEL_ALARM);
+#endif
   checkLowBattery();
   mapDownloadTick();   // a map download keeps running on any screen, and asleep
   if ((int32_t)(millis() - _next_trackback_ms) >= 0) {   // walking the trail back, on any screen
@@ -219,6 +236,10 @@ void UITask::loop() {
       _next_clock_ms = millis() + 100;   // stopwatch tenths
       refreshClock();
     }
+    if (_screen == SCR_MELODY && (int32_t)(millis() - _next_clock_ms) >= 0) {
+      _next_clock_ms = millis() + 30;    // the playing note's highlight keeps up
+      refreshMelody();
+    }
     if (_screen == SCR_THREAD && (int32_t)(millis() - _next_thread_check_ms) >= 0) {
       _next_thread_check_ms = millis() + 500;
       uint32_t sig = threadSignature();
@@ -233,6 +254,12 @@ void UITask::shutdown(bool restart) {
   the_mesh.saveRTCTime();
   the_mesh.flushDirtyContacts();
   _core->trail.onShutdown();
+#ifdef PIN_BUZZER
+  _buzzer.shutdown();   // the goodbye sound, unless muted
+#ifndef SIM_PLATFORM   // the sim's single thread would freeze the page
+  for (uint32_t t0 = millis(); _buzzer.isPlaying() && millis() - t0 < 2500; ) { _buzzer.loop(); delay(10); }
+#endif
+#endif
   if (restart) {
     _board->reboot();
   } else {
@@ -296,8 +323,10 @@ void UITask::drainCoreEvents() {
       break;
     case UiEventType::ClockAlert:
       showRing(ev.text);
+      playMelody(soundctl::MEL_ALARM);
       break;
     case UiEventType::ClockRingEnded:
+      stopMelody();
       hideRing();
       break;
     case UiEventType::LiveShareEnded:
@@ -305,6 +334,15 @@ void UITask::drainCoreEvents() {
       break;
     case UiEventType::LocatorCrossed:
       showToast(ev.text, 3000);
+#ifdef PIN_BUZZER
+      if (!_buzzer.isQuiet()) playMelody(ev.flag ? soundctl::MEL_ARRIVE : soundctl::MEL_LEAVE);
+#endif
+      break;
+    case UiEventType::LocatorBeep:   // Settings > Proximity beeper
+      playMelody(soundctl::MEL_TICK);
+      break;
+    case UiEventType::AdvertHeard:
+      notify(ev.flag ? UIEventType::advertReceivedFlood : UIEventType::advertReceivedZeroHop);
       break;
     default:
       break;
@@ -313,6 +351,12 @@ void UITask::drainCoreEvents() {
 }
 
 void UITask::onMessageArrived(const UiEvent& ev) {
+  if (ev.kind == UIEventType::contactMessage && ev.flag) {   // the sender's alert / melody overrides
+    memcpy(_notif_dm_prefix, ev.key, 4);
+    _notif_dm_valid = true;
+  }
+  if (ev.kind == UIEventType::channelMessage) _notif_ch_idx = ev.idx;
+  notify(ev.kind);
   char buf[48];
   snprintf(buf, sizeof(buf), "Msg: %.20s", ev.text);
   // Wake for the message unless an app is already showing it, or the user
@@ -391,7 +435,12 @@ void UITask::refreshStatusBar() {
     case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
     default: break;
   }
-  lv_label_set_text_fmt(_status_icons, "%s%s%s%s", _prefs && _prefs->client_repeat ? LV_SYMBOL_LOOP "  " : "",
+  bool muted = false;
+#ifdef PIN_BUZZER
+  muted = _buzzer.isQuiet();
+#endif
+  lv_label_set_text_fmt(_status_icons, "%s%s%s%s%s", muted ? LV_SYMBOL_MUTE "  " : "",
+                        _prefs && _prefs->client_repeat ? LV_SYMBOL_LOOP "  " : "",
                         hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, level);
   // GPS: green with a fix, muted while on and searching, absent when off.
   int32_t lat, lon;
@@ -513,6 +562,12 @@ void UITask::back() {
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
+    case SCR_MELODY:   // back to the Sound page's bottom, where the melodies are
+      melodySave();
+      stopMelody();
+      showSchemaSettings(settings::PG_SOUND);
+      if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_by(_body, 0, -lv_obj_get_scroll_bottom(_body), LV_ANIM_OFF); }
+      break;
     case SCR_CLOCK:    showHome(); break;
     case SCR_RADIO:
       if (radioPopupOpen()) radioCloseFreq();
@@ -1875,6 +1930,9 @@ static void onSchemaDropdown(lv_event_t* e) {
 }
 static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
+static void onVolumeSlider(lv_event_t* e) {
+  s_ui->setSoundVolume((int)lv_slider_get_value((lv_obj_t*)lv_event_get_target(e)));
+}
 
 void UITask::showSchemaSettings(int page) {
   _screen = SCR_SETTINGS_NAV;
@@ -1930,8 +1988,23 @@ void UITask::buildSchemaSettings() {
   for (int i = 0; i < settings::COUNT; i++) {
     const settings::Setting& st = settings::ALL[i];
     if (settings::sectionPage(st.section) != _settings_page) continue;
-    if (st.section != sec) { sec = st.section; sectionTitle(body, settings::sectionTitle(sec)); }
+    if (st.section != sec) {
+      sec = st.section;
+      sectionTitle(body, settings::sectionTitle(sec));
+      if (sec == settings::SEC_SOUND) buildSoundRows(body, true);   // On / Off / Auto
+    }
     uint8_t v = settings::get(*_prefs, st);
+    if (st.offset == offsetof(NodePrefs, buzzer_volume)) {   // a five-step slider, heard on release
+      lv_obj_t* row = radioview::settingRow(body, st.label, NULL);
+      lv_obj_t* sl = lv_slider_create(row);
+      lv_slider_set_range(sl, 0, 4);
+      lv_slider_set_value(sl, v, LV_ANIM_OFF);
+      lv_obj_set_size(sl, 170, 10);
+      lv_obj_align(sl, LV_ALIGN_RIGHT_MID, -18, 0);
+      lv_obj_set_ext_click_area(sl, 14);
+      lv_obj_add_event_cb(sl, onVolumeSlider, LV_EVENT_RELEASED, NULL);
+      continue;
+    }
     if (st.offset == offsetof(NodePrefs, display_brightness)) {   // a slider here instead of five steps
       lv_obj_t* row = lv_obj_create(body);
       styleSurface(row, theme::SURFACE);
@@ -1995,6 +2068,7 @@ void UITask::buildSchemaSettings() {
     _prune_lbl = label(b, LV_SYMBOL_TRASH "  Remove inactive contacts now", THEME_FONT_BODY, theme::TEXT);
     lv_obj_center(_prune_lbl);
   }
+  if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
 }
 
 void UITask::setSchemaValue(int idx, int v) {
@@ -2053,6 +2127,10 @@ void UITask::buildSettings() {
             onOpenSchemaPage, (void*)(uintptr_t)settings::PG_DEVICE);
     listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resending, contact expiry, sorting",
             onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
+    char sub[48], vol[12];
+    settings::optVolume(_prefs->buzzer_volume, vol, sizeof(vol), *_prefs);
+    snprintf(sub, sizeof(sub), "%s, %s  -  alerts, melodies", soundctl::modeLabel(soundctl::mode(_prefs)), vol);
+    listRow(body, LV_SYMBOL_VOLUME_MAX "  Sound", sub, onOpenSchemaPage, (void*)(uintptr_t)settings::PG_SOUND);
   }
   sectionTitle(body, "KEYBOARD");
   uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
@@ -2095,3 +2173,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "CompassScreen.h"
 #include "RadioExtras.h"
 #include "RepeaterScreen.h"
+#include "SoundScreen.h"

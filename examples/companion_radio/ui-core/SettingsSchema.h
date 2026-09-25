@@ -14,29 +14,33 @@
 #include <stddef.h>
 #include "../NodePrefs.h"
 #include "../Trail.h"
+#include "SoundControl.h"
 
 namespace settings {
 
 // Pages (one screen each) and the sections on them, in display order.
-enum Page : uint8_t { PG_NAV, PG_DEVICE, PG_MESSAGES, PG_COUNT };
+enum Page : uint8_t { PG_NAV, PG_DEVICE, PG_MESSAGES, PG_SOUND, PG_COUNT };
 enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_UNITS,
                          SEC_DISPLAY, SEC_POWER, SEC_TIME,
-                         SEC_MESSAGES, SEC_CONTACTS, SEC_COUNT };
+                         SEC_MESSAGES, SEC_CONTACTS,
+                         SEC_SOUND, SEC_SOUND_FOR, SEC_COUNT };
 
 static const char* pageTitle(uint8_t p) {
-  static const char* T[PG_COUNT] = { "Trail, live share, alerts", "Display & power", "Messages & contacts" };
+  static const char* T[PG_COUNT] = { "Trail, live share, alerts", "Display & power", "Messages & contacts", "Sound" };
   return p < PG_COUNT ? T[p] : "";
 }
 static const char* sectionTitle(uint8_t s) {
   static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "UNITS",
                                       "DISPLAY", "POWER", "TIME",
-                                      "MESSAGES", "CONTACTS" };
+                                      "MESSAGES", "CONTACTS",
+                                      "SOUND", "PLAYS FOR" };
   return s < SEC_COUNT ? T[s] : "";
 }
 static uint8_t sectionPage(uint8_t s) {
   static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_NAV,
                                         PG_DEVICE, PG_DEVICE, PG_DEVICE,
-                                        PG_MESSAGES, PG_MESSAGES };
+                                        PG_MESSAGES, PG_MESSAGES,
+                                        PG_SOUND, PG_SOUND };
   return s < SEC_COUNT ? P[s] : PG_NAV;
 }
 
@@ -126,12 +130,21 @@ static void optBattDisplay(uint8_t v, char* b, int n, const NodePrefs&) {
 static void optExpiry(uint8_t v, char* b, int n, const NodePrefs&) {
   snprintf(b, n, "%s", NodePrefs::contactExpiryLabel(v));
 }
+static void optVolume(uint8_t v, char* b, int n, const NodePrefs&) {
+  static const char* L[5] = { "Quietest", "Quiet", "Medium", "Loud", "Loudest" };
+  snprintf(b, n, "%s", L[v < 5 ? v : 4]);
+}
+static void optSound(uint8_t v, char* b, int n, const NodePrefs&) { snprintf(b, n, "%s", soundctl::soundLabel(v)); }
+static void optAdvertScope(uint8_t v, char* b, int n, const NodePrefs&) {
+  snprintf(b, n, "%s", v == ADVERT_SOUND_SCOPE_ZERO_HOP ? "Direct only" : "All");
+}
 
 // ── Side effects ──────────────────────────────────────────────────────────────
 static void rearmLocator(UiCore& c)      { c.locator.reset(); }
 static void restartShareClock(UiCore& c) { c.live_share.restartClock(); }   // a new length starts over
 static void applyDisplay(UiCore& c)      { c.host()->applyDisplayPrefs(); }
 static void applyGpsDuty(UiCore& c)      { c.applyGpsInterval(); }
+static void applySound(UiCore& c)        { c.host()->applySoundPrefs(); }
 
 #define NP_OFF(f)  (uint16_t)offsetof(NodePrefs, f)
 #define NP_SIZE(f) (uint8_t)sizeof(((NodePrefs*)0)->f)
@@ -190,6 +203,14 @@ static const Setting ALL[] = {
   IDX("Contact expiry", "Inactive this long can be pruned", SEC_CONTACTS, contact_expiry_idx,
       NodePrefs::CONTACT_EXPIRY_COUNT, optExpiry, nullptr),
   MAP("Favourites first", "In contact and node lists", SEC_CONTACTS, fav_sort_off, INVERTED, nullptr, nullptr),
+
+  // On / Off / Auto spans two fields (soundctl::setMode): the frontend's own row.
+  IDX("Volume", nullptr, SEC_SOUND, buzzer_volume, 5, optVolume, applySound),
+
+  IDX("Direct messages", nullptr, SEC_SOUND_FOR, notif_melody_dm, soundctl::SOUND_COUNT, optSound, nullptr),
+  IDX("Channels", nullptr, SEC_SOUND_FOR, notif_melody_ch, soundctl::SOUND_COUNT, optSound, nullptr),
+  IDX("Adverts", "A node announcing itself", SEC_SOUND_FOR, notif_melody_ad, soundctl::SOUND_COUNT, optSound, nullptr),
+  IDX("Advert sound for", "Direct: no repeaters", SEC_SOUND_FOR, advert_sound_scope, 2, optAdvertScope, nullptr),
 };
 #undef IDX
 #undef SW

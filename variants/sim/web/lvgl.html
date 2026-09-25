@@ -224,8 +224,45 @@
       const y = (e.clientY - r.top - by) * 240 / canvas.clientHeight;
       return [Math.max(0, Math.min(319, x)), Math.max(0, Math.min(239, y))];
     }
+    // Speaker: a Web Audio oscillator polled against L's sim_buzzer_* exports,
+    // as index.html does for the piezo (see its comments). A sine here: the L2
+    // plays its melodies through a codec and a speaker, not a buzzer. The
+    // context can only start on a user gesture, so the first touch creates it.
+    let audioCtx = null, osc = null, gain = null, wasPlaying = false;
+    function ensureAudio() {
+      if (audioCtx) { if (audioCtx.state === 'suspended') audioCtx.resume(); return; }
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      osc = audioCtx.createOscillator();
+      gain = audioCtx.createGain();
+      gain.gain.value = 0;
+      osc.type = 'sine';
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+    }
+    window.__buzzAudio = () => (audioCtx ? { state: audioCtx.state, gain: gain.gain.value, freq: osc.frequency.value } : null);
+    const SPEAKER_GAIN = [0.02, 0.05, 0.1, 0.18, 0.28];   // the firmware's -24..0 dB steps
+    function rampGain(target, s, now) {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(target, now + s);
+    }
+    setInterval(() => {
+      if (!audioCtx || !L || !L.mod._sim_buzzer_is_playing) return;
+      const playing = L.call('sim_buzzer_is_playing', 'number') === 1;
+      const now = audioCtx.currentTime;
+      if (playing) {
+        const freq = L.call('sim_buzzer_freq_hz', 'number');
+        if (freq > 0) osc.frequency.setValueAtTime(freq, now);
+        rampGain(freq > 0 ? (SPEAKER_GAIN[L.call('sim_buzzer_get_volume', 'number')] || 0) : 0, 0.005, now);
+      } else if (wasPlaying) {
+        rampGain(0, 0.01, now);
+      }
+      wasPlaying = playing;
+    }, 20);
+
     let pressed = false;
-    canvas.addEventListener('pointerdown', (e) => { pressed = true; canvas.setPointerCapture(e.pointerId); touch(...toDevice(e), true); });
+    canvas.addEventListener('pointerdown', (e) => { ensureAudio(); pressed = true; canvas.setPointerCapture(e.pointerId); touch(...toDevice(e), true); });
     canvas.addEventListener('pointermove', (e) => { if (pressed) touch(...toDevice(e), true); });
     const lift = (e) => { if (!pressed) return; pressed = false; touch(...toDevice(e), false); };
     canvas.addEventListener('pointerup', lift);

@@ -18,6 +18,10 @@ EnvironmentSensorManager sensors(gps);
   MomentaryButton user_btn(PIN_USER_BTN, 1000, true, true);
 #endif
 
+#ifdef BUZZER_I2S
+void buzzerAmpPower(bool on) { board.setSpeakerAmp(on); }
+#endif
+
 bool radio_init() {
   MESH_DEBUG_PRINTLN("radio_init: rtc + sx1262 init");
   fallback_clock.begin();

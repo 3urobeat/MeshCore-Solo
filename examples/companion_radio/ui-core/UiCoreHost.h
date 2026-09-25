@@ -38,6 +38,9 @@ public:
   // A display pref changed through the settings schema (brightness, ...):
   // push it to the panel.
   virtual void applyDisplayPrefs() {}
+  // A sound pref changed through the schema (the volume): push it to the
+  // speaker / buzzer.
+  virtual void applySoundPrefs() {}
 
   // Controlled power-down / restart (flush state first). See
   // AbstractUITask::shutdown().

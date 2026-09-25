@@ -5,8 +5,15 @@
 // NRF52 (and the sim, see buzzer.cpp) use a custom non-blocking RTTTL
 // player; only the remaining platforms pull in the NonBlockingRtttl library
 // here.
-#if !defined(NRF52_PLATFORM) && !defined(SIM_PLATFORM)
+#if !defined(NRF52_PLATFORM) && !defined(SIM_PLATFORM) && !defined(BUZZER_I2S)
   #include <NonBlockingRtttl.h>
+#endif
+
+#if defined(BUZZER_I2S)
+// Board-provided (its target.cpp): powers the speaker amplifier on / off.
+// Called from the thread that calls genericBuzzer's methods, never the
+// audio task, so it may use the I2C bus.
+void buzzerAmpPower(bool on);
 #endif
 
 /* class abstracts underlying RTTTL library
@@ -32,6 +39,9 @@ class genericBuzzer
         void startup();
         void shutdown();
         bool isPlaying();
+        // The note sounding now (0-based, rests count), -1 when silent or
+        // unknown -- for an editor to follow the playback.
+        int noteIndex() const;
         void quiet(bool buzzer_state);
         bool isQuiet();
         void setVolume(uint8_t level);
@@ -45,7 +55,7 @@ class genericBuzzer
         const char *shutdown_song = "Shutdown:d=4,o=5,b=100:8g5,16e5,16c5";
         bool _is_quiet = true;
 
-#if defined(NRF52_PLATFORM) || defined(SIM_PLATFORM)
+#if defined(NRF52_PLATFORM) || defined(SIM_PLATFORM) || defined(BUZZER_I2S)
         // Shared RTTTL cursor state + parser, reused by both the NRF52
         // direct-PWM player below and the sim's poll-only player (buzzer.cpp,
         // #elif defined(SIM_PLATFORM)) -- the parser itself never touches
@@ -56,6 +66,7 @@ class genericBuzzer
         uint8_t       _def_dur     = 4;
         uint8_t       _def_oct     = 5;
         uint16_t      _def_bpm     = 120;
+        volatile int16_t _note_idx = -1;
 
         static uint16_t _noteFreq(char letter, bool sharp, uint8_t octave);
         static bool     _parseNext(const char*& pos, uint8_t def_dur, uint8_t def_oct,
@@ -111,5 +122,28 @@ class genericBuzzer
         uint16_t currentFreqHz() const { return _cur_freq; }
     private:
         uint16_t _cur_freq = 0;
+#elif defined(BUZZER_I2S)
+        // A speaker behind an I2S codec (BUZZER_CODEC_ES8311) instead of a
+        // PWM pin. An audio task synthesises the melody and advances its
+        // notes by samples written, so timing holds through a stalled UI
+        // loop; loop() only powers the amp. See buzzer.cpp.
+        static const int MEL_MAX = 256;
+        char          _mel[MEL_MAX];         // the melody playing (a copy: callers reuse buffers)
+        volatile uint32_t _req = 0;          // bumped by play()/stop(); the task restarts on a change
+        volatile bool _stop_req = false;
+        volatile bool _task_playing = false;
+        volatile uint16_t _settle_ms = 0;    // silence before the first note while the amp powers up
+        volatile bool _amp_on = false;       // guarded by the player's lock (the task reads it)
+        volatile bool _amp_pending = false;  // wanted, waiting for the codec's clocks to settle
+        volatile bool _clk_running = false;  // I2S clocking the codec
+        volatile uint32_t _clk_on_ms = 0;
+        bool          _i2s_ok = false;
+        uint32_t      _amp_off_at = 0;       // amp stays on this long after the last sound
+        void*         _task = nullptr;       // TaskHandle_t
+
+        bool _i2sBegin();
+        void _start(const char* melody);
+        void _taskLoop();
+        static void _taskEntry(void* self);
 #endif
 };
