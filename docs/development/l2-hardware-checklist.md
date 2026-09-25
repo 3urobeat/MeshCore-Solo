@@ -66,6 +66,16 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: Quick messages, placeholders, advert, Bluetooth (2026-09-26)
+- [ ] Chat "+" (left of the text field): Insert {loc} / {time} / {batt} (+ sensors) into the message; they are filled in when sent (a reply's "@[name] " stays as typed)
+- [ ] Chat "+" > a quick message sends it at once (the popup shows what will go out, filled in); "Edit quick messages" opens the list
+- [ ] Settings > Messages & contacts > Quick messages: 10 slots, tap to edit (field, placeholder chips, keyboard); empty clears; "OK" is there on a fresh device; the same slots as L1's Settings > Messages
+- [ ] Settings > NODE > Send advert: Nearby only (zero-hop) / Everyone (flood through repeaters); another node sees you
+- [ ] Settings > CONNECTIVITY > Bluetooth: off / on; the row shows the pairing PIN while waiting, "the app is connected" when paired; USB keeps working with Bluetooth off; after a reboot Bluetooth is on again (as on L1)
+- [ ] Messages: "Read all" in the header while anything is unread
+- [ ] Nearby > a node with a position: flag button saves it as a waypoint; pin button puts a contact on the favourites dial; with five or more buttons they show icons only; delete asks with "trash?" and a toast
+- [ ] L1: quick messages, placeholders and the sensor placeholder list work as before (now shared through ui-core/MessageText.h)
+
 ## New: Sound (2026-09-26)
 The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 16, amp on expander P12). Pins come from Seeed's Meshtastic port; nothing was heard on the device yet.
 - [ ] A short startup chime after boot (sound On); a goodbye sound on Power off

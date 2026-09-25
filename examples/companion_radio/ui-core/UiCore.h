@@ -87,6 +87,8 @@ public:
   bool    anyDMUnreadOverflow() const             { return dm_unread.anyOverflow(); }
   void    clearDMUnread(const uint8_t* pub_key)   { dm_unread.clear(pub_key); }
   void    clearAllDMUnread()                      { dm_unread.clearAll(); }
+  // Every conversation read: direct, channels, rooms.
+  void    markAllRead() { _room_unread = 0; dm_unread.clearAll(); history.clearAllChannelUnread(); }
   void    reconcileDMUnread()                     { dm_unread.reconcile(history); }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -153,11 +155,7 @@ public:
 
   void onQueueSizeChanged(int msgcount) override {
     _queue_len = msgcount;
-    if (msgcount == 0) {   // the app drained the queue: nothing is unread any more
-      _room_unread = 0;
-      dm_unread.clearAll();
-      history.clearAllChannelUnread();
-    }
+    if (msgcount == 0) markAllRead();   // the app drained the queue: nothing is unread any more
   }
 
   void onACKRecv(uint32_t ack_crc) override { history.markDmDelivered(ack_crc); }

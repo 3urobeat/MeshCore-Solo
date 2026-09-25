@@ -159,6 +159,7 @@ static const int QUICK_MSGS_MAX = 10;
 //     second .cpp is a duplicate-symbol link error. Keep them UITask-internal;
 //     anything genuinely shareable belongs in a real header (icons.h, GeoUtils.h).
 #include "FullscreenMsgView.h"
+#include "../ui-core/MessageText.h"
 #include "SensorPlaceholders.h"
 #include "SettingsScreen.h"
 #include "../ui-core/UiCore.h"   // shared UI Core: history rings + unread models (MessagesScreen views them)
@@ -1599,10 +1600,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   vibration.begin();
 #endif
 
-  // Set default quick message if slot 0 is empty (first boot)
-  if (_node_prefs && _node_prefs->custom_msgs[0][0] == '\0') {
-    strncpy(_node_prefs->custom_msgs[0], "OK", sizeof(_node_prefs->custom_msgs[0]) - 1);
-  }
+  msgtext::seedQuick(_node_prefs);   // "OK" in quick message 1 on first boot
 
   ui_started_at = millis();
   _alert_expiry = 0;

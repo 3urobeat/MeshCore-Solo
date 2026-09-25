@@ -3462,12 +3462,10 @@ bool MyMesh::advert() {
   }
 }
 
-#ifdef SIM_PLATFORM
 bool MyMesh::advertFlood() {
   // Mirrors the CMD_SEND_SELF_ADVERT handler's flood=1 branch above
   // (createSelfAdvert() + sendFloodScoped() with the default transport
-  // scope key) -- real protocol logic, just reached from a test-only entry
-  // point instead of a parsed serial command frame.
+  // scope key), for the on-device UI and the sim's test harness.
   mesh::Packet* pkt;
   if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
     pkt = createSelfAdvert(_prefs.node_name);
@@ -3483,7 +3481,6 @@ bool MyMesh::advertFlood() {
     return false;
   }
 }
-#endif
 
 // To check if there is pending work
 bool MyMesh::hasPendingWork() const {

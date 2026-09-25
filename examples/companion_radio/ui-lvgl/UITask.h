@@ -128,6 +128,18 @@ public:
   uint16_t buzzerFreqHz() const;
   uint8_t buzzerVolume() const { return _buzzer.getVolume(); }
 #endif
+  // Quick messages, placeholders, advert, Bluetooth (QuickScreen.h)
+  void quickPopup();                 // the compose bar's "+"
+  void quickSend(int slot);
+  void quickInsert(int ph);
+  void showQuickMsgs();
+  void quickEdit(int slot);
+  void quickEditDone(bool ok);
+  void quickEditInsert(int ph);
+  void advertPopup();
+  void advertSend(bool flood);
+  void setBluetooth(bool on);
+  void markAllRead();
   // Settings > Radio (RadioScreen.h)
   void showRadio();
   void radioSet(int which, int v);
@@ -209,7 +221,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -269,6 +281,8 @@ private:
   void rebuildRepeater();
   void buildSoundRows(lv_obj_t* body, bool top);
   void buildMelodies();
+  void buildQuickMsgs();
+  bool sendThreadText(const char* text);
   void refreshMelody();
   void melodySave();
   void radioCloseFreq();

@@ -150,23 +150,8 @@ class MessagesScreen : public UIScreen {
 
   int _hist_visible = 2;  // updated in render(); for history list scroll clamping
 
-  void expandMsg(const char* tmpl, char* out, int out_len) const {
-    double lat = 0, lon = 0;
-    bool gps_valid = false;
-#if ENV_INCLUDE_GPS == 1
-    LocationProvider* loc = sensors.getLocationProvider();
-    if (loc && loc->isValid()) {
-      lat = loc->getLatitude() / 1000000.0;
-      lon = loc->getLongitude() / 1000000.0;
-      gps_valid = true;
-    }
-#endif
-    NodePrefs* np = _task->getNodePrefs();
-    float batt = (float)board.getBattMilliVolts() / 1000.0f;
-    ::expandMsg(tmpl, out, out_len, lat, lon, gps_valid,
-                rtc_clock.getCurrentTime(),
-                np ? np->tz_offset_hours : 0,
-                &sensors, batt);
+  void expandMsg(const char* tmpl, char* out, int out_len) const {   // ui-core/MessageText.h
+    msgtext::expand(tmpl, out, out_len, _task->getNodePrefs());
   }
 
   // Scrollbar metrics for a history list. The track is pinned to the full list

@@ -204,18 +204,8 @@ public:
 
   void loop();
   void handleCmdFrame(size_t len);
-  bool advert();
-#ifdef SIM_PLATFORM
-  // Phase 3 sim-only test hook: same as advert() but FLOOD-routed (like the
-  // real phone-app CMD_SEND_SELF_ADVERT command's flood=1 branch) instead of
-  // zero-hop, so a JS test harness can make an instance's identity actually
-  // propagate through an intermediate repeater instance -- advert() alone
-  // (zero-hop) never leaves the immediate ether link. Not reachable from any
-  // real hardware build (no phone app exists in the sim to send the real
-  // CMD_SEND_SELF_ADVERT command over), so this is additive/dead code
-  // everywhere else, not a behavior change.
-  bool advertFlood();
-#endif
+  bool advert();        // zero-hop: only nodes in direct range hear it
+  bool advertFlood();   // flooded (default scope), as the app's "Advert" with flood
   void sendNodeDiscoverReq();
   void enterCLIRescue();
 

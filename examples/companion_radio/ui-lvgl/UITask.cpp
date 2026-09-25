@@ -20,6 +20,7 @@
 #include "../ui-core/BotConfig.h"
 #include "../ui-core/SoundControl.h"
 #include "../ui-core/SoundNotifier.h"
+#include "../ui-core/MessageText.h"
 #include "Theme.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
@@ -134,6 +135,7 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
 
   _core = new UiCore();
   _core->begin(node_prefs, sensors, this);
+  msgtext::seedQuick(node_prefs);   // "OK" in quick message 1 on first boot
   _nearby = new NearbyModel();
   _nearby->bindModel(_core, node_prefs);
   _scan = new NearbyModel();
@@ -562,6 +564,11 @@ void UITask::back() {
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
+    case SCR_QUICK:    // back to Messages & contacts' bottom, where the row is
+      if (_nav_overlay) { navClosePopup(); break; }
+      showSchemaSettings(settings::PG_MESSAGES);
+      if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_by(_body, 0, -lv_obj_get_scroll_bottom(_body), LV_ANIM_OFF); }
+      break;
     case SCR_MELODY:   // back to the Sound page's bottom, where the melodies are
       melodySave();
       stopMelody();
@@ -863,8 +870,13 @@ void UITask::showChats() {
   buildChats();
 }
 
+static void onMarkAllRead(lv_event_t* e) { (void)e; s_ui->markAllRead(); }
+static lv_obj_t* headerButton(lv_obj_t* hdr, const char* text, lv_event_cb_t cb, int right, lv_obj_t** label_out);
+
 void UITask::buildChats() {
   lv_obj_t* body = newScreen("Messages", true);
+  if (_header && _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread() > 0)
+    headerButton(_header, LV_SYMBOL_OK " Read all", onMarkAllRead, 4, NULL);
 
   // Channels: favourites first (unless turned off), hold a row for its options
   bool ch_fav_only = _prefs && _prefs->ch_fav_only;
@@ -1003,7 +1015,7 @@ void UITask::buildContacts() {
 // model, since it is a different set: who is in range, not who is known.
 
 static NearbyModel::Entry s_node;   // the node open in SCR_NODE (a copy: the list re-sorts)
-enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV, NODE_ADMIN };
+enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV, NODE_ADMIN, NODE_WAYPOINT, NODE_PIN };
 
 static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
@@ -1310,14 +1322,25 @@ void UITask::buildNode() {
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(acts, theme::GAP, 0);
   bool contact = e.contact_idx >= 0;
-  if (contact && e.type == ADV_TYPE_CHAT) actionButton(acts, LV_SYMBOL_ENVELOPE " Message", NODE_MSG, true);
-  if (e.has_key) actionButton(acts, LV_SYMBOL_LOOP " Ping", NODE_PING, false);
-  if (e.lat_e6 != 0 || e.lon_e6 != 0) actionButton(acts, UI_SYMBOL_COMPASS, NODE_NAV, false);
   bool admin = contact && (e.type == ADV_TYPE_REPEATER || e.type == ADV_TYPE_ROOM);
-  if (contact) actionButton(acts, admin ? UI_SYMBOL_STAR : e.fav ? UI_SYMBOL_STAR " Unfav" : UI_SYMBOL_STAR " Fav", NODE_FAV, e.fav && admin);
-  if (admin) actionButton(acts, LV_SYMBOL_SETTINGS " Admin", NODE_ADMIN, false);
-  if (!contact && e.has_key && !e.is_known) actionButton(acts, LV_SYMBOL_PLUS " Add", NODE_ADD, true);
-  if (contact) _node_delete_lbl = actionButton(acts, LV_SYMBOL_TRASH, NODE_DELETE, false);
+  bool pos = e.lat_e6 != 0 || e.lon_e6 != 0;
+  struct Act { const char* icon; const char* text; uint8_t action; bool accent; } list[9];
+  int n = 0;
+  if (contact && e.type == ADV_TYPE_CHAT) list[n++] = { LV_SYMBOL_ENVELOPE, " Message", NODE_MSG, true };
+  if (e.has_key) list[n++] = { LV_SYMBOL_LOOP, " Ping", NODE_PING, false };
+  if (pos) list[n++] = { UI_SYMBOL_COMPASS, "", NODE_NAV, false };
+  if (pos) list[n++] = { UI_SYMBOL_FLAG, "", NODE_WAYPOINT, false };   // save where it was seen
+  if (contact) list[n++] = { UI_SYMBOL_STAR, admin ? "" : e.fav ? " Unfav" : " Fav", NODE_FAV, e.fav && admin };
+  if (admin) list[n++] = { LV_SYMBOL_SETTINGS, " Admin", NODE_ADMIN, false };
+  if (!contact && e.has_key && !e.is_known) list[n++] = { LV_SYMBOL_PLUS, " Add", NODE_ADD, true };
+  if (contact && e.has_key) list[n++] = { UI_SYMBOL_PIN, "", NODE_PIN, favslots::findContact(_prefs, e.pub_key) >= 0 };
+  if (contact) list[n++] = { LV_SYMBOL_TRASH, "", NODE_DELETE, false };
+  for (int i = 0; i < n; i++) {   // five or more: icons only, so every button fits one row
+    char t[24];
+    snprintf(t, sizeof(t), "%s%s", list[i].icon, n >= 5 ? "" : list[i].text);
+    lv_obj_t* l = actionButton(acts, t, list[i].action, list[i].accent);
+    if (list[i].action == NODE_DELETE) _node_delete_lbl = l;
+  }
 
   refreshNode();
 }
@@ -1436,11 +1459,25 @@ void UITask::nodeAction(uint8_t action) {
     case NODE_ADMIN:
       openAdmin(e.pub_key);
       break;
+    case NODE_WAYPOINT: {
+      if (_core->waypoints.full()) { showToast("Waypoints full (16)"); break; }
+      char t[48];
+      if (_core->waypoints.add(e.lat_e6, e.lon_e6, rtc_clock.getCurrentTime(), e.name[0] ? e.name : "Node")) {
+        snprintf(t, sizeof(t), "Saved %s", _core->waypoints.at(_core->waypoints.count() - 1).label);
+        the_mesh.savePrefs();
+        showToast(t);
+      }
+      break;
+    }
+    case NODE_PIN:   // to the favourites dial (Home), as from a chat's options
+      pinPopup(false, 0, e.pub_key);
+      break;
     case NODE_DELETE:
       if (!_delete_armed_ms) {   // destructive: second tap within 3 s confirms
         _delete_armed_ms = millis();
         if (_delete_armed_ms == 0) _delete_armed_ms = 1;
-        lv_label_set_text(_node_delete_lbl, "Delete?");
+        lv_label_set_text(_node_delete_lbl, LV_SYMBOL_TRASH "?");   // fits an icon-only button
+        showToast("Tap again to delete the contact", 2500);
         break;
       }
       if (the_mesh.deleteContactByKey(e.pub_key)) {
@@ -1482,6 +1519,7 @@ static void onComposeInsert(lv_event_t* e) {
 }
 
 static void onComposeClicked(lv_event_t* e) { (void)e; s_ui->setKeyboardVisible(true); }
+static void onComposeMore(lv_event_t* e) { (void)e; s_ui->quickPopup(); }
 
 // Keyboard up: the screen header goes away and the body takes its 32 px, so
 // a line or two of the conversation stays visible above the compose field
@@ -1566,12 +1604,21 @@ void UITask::buildThread() {
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(bar, LV_PCT(100), 42);
     lv_obj_set_style_pad_all(bar, 4, 0);
+    lv_obj_t* more = lv_button_create(bar);   // quick messages, placeholders
+    lv_obj_set_size(more, 34, 34);
+    lv_obj_align(more, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_pad_all(more, 0, 0);
+    lv_obj_set_style_radius(more, theme::RADIUS, 0);
+    lv_obj_set_style_shadow_width(more, 0, 0);
+    lv_obj_set_style_bg_color(more, lv_color_hex(theme::SURFACE), 0);
+    lv_obj_add_event_cb(more, onComposeMore, LV_EVENT_CLICKED, NULL);
+    lv_obj_center(label(more, LV_SYMBOL_PLUS, THEME_FONT_BODY, theme::TEXT));
     _compose_ta = lv_textarea_create(bar);
     lv_textarea_set_one_line(_compose_ta, true);
     lv_textarea_set_placeholder_text(_compose_ta, "Message");
     lv_obj_add_event_cb(_compose_ta, onComposeInsert, LV_EVENT_INSERT, NULL);
-    lv_obj_set_size(_compose_ta, LV_PCT(100), 34);
-    lv_obj_align(_compose_ta, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_size(_compose_ta, lv_display_get_horizontal_resolution(NULL) - 8 - 34 - 4, 34);   // beside "+"
+    lv_obj_align(_compose_ta, LV_ALIGN_RIGHT_MID, 0, 0);
     // The theme's padding leaves less than one line inside 36 px, which makes
     // the field scroll vertically (text jumps as it's typed). Pad so exactly one
     // body line (20 px) fits: 34 = 2*1 border + 2*6 pad + 20.
@@ -1834,10 +1881,8 @@ void UITask::refreshThread() {
   lv_obj_scroll_to_y(_thread_list, LV_COORD_MAX, LV_ANIM_OFF);
 }
 
-void UITask::sendFromCompose() {
-  if (!_compose_ta) return;
-  const char* text = lv_textarea_get_text(_compose_ta);
-  if (!text || !text[0]) return;
+// To the open conversation (channel or DM). The caller refreshes the thread.
+bool UITask::sendThreadText(const char* text) {
   bool ok;
   if (_thread_is_channel) {
     ok = _core->sendChannelText(_thread_channel, text);
@@ -1845,13 +1890,20 @@ void UITask::sendFromCompose() {
     ContactInfo c;
     ok = MessageHistory::contactByPrefix(_thread_key, c) && _core->sendDirectText(c, text);
   }
-  if (ok) {
-    lv_textarea_set_text(_compose_ta, "");
-    setKeyboardVisible(false);
-    refreshThread();
-  } else {
-    showToast("Send failed");
-  }
+  if (!ok) showToast("Send failed");
+  return ok;
+}
+
+void UITask::sendFromCompose() {
+  if (!_compose_ta) return;
+  const char* typed = lv_textarea_get_text(_compose_ta);
+  if (!typed || !typed[0]) return;
+  char text[MSG_TEXT_BUF];
+  msgtext::expandOutgoing(typed, text, sizeof(text), _prefs);   // {loc}, {time}, ... (MessageText.h)
+  if (!sendThreadText(text)) return;
+  lv_textarea_set_text(_compose_ta, "");
+  setKeyboardVisible(false);
+  refreshThread();
 }
 
 // ── Settings (first rows; the declarative schema replaces this later) ────────
@@ -1930,6 +1982,9 @@ static void onSchemaDropdown(lv_event_t* e) {
 }
 static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
+static void onAdvertRow(lv_event_t* e);   // QuickScreen.h
+static void onOpenQuickMsgs(lv_event_t* e);
+static void bluetoothRow(lv_obj_t* body);
 static void onVolumeSlider(lv_event_t* e) {
   s_ui->setSoundVolume((int)lv_slider_get_value((lv_obj_t*)lv_event_get_target(e)));
 }
@@ -2069,6 +2124,12 @@ void UITask::buildSchemaSettings() {
     lv_obj_center(_prune_lbl);
   }
   if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
+  if (_settings_page == settings::PG_MESSAGES) {
+    sectionTitle(body, "QUICK MESSAGES");
+    char sub[48];
+    snprintf(sub, sizeof(sub), "%d of %d set  -  sent with one tap", msgtext::quickUsed(_prefs), msgtext::QUICK_COUNT);
+    listRow(body, LV_SYMBOL_EDIT "  Quick messages", sub, onOpenQuickMsgs, NULL);
+  }
 }
 
 void UITask::setSchemaValue(int idx, int v) {
@@ -2099,7 +2160,9 @@ void UITask::buildSettings() {
   lv_obj_t* body = newScreen("Settings", true);
   sectionTitle(body, "NODE");
   listRow(body, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
+  listRow(body, UI_SYMBOL_RADIO "  Send advert", "Let other nodes see you now", onAdvertRow, NULL);
   sectionTitle(body, "CONNECTIVITY");
+  bluetoothRow(body);
   char ssid[33], pass[65];
   bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
   listRow(body, LV_SYMBOL_WIFI "  WiFi", have ? ssid : "Not set (for map downloads)", onOpenWifi, NULL);
@@ -2174,3 +2237,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "RadioExtras.h"
 #include "RepeaterScreen.h"
 #include "SoundScreen.h"
+#include "QuickScreen.h"
