@@ -39,6 +39,11 @@ public:
   void showContacts();
   void showSettings();
   void showNearby();
+  void showMap();
+  void mapZoom(int delta);
+  void mapCenterOnMe();
+  void mapPan(int dx, int dy);
+  void mapOpenMarker(int idx);
   void setNearbyFilter(uint8_t f);
   void toggleNearbySort();
   void startNearbyScan();
@@ -59,7 +64,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -74,6 +79,10 @@ private:
   uint32_t nearbySignature() const;
   void showScanPopup();
   void refreshScanPopup();
+  void buildMap();
+  void layoutMap();
+  void mapLoop();
+  void rebuildMapMarkers();
   void buildNode();
   void refreshNode();
   void buildThread();
@@ -138,4 +147,18 @@ private:
   lv_obj_t* _node_info = nullptr;
   lv_obj_t* _node_ping = nullptr;
   lv_obj_t* _node_delete_lbl = nullptr;
+  bool      _node_from_map = false;
+
+  // Map (SCR_MAP): view centre in fractional tile coords at zoom _map_z
+  double    _map_cx = 0, _map_cy = 0;
+  int       _map_z = 0;             // 0 = not initialised yet
+  bool      _map_follow = true;     // keep centred on own position until panned
+  bool      _map_pending = false;   // visible tiles still to decode
+  uint32_t  _next_map_marks_ms = 0;
+  lv_obj_t* _map_area = nullptr;
+  lv_obj_t* _map_tiles[6] = {nullptr};
+  lv_obj_t* _map_marks = nullptr;
+  lv_obj_t* _map_me = nullptr;
+  lv_obj_t* _map_zoom_lbl = nullptr;
+  lv_obj_t* _map_hint = nullptr;
 };

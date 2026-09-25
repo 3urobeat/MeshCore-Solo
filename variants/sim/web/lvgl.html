@@ -12,6 +12,10 @@
       cd variants/sim/web && python3 -m http.server 8080
   and open http://localhost:8080/lvgl.html .
 
+  Map: tiles in web/maps (tools/maps/fetch_tiles.py --preset krakow --out
+  variants/sim/web --manifest) are copied into the L2's /sdcard/maps at boot,
+  and its GPS is put on Kraków's Old Town.
+
   The mouse is the finger: press / drag / release on the LCD. Holding a key
   on the on-screen keyboard opens its accent popup, as on the device.
 
@@ -144,12 +148,31 @@
       inst.call('sim_test_disable_screen_timeout', 'number');
     }
 
+    // Map tiles listed in maps/manifest.json -> the instance's /sdcard/maps.
+    async function loadMaps(inst) {
+      let list;
+      try { list = await (await fetch('maps/manifest.json')).json(); }
+      catch (e) { log('no maps/manifest.json (map will be empty)'); return; }
+      const FS = inst.mod.FS;
+      await Promise.all(list.map(async (rel) => {
+        const buf = new Uint8Array(await (await fetch('maps/' + rel)).arrayBuffer());
+        const path = '/sdcard/maps/' + rel;
+        FS.mkdirTree(path.substring(0, path.lastIndexOf('/')));
+        FS.writeFile(path, buf);
+      }));
+      log('map: ' + list.length + ' tiles loaded');
+    }
+
     async function bootL() {
       document.getElementById('status-L').textContent = 'booting…';
       if (L) L.call('sim_stop_main_loop', null);
       L = wrap(await MeshCoreSimLvgl({ simInstanceTag: 'L' }), 'L');
       const ok = await waitReady(L);
-      if (ok) prepare(L);
+      if (ok) {
+        prepare(L);
+        L.call('sim_location_set', null, ['number', 'number', 'number'], [50.0614, 19.9372, 220]);
+        await loadMaps(L);
+      }
       document.getElementById('status-L').textContent = ok ? 'ready' : 'boot timed out';
       return ok;
     }

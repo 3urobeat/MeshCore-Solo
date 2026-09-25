@@ -1,8 +1,13 @@
 #pragma once
-// LVGL <-> board glue: display flush and pointer input. One implementation per
-// display stack; the rest of ui-lvgl never touches the hardware directly.
+// LVGL <-> board glue: display flush, pointer input and the storage card (map
+// tiles, mounted at /sdcard). One implementation per board; the rest of
+// ui-lvgl never touches the hardware directly.
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp only.
+
+#if defined(SEEED_WIO_TRACKER_L2)
+  #include <SD_MMC.h>
+#endif
 
 namespace lvport {
 
@@ -69,6 +74,17 @@ static bool touched() {
 
 static void swallowTouch() { s_swallow = true; }
 
+// microSD over SDMMC, 1-bit (CLK 2, CMD 3, D0 1); its power rail (expander
+// P14) is switched on in WioTrackerL2Board::begin(). Retried on every call
+// until it works, so a card inserted later is picked up the next time.
+static bool mountStorage() {
+  static bool mounted = false;
+  if (mounted) return true;
+  SD_MMC.setPins(2, 3, 1);
+  mounted = SD_MMC.begin("/sdcard", true /* 1-bit */);
+  return mounted;
+}
+
 #elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
 // Browser simulator (variants/sim/build_wasm_lvgl.sh): SimLcdDisplay blits to
 // a <canvas>, the host page feeds the mouse in as touch.
@@ -108,6 +124,9 @@ static bool begin() {
 
 static bool touched() { return SimLcdDisplay::touchState().down; }
 static void swallowTouch() { s_swallow = true; }
+
+// The host page preloads map tiles into the in-memory FS under /sdcard/maps.
+static bool mountStorage() { return true; }
 
 #else
   #error "ui-lvgl: no LVGL port for this board (see LvglPort.h)"

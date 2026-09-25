@@ -31,4 +31,6 @@ namespace theme {
 
   // Extra FontAwesome glyphs baked into ui_font_12..20 beyond LVGL's LV_SYMBOL_*.
   #define UI_SYMBOL_STAR    "\xEF\x80\x85"   // U+F005, favourite
+  #define UI_SYMBOL_MAP     "\xEF\x89\xB9"   // U+F279
+  #define UI_SYMBOL_USERS   "\xEF\x83\x80"   // U+F0C0, Nearby
 }

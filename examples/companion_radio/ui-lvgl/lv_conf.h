@@ -11,7 +11,7 @@
 #define LV_USE_STDLIB_MALLOC    LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_STRING    LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF   LV_STDLIB_CLIB
-#define LV_MEM_SIZE             (1024U * 1024U)
+#define LV_MEM_SIZE             (2048U * 1024U)   // map tiles decode through it (~0.5 MB peak per PNG)
 #if defined(ESP32)
   #define LV_MEM_ADR            0
   #define LV_MEM_POOL_INCLUDE   "lv_psram_pool.h"
@@ -34,6 +34,9 @@
                                 LV_FONT_DECLARE(ui_font_40)
 #define LV_FONT_DEFAULT         &ui_font_14
 #define LV_USE_FONT_COMPRESSED  1      // generated fonts are RLE-compressed (without this every glyph draws as a box)
+
+// PNG decoder for raster map tiles (map/TileProvider.h calls lodepng directly).
+#define LV_USE_LODEPNG          1
 
 #define LV_USE_THEME_DEFAULT    1
 #define LV_THEME_DEFAULT_DARK   1

@@ -158,6 +158,7 @@ void UITask::loop() {
         refreshNode();
       }
     }
+    if (_screen == SCR_MAP) mapLoop();
     if (_screen == SCR_THREAD && (int32_t)(millis() - _next_thread_check_ms) >= 0) {
       _next_thread_check_ms = millis() + 500;
       uint32_t sig = threadSignature();
@@ -343,6 +344,8 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _nearby_list = _nearby_status = _nearby_sort_lbl = _nearby_chips = nullptr;
   _node_info = _node_ping = _node_delete_lbl = nullptr;
   _scan_overlay = _scan_list = _scan_status = nullptr;   // the popup went with the old screen
+  _map_area = _map_marks = _map_me = _map_zoom_lbl = _map_hint = nullptr;
+  for (lv_obj_t*& t : _map_tiles) t = nullptr;
   lv_obj_t* prev = lv_screen_active();
   lv_obj_t* scr = lv_obj_create(NULL);
   styleSurface(scr, theme::BG);
@@ -395,11 +398,13 @@ void UITask::back() {
       if (_scan_overlay) closeScanPopup();
       else showHome();
       break;
-    case SCR_NODE:     // back to where the node was picked: the list, or the scan popup over it
+    case SCR_NODE:     // back to where the node was picked: map, the list, or the scan popup over it
+      if (_node_from_map) { showMap(); break; }
       _screen = SCR_NEARBY;
       buildNearby();
       if (_node_from_scan) showScanPopup();
       break;
+    case SCR_MAP:      showHome(); break;
     default:           break;
   }
 }
@@ -410,6 +415,7 @@ static void onOpenChats(lv_event_t* e) { (void)e; s_ui->showChats(); }
 static void onOpenSettings(lv_event_t* e) { (void)e; s_ui->showSettings(); }
 
 static void onOpenNearby(lv_event_t* e) { (void)e; s_ui->showNearby(); }
+static void onOpenMap(lv_event_t* e) { (void)e; s_ui->showMap(); }
 
 // Home tile: icon over label, one of a row of three; optional amber value
 // (unread count) in its top-right corner.
@@ -455,7 +461,8 @@ void UITask::buildHome() {
   lv_obj_set_flex_flow(tiles, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(tiles, theme::GAP, 0);
   homeTile(tiles, LV_SYMBOL_ENVELOPE, "Messages", onOpenChats, &_home_unread);
-  homeTile(tiles, LV_SYMBOL_GPS, "Nearby", onOpenNearby, NULL);
+  homeTile(tiles, UI_SYMBOL_USERS, "Nearby", onOpenNearby, NULL);
+  homeTile(tiles, UI_SYMBOL_MAP, "Map", onOpenMap, NULL);
   homeTile(tiles, LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, NULL);
 }
 
@@ -804,6 +811,7 @@ void UITask::openScanNode(int row) {
   if (row < 0 || row >= _scan->count()) return;
   s_node = _scan->at(row);
   _node_from_scan = true;
+  _node_from_map = false;
   _scanning = false;
   _pinging = false;
   _delete_armed_ms = 0;
@@ -876,6 +884,7 @@ void UITask::openNode(int row) {
   if (row < 0 || row >= _nearby->count()) return;
   s_node = _nearby->at(row);
   _node_from_scan = false;
+  _node_from_map = false;
   _pinging = false;
   _delete_armed_ms = 0;
   _screen = SCR_NODE;
@@ -1043,6 +1052,8 @@ void UITask::nodeAction(uint8_t action) {
       break;
   }
 }
+
+#include "MapScreen.h"
 
 // ── Conversation ──────────────────────────────────────────────────────────────
 

@@ -23,6 +23,7 @@ tools/gpx/
 sim_data/
 variants/sim/tools/emsdk/
 variants/sim/web/build/
+variants/sim/web/maps/
 
 # graphify
 graphify-out/
