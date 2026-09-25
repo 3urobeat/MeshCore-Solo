@@ -66,6 +66,14 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: Diagnostics, auto-advert, compass (2026-09-25)
+- [ ] Settings > SYSTEM > Diagnostics: tabs Live / System / Font; Live counters (uptime, rx/tx, heap, noise floor, RSSI/SNR, queue, errors) tick every second
+- [ ] Live > Reset → confirm popup → "Counters reset", rx/tx and forwarded go back to 0
+- [ ] System shows firmware, build date, board, node name, frequency / SF / BW / CR, TX power; Font shows Polish, Greek and Cyrillic samples without boxes
+- [ ] Settings > Trail, live share, alerts > LIVE SHARE > Auto-advert 30 s: another node sees your advert (with position) every ~30 s; Off stops it; survives a reboot
+- [ ] L1: Tools › Auto-Advert shows the value set on L2 (same pref), Tools › Diagnostics unchanged
+- [ ] Home page 2 > Compass: without a fix "Waiting for a GPS fix" (GPS off: hint to turn it on); standing still "Move to set the heading"; walking: dial turns so your course is under the amber pointer, degrees + cardinal on the right
+
 ## New: Node name, reboot, lock screen, favourites dial (2026-09-25)
 - [ ] Settings > NODE > Name: popup with the current name, Enter saves; Home and Settings show the new name; another node sees it after your next advert
 - [ ] Settings > SYSTEM > Reboot / Power off: confirm popup (red button); reboot comes back normally, messages and settings kept

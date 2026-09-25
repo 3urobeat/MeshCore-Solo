@@ -112,6 +112,9 @@ static const int32_t TZ[] = { -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1,
 static void optTz(uint8_t v, char* b, int n, const NodePrefs&) {
   if (TZ[v] == 0) snprintf(b, n, "UTC"); else snprintf(b, n, "UTC%+ld", (long)TZ[v]);
 }
+// The same steps as ui-new's Tools > Auto-Advert.
+static const int32_t AUTO_ADVERT[] = { 0, 30, 60, 120, 300, 600, 1800, 3600 };
+static void optAutoAdvert(uint8_t v, char* b, int n, const NodePrefs&) { fmtSecs(b, n, AUTO_ADVERT[v], "Off"); }
 static const int32_t INVERTED[] = { 1, 0 };   // switch over a field stored as "off" flag
 static void optResend(uint8_t v, char* b, int n, const NodePrefs&) {
   if (v == 0) snprintf(b, n, "Off"); else snprintf(b, n, "%u more", (unsigned)v);
@@ -151,6 +154,8 @@ static const Setting ALL[] = {
       NodePrefs::LOC_SHARE_INTERVAL_COUNT, optGap, nullptr),
   IDX("Heartbeat", "Resend while standing still", SEC_LIVE_SHARE, loc_share_heartbeat_idx,
       NodePrefs::LOC_SHARE_HEARTBEAT_COUNT, optHeartbeat, nullptr),
+  MAP("Auto-advert", "Advert with your position", SEC_LIVE_SHARE, advert_auto_interval_sec, AUTO_ADVERT,
+      optAutoAdvert, nullptr),
 
   SW("Arrival alert", "When you reach the target", SEC_LOCATOR, locator_enabled, rearmLocator),
   IDX("Radius", nullptr, SEC_LOCATOR, locator_radius_idx,

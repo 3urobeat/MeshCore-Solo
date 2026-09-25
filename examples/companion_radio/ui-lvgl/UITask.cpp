@@ -13,6 +13,7 @@
 #include "../ui-core/GpsAverager.h"
 #include "../ui-core/TrackBack.h"
 #include "../ui-core/RadioControl.h"
+#include "../ui-core/Diagnostics.h"
 #include "../ui-core/ChannelControl.h"
 #include "../ui-core/BotConfig.h"
 #include "Theme.h"
@@ -189,6 +190,8 @@ void UITask::loop() {
       refreshStatusBar();
       refreshLock();
       if (_screen == SCR_HOME) refreshHome();
+      refreshDiag();
+      refreshCompass();
     }
     if (locked()) lockPoll();
     else if (_screen == SCR_HOME) homeSwipePoll();
@@ -492,6 +495,8 @@ void UITask::back() {
     case SCR_CHANNEL_EDIT: showChats(); break;
     case SCR_BOT:      if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_FAVS:     if (_nav_overlay) navClosePopup(); else showHome(); break;
+    case SCR_DIAG:     if (_nav_overlay) navClosePopup(); else showSettings(); break;
+    case SCR_COMPASS:  showHome(); break;
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
@@ -530,6 +535,8 @@ static void onOpenNav(lv_event_t* e) { (void)e; s_ui->openMap(true); }
 static void onOpenClock(lv_event_t* e);   // ClockScreen.h
 static void onOpenBot(lv_event_t* e);     // BotScreen.h
 static void onOpenFavourites(lv_event_t* e);   // DeviceScreen.h
+static void onOpenCompass(lv_event_t* e);   // CompassScreen.h
+static void onOpenDiag(lv_event_t* e);      // DiagScreen.h
 static void onNodeName(lv_event_t* e);
 static void onPowerRow(lv_event_t* e);
 
@@ -544,6 +551,7 @@ static const App APPS[] = {
   { LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, false },
   // Page 2: tools
   { UI_SYMBOL_STAR,     "Favourites", onOpenFavourites, false },
+  { UI_SYMBOL_COMPASS,  "Compass",  onOpenCompass,  false },
   { UI_SYMBOL_CLOCK,    "Clock",    onOpenClock,    false },
   { LV_SYMBOL_CHARGE,   "Bot",      onOpenBot,      false },
 };
@@ -2007,7 +2015,7 @@ void UITask::buildSettings() {
       if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
       lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
     }
-    listRow(body, UI_SYMBOL_COMPASS "  Trail, live share, alerts", "Point spacing, auto-pause, sharing, radius",
+    listRow(body, UI_SYMBOL_COMPASS "  Trail, live share, alerts", "Trail, sharing, auto-advert, radius",
             onOpenSchemaPage, (void*)(uintptr_t)settings::PG_NAV);
     sectionTitle(body, "DEVICE");
     listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Brightness, screen off, battery, GPS, time zone",
@@ -2028,6 +2036,7 @@ void UITask::buildSettings() {
   label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
   sectionTitle(body, "SYSTEM");
+  listRow(body, UI_SYMBOL_CHART "  Diagnostics", "Packet counts, memory, radio, firmware", onOpenDiag, NULL);
   listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
   listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
 
@@ -2051,3 +2060,5 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 
 #include "ConversationScreen.h"
 #include "DeviceScreen.h"
+#include "DiagScreen.h"
+#include "CompassScreen.h"

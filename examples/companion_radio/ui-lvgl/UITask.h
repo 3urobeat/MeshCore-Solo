@@ -153,6 +153,11 @@ public:
   void unlockScreen();
   bool locked() const;
   void showFavourites();
+  void showDiag();
+  void diagTab(int tab);
+  void diagResetPopup();
+  void diagReset();
+  void showCompass();
   void favTap(int slot);
   void favHold(int slot);
   void favAction(uint8_t act);
@@ -167,7 +172,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -232,6 +237,10 @@ private:
   void refreshLock();
   void lockPoll();
   void buildFavourites();
+  void buildDiag();
+  void refreshDiag();
+  void buildCompass();
+  void refreshCompass();
   void favPickPopup(int slot);
   void adminValuePopup();
   void adminTextPopup(const char* text, bool digits);
