@@ -14,6 +14,7 @@
 #include "../ui-core/TrackBack.h"
 #include "../ui-core/RadioControl.h"
 #include "../ui-core/ChannelControl.h"
+#include "../ui-core/BotConfig.h"
 #include "Theme.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
@@ -458,6 +459,7 @@ void UITask::back() {
     case SCR_THREAD:   if (_nav_overlay) navClosePopup(); else showChats(); break;
     case SCR_CONTACTS: showChats(); break;
     case SCR_CHANNEL_EDIT: showChats(); break;
+    case SCR_BOT:      if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
@@ -494,6 +496,7 @@ static void onOpenNearby(lv_event_t* e) { (void)e; s_ui->showNearby(); }
 static void onOpenNodesMap(lv_event_t* e) { (void)e; s_ui->openMap(false); }
 static void onOpenNav(lv_event_t* e) { (void)e; s_ui->openMap(true); }
 static void onOpenClock(lv_event_t* e);   // ClockScreen.h
+static void onOpenBot(lv_event_t* e);     // BotScreen.h
 
 // Home apps, in order; PER_PAGE to a page, further pages are swiped to (with
 // dots underneath), so new apps don't squeeze the row.
@@ -506,6 +509,7 @@ static const App APPS[] = {
   { LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, false },
   // Page 2: tools
   { UI_SYMBOL_CLOCK,    "Clock",    onOpenClock,    false },
+  { LV_SYMBOL_CHARGE,   "Bot",      onOpenBot,      false },
 };
 static const int COUNT = sizeof(APPS) / sizeof(APPS[0]);
 static const int PER_PAGE = 4;
@@ -1263,6 +1267,7 @@ void UITask::nodeAction(uint8_t action) {
 #include "WifiScreen.h"
 #include "ChannelScreen.h"
 #include "AdminScreen.h"
+#include "BotScreen.h"
 
 // ── Conversation ──────────────────────────────────────────────────────────────
 

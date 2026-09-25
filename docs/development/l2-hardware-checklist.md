@@ -66,6 +66,16 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: Bot (2026-09-25)
+- [ ] Home page 2: Clock, Bot
+- [ ] Bot: tabs Channel / Room / Direct / Other; header shows "N sent" once it has replied
+- [ ] Switches (Enable, Commands, Actions) change and survive a reboot; Direct > DM allow All / Fav
+- [ ] Channel / Room: list popup (current one highlighted), picking closes it and shows the name
+- [ ] Trigger: text popup ("*" = any message, shown as "(any msg)"); Reply: {name} {hops} {loc} {time} buttons insert at the cursor
+- [ ] Other > Quiet from / to: − / + hour, Done; both the same = "Off"
+- [ ] With Channel enabled + trigger "!hi" + reply "Hi {name}, {hops}": another node writing "!hi" on that channel gets the reply; `!ping` answered when Commands is on
+- [ ] L1 (ui-new): Tools > Bot looks and works as before (now from the shared BotConfig table)
+
 ## Basics after the_mesh moved to PSRAM (`MESH_IN_PSRAM`)
 - [ ] Boots normally, contacts and channels are all there
 - [ ] Messages arrive and send (channel + DM), delivery ticks work
