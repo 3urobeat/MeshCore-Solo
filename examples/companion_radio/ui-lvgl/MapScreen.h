@@ -2,7 +2,8 @@
 // Map screen: offline Web-Mercator tiles from the card (map/TileProvider.h,
 // cached by map/TileCache.h) under own position and the nodes Nearby knows a
 // position for. Drag to pan, +/- to zoom, the crosshair re-centres and
-// follows the GPS again; tap a marker for its node detail.
+// follows the GPS again; tap a marker for its node detail. The download
+// button fetches the visible area over WiFi (map/TileDownloader.h).
 //
 // Tiles decode one per loop pass (a PNG takes tens of ms), so panning stays
 // responsive and the radio keeps being serviced while a view fills in.
@@ -12,12 +13,15 @@
 #include <math.h>
 #include "map/TileProvider.h"
 #include "map/TileCache.h"
+#include "map/TileDownloader.h"
 
 namespace mapview {
 
 static RasterTileProvider s_raster("/sdcard/maps");
 static TileProvider*      s_provider = &s_raster;   // the one place to swap in a vector renderer
 static TileCache          s_cache;
+static TileDownloader     s_dl("/sdcard/maps");
+static const uint32_t     AVG_TILE_BYTES = 22 * 1024;   // OpenTopoMap-ish, for the size estimate
 
 static const int MIN_Z = 3, MAX_Z = 18;
 static const int GRID_COLS = 3, GRID_ROWS = 2;   // covers 320x218 at any offset
@@ -53,6 +57,12 @@ static void onMapPress(lv_event_t* e) {
 static void onMapZoomIn(lv_event_t* e)  { (void)e; s_ui->mapZoom(+1); }
 static void onMapZoomOut(lv_event_t* e) { (void)e; s_ui->mapZoom(-1); }
 static void onMapCenter(lv_event_t* e)  { (void)e; s_ui->mapCenterOnMe(); }
+static void onMapDownload(lv_event_t* e) { (void)e; s_ui->mapDownloadPopup(); }
+static void onDlClose(lv_event_t* e)     { (void)e; s_ui->mapDownloadClose(); }
+static void onDlStart(lv_event_t* e)     { (void)e; s_ui->mapDownloadStart(); }
+static void onDlZoomMinus(lv_event_t* e) { (void)e; s_ui->mapDownloadZmax(-1); }
+static void onDlZoomPlus(lv_event_t* e)  { (void)e; s_ui->mapDownloadZmax(+1); }
+static void onDlWifi(lv_event_t* e)      { (void)e; s_ui->showWifi(true); }
 static void onMapMarker(lv_event_t* e) {
   if (mapview::s_drag > 8) return;   // the press was a pan that ended on a marker
   s_ui->mapOpenMarker((int)(uintptr_t)lv_event_get_user_data(e));
@@ -141,7 +151,12 @@ void UITask::buildMap() {
   lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 6);
   lv_obj_align(mapButton(body, LV_SYMBOL_PLUS, onMapZoomIn), LV_ALIGN_TOP_RIGHT, -6, 6);
   lv_obj_align(mapButton(body, LV_SYMBOL_MINUS, onMapZoomOut), LV_ALIGN_TOP_RIGHT, -6, 52);
+  lv_obj_align(mapButton(body, LV_SYMBOL_DOWNLOAD, onMapDownload), LV_ALIGN_TOP_RIGHT, -6, 98);
   lv_obj_align(mapButton(body, LV_SYMBOL_GPS, onMapCenter), LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+  _map_dl_pill = mapPill(body, "");
+  lv_obj_set_style_text_color(_map_dl_pill, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_align(_map_dl_pill, LV_ALIGN_TOP_MID, 0, 16);
+  lv_obj_add_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
   _map_zoom_lbl = mapPill(body, "");
   lv_obj_align(_map_zoom_lbl, LV_ALIGN_TOP_LEFT, 52, 16);
   lv_obj_t* attr = mapPill(body, mapview::s_provider->attribution());   // required by the data licences
@@ -330,3 +345,205 @@ void UITask::mapOpenMarker(int idx) {
   _node_from_map = true;
 }
 
+
+// ── Area download ─────────────────────────────────────────────────────────────
+
+// The visible view as a lon/lat box.
+static mapview::TileArea visibleArea(double cx, double cy, int z, int w, int h, int zmin, int zmax) {
+  double n = (double)(1 << z);
+  auto lon = [n](double tx) { return tx / n * 360.0 - 180.0; };
+  auto lat = [n](double ty) { return atan(sinh(M_PI * (1.0 - 2.0 * ty / n))) * 180.0 / M_PI; };
+  double hw = w / 2.0 / mapview::TILE_PX, hh = h / 2.0 / mapview::TILE_PX;
+  mapview::TileArea a;
+  a.lon0 = lon(cx - hw); a.lon1 = lon(cx + hw);
+  a.lat1 = lat(cy - hh); a.lat0 = lat(cy + hh);
+  a.zmin = zmin; a.zmax = zmax;
+  return a;
+}
+
+static int dlZmin(int z) { return z - 4 < 5 ? (z < 5 ? z : 5) : z - 4; }   // a few overview levels (cheap)
+
+void UITask::mapDownloadPopup() {
+  if (_dl_overlay) return;
+  if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3 > 17 ? 17 : _map_z + 3;
+
+  _dl_overlay = lv_obj_create(lv_screen_active());
+  lv_obj_remove_style_all(_dl_overlay);
+  lv_obj_set_size(_dl_overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(_dl_overlay, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(_dl_overlay, LV_OPA_60, 0);
+  lv_obj_add_flag(_dl_overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(_dl_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t* panel = lv_obj_create(_dl_overlay);
+  lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16, LV_SIZE_CONTENT);
+  lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
+  lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(panel, 1, 0);
+  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
+  lv_obj_set_style_pad_all(panel, theme::PAD, 0);
+  lv_obj_set_style_pad_row(panel, 6, 0);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t* hdr = lv_obj_create(panel);
+  styleSurface(hdr, theme::BG);
+  lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(hdr, LV_PCT(100), 28);
+  lv_obj_align(label(hdr, "Download this area", THEME_FONT_TITLE, theme::TEXT), LV_ALIGN_LEFT_MID, 0, 0);
+  headerButton(hdr, LV_SYMBOL_CLOSE, onDlClose, 0, NULL);
+
+  // Detail range: from a few overview levels up to the chosen max zoom.
+  lv_obj_t* zr = lv_obj_create(panel);
+  styleSurface(zr, theme::BG);
+  lv_obj_remove_flag(zr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(zr, LV_PCT(100), 30);
+  lv_obj_align(label(zr, "Up to zoom", THEME_FONT_BODY, theme::TEXT_MUTED), LV_ALIGN_LEFT_MID, 0, 0);
+  headerButton(zr, LV_SYMBOL_PLUS, onDlZoomPlus, 0, NULL);
+  _dl_zoom_lbl = label(zr, "", THEME_FONT_TITLE, theme::ACCENT);
+  lv_obj_align(_dl_zoom_lbl, LV_ALIGN_RIGHT_MID, -56, 0);
+  headerButton(zr, LV_SYMBOL_MINUS, onDlZoomMinus, 96, NULL);
+
+  _dl_info = label(panel, "", THEME_FONT_SMALL, theme::TEXT);
+  lv_label_set_long_mode(_dl_info, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(_dl_info, LV_PCT(100));
+  lv_obj_set_style_text_line_space(_dl_info, 2, 0);
+
+  lv_obj_t* acts = lv_obj_create(panel);
+  styleSurface(acts, theme::BG);
+  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
+  lv_obj_t* wifi = lv_button_create(acts);
+  lv_obj_set_height(wifi, 38);
+  lv_obj_set_flex_grow(wifi, 1);
+  lv_obj_set_style_shadow_width(wifi, 0, 0);
+  lv_obj_set_style_radius(wifi, theme::RADIUS, 0);
+  lv_obj_set_style_bg_color(wifi, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_add_event_cb(wifi, onDlWifi, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(label(wifi, LV_SYMBOL_WIFI " WiFi", THEME_FONT_SMALL, theme::TEXT));
+  lv_obj_t* go = lv_button_create(acts);
+  lv_obj_set_height(go, 38);
+  lv_obj_set_flex_grow(go, 2);
+  lv_obj_set_style_shadow_width(go, 0, 0);
+  lv_obj_set_style_radius(go, theme::RADIUS, 0);
+  lv_obj_set_style_bg_color(go, lv_color_hex(theme::ACCENT_DIM), 0);
+  lv_obj_add_event_cb(go, onDlStart, LV_EVENT_CLICKED, NULL);
+  _dl_start_lbl = label(go, "", THEME_FONT_SMALL, theme::TEXT);
+  lv_obj_center(_dl_start_lbl);
+
+  refreshDownloadPopup();
+}
+
+void UITask::mapDownloadClose() {
+  if (_dl_overlay) lv_obj_delete_async(_dl_overlay);   // may be closing from its own button
+  _dl_overlay = _dl_info = _dl_zoom_lbl = _dl_start_lbl = nullptr;
+}
+
+void UITask::mapDownloadZmax(int delta) {
+  if (mapview::s_dl.active()) return;
+  int z = _dl_zmax + delta;
+  if (z < _map_z || z > mapview::MAX_Z) return;
+  _dl_zmax = z;
+  refreshDownloadPopup();
+}
+
+void UITask::refreshDownloadPopup() {
+  if (!_dl_info) return;
+  mapview::TileDownloader& dl = mapview::s_dl;
+  lv_label_set_text_fmt(_dl_zoom_lbl, "z%d", _dl_zmax);
+  if (dl.active()) {
+    char net[64];
+    lvport::netInfo(net, sizeof(net));
+    if (dl.state() == mapview::TileDownloader::CONNECTING)
+      lv_label_set_text_fmt(_dl_info, "Connecting to WiFi...\nFrom %s\n%s", dl.sourceHost(), net);
+    else if (dl.failed())
+      lv_label_set_text_fmt(_dl_info, "Downloading %lu / %lu tiles  -  %lu failed\nLast error: %s\n%s",
+                            (unsigned long)dl.processed(), (unsigned long)dl.total(),
+                            (unsigned long)dl.failed(), dl.message(), net);
+    else
+      lv_label_set_text_fmt(_dl_info, "Downloading %lu / %lu tiles (%lu new)\nFrom %s  -  you can close this\n%s",
+                            (unsigned long)dl.processed(), (unsigned long)dl.total(),
+                            (unsigned long)dl.downloaded(), dl.sourceHost(), net);
+    lv_label_set_text(_dl_start_lbl, LV_SYMBOL_STOP " Stop");
+    return;
+  }
+  int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
+  mapview::TileArea a = visibleArea(_map_cx, _map_cy, _map_z, w, h, dlZmin(_map_z), _dl_zmax);
+  uint32_t n = mapview::countTiles(a);
+  char ssid[33], pass[65];
+  bool have_wifi = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
+  char last[64] = "";
+  if (dl.state() == mapview::TileDownloader::DONE || dl.state() == mapview::TileDownloader::FAILED ||
+      dl.state() == mapview::TileDownloader::CANCELLED)
+    snprintf(last, sizeof(last), "\nLast: %s (%lu new)", dl.message(), (unsigned long)dl.downloaded());
+  char size[16];
+  uint64_t bytes = (uint64_t)n * mapview::AVG_TILE_BYTES;
+  if (bytes < 1024 * 1024) snprintf(size, sizeof(size), "%lu KB", (unsigned long)(bytes / 1024));
+  else snprintf(size, sizeof(size), "%lu MB", (unsigned long)((bytes + 512 * 1024) / (1024 * 1024)));
+  lv_label_set_text_fmt(_dl_info, "z%d-%d: %lu tiles, about %s (tiles on the card are skipped)\n"
+                        "From %s\nWiFi: %s%s",
+                        a.zmin, a.zmax, (unsigned long)n, size,
+                        dl.sourceHost(), have_wifi ? ssid : "not set - tap WiFi", last);
+  lv_label_set_text(_dl_start_lbl, n > mapview::TileDownloader::MAX_TILES ? "Too large - zoom in"
+                                   : LV_SYMBOL_DOWNLOAD " Download");
+}
+
+void UITask::mapDownloadStart() {
+  if (mapview::s_dl.active()) { mapDownloadStop(); return; }
+  char ssid[33], pass[65];
+  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showWifi(true); return; }
+  if (!lvport::mountStorage()) { showToast("No SD card"); return; }
+  int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
+  mapview::TileArea a = visibleArea(_map_cx, _map_cy, _map_z, w, h, dlZmin(_map_z), _dl_zmax);
+  if (!mapview::s_dl.start(a, ssid, pass)) { showToast(mapview::s_dl.message()); return; }
+  refreshDownloadPopup();
+}
+
+void UITask::mapDownloadStop() {
+  mapview::s_dl.cancel();
+  refreshDownloadPopup();
+}
+
+// Every UI loop pass, whatever the screen: a download keeps going in the background.
+void UITask::mapDownloadTick() {
+  mapview::TileDownloader& dl = mapview::s_dl;
+  dl.loop();
+  uint8_t st = dl.state();
+  bool was_active = _dl_last_state == mapview::TileDownloader::CONNECTING ||
+                    _dl_last_state == mapview::TileDownloader::RUNNING;
+  if (was_active && !dl.active()) {   // just finished
+    char t[64];
+    snprintf(t, sizeof(t), "Map: %s, %lu new tiles", dl.message(), (unsigned long)dl.downloaded());
+    showToast(t, 4000);
+    mapview::s_cache.forgetMissing();   // tiles that were missing may be there now
+    mapview::s_available = mapview::s_provider->available();
+    if (_screen == SCR_MAP) layoutMap();
+  }
+  _dl_last_state = st;
+
+  static uint32_t next_ui = 0;
+  if ((int32_t)(millis() - next_ui) < 0) return;
+  next_ui = millis() + 500;
+  if (_map_dl_pill) {
+    if (dl.state() == mapview::TileDownloader::CONNECTING) {
+      lv_label_set_text(_map_dl_pill, LV_SYMBOL_WIFI " Connecting...");
+      lv_obj_remove_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
+    } else if (dl.active()) {
+      if (dl.failed())
+        lv_label_set_text_fmt(_map_dl_pill, LV_SYMBOL_DOWNLOAD " %lu / %lu  " LV_SYMBOL_WARNING " %lu",
+                              (unsigned long)dl.processed(), (unsigned long)dl.total(), (unsigned long)dl.failed());
+      else
+        lv_label_set_text_fmt(_map_dl_pill, LV_SYMBOL_DOWNLOAD " %lu / %lu", (unsigned long)dl.processed(),
+                              (unsigned long)dl.total());
+      lv_obj_remove_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (_dl_overlay) refreshDownloadPopup();
+  // New tiles in view while downloading: let the map pick them up.
+  if (dl.active() && _screen == SCR_MAP && dl.downloaded() > 0) { mapview::s_cache.forgetMissing(); layoutMap(); }
+}

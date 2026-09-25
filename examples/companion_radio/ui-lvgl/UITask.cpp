@@ -140,6 +140,7 @@ void UITask::loop() {
 
   _core->loop();
   drainCoreEvents();
+  mapDownloadTick();   // a map download keeps running on any screen, and asleep
 
   if (!_asleep) {
     if ((int32_t)(millis() - _next_status_ms) >= 0) {
@@ -159,6 +160,7 @@ void UITask::loop() {
       }
     }
     if (_screen == SCR_MAP) mapLoop();
+    if (_screen == SCR_WIFI) pollWifiScan();
     if (_screen == SCR_THREAD && (int32_t)(millis() - _next_thread_check_ms) >= 0) {
       _next_thread_check_ms = millis() + 500;
       uint32_t sig = threadSignature();
@@ -344,7 +346,10 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _nearby_list = _nearby_status = _nearby_sort_lbl = _nearby_chips = nullptr;
   _node_info = _node_ping = _node_delete_lbl = nullptr;
   _scan_overlay = _scan_list = _scan_status = nullptr;   // the popup went with the old screen
-  _map_area = _map_marks = _map_me = _map_zoom_lbl = _map_hint = nullptr;
+  _map_area = _map_marks = _map_me = _map_zoom_lbl = _map_hint = _map_dl_pill = nullptr;
+  _dl_overlay = _dl_info = _dl_zoom_lbl = _dl_start_lbl = nullptr;
+  _wifi_ssid = _wifi_pass = _wifi_kb = _wifi_list = _wifi_status = nullptr;
+  _wifi_scanning = false;
   for (lv_obj_t*& t : _map_tiles) t = nullptr;
   lv_obj_t* prev = lv_screen_active();
   lv_obj_t* scr = lv_obj_create(NULL);
@@ -404,7 +409,11 @@ void UITask::back() {
       buildNearby();
       if (_node_from_scan) showScanPopup();
       break;
-    case SCR_MAP:      showHome(); break;
+    case SCR_MAP:
+      if (_dl_overlay) mapDownloadClose();
+      else showHome();
+      break;
+    case SCR_WIFI:     if (_wifi_from_map) showMap(); else showSettings(); break;
     default:           break;
   }
 }
@@ -1054,6 +1063,7 @@ void UITask::nodeAction(uint8_t action) {
 }
 
 #include "MapScreen.h"
+#include "WifiScreen.h"
 
 // ── Conversation ──────────────────────────────────────────────────────────────
 
@@ -1370,8 +1380,14 @@ void UITask::showSettings() {
   buildSettings();
 }
 
+static void onOpenWifi(lv_event_t* e) { (void)e; s_ui->showWifi(false); }
+
 void UITask::buildSettings() {
   lv_obj_t* body = newScreen("Settings", true);
+  sectionTitle(body, "CONNECTIVITY");
+  char ssid[33], pass[65];
+  bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
+  listRow(body, LV_SYMBOL_WIFI "  WiFi", have ? ssid : "Not set (for map downloads)", onOpenWifi, NULL);
   sectionTitle(body, "KEYBOARD");
   uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
   uint8_t alt_a  = _prefs ? _prefs->keyboard_alt_alphabet : 0;

@@ -44,6 +44,17 @@ public:
   void mapCenterOnMe();
   void mapPan(int dx, int dy);
   void mapOpenMarker(int idx);
+  void mapDownloadPopup();
+  void mapDownloadClose();
+  void mapDownloadStart();
+  void mapDownloadStop();
+  void mapDownloadZmax(int delta);
+  void showWifi(bool from_map);
+  void wifiScan();
+  void wifiPick(int idx);
+  void wifiSave();
+  void wifiEdit(lv_obj_t* ta);
+  void wifiKeyboardHide();
   void setNearbyFilter(uint8_t f);
   void toggleNearbySort();
   void startNearbyScan();
@@ -64,7 +75,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -83,6 +94,10 @@ private:
   void layoutMap();
   void mapLoop();
   void rebuildMapMarkers();
+  void mapDownloadTick();
+  void refreshDownloadPopup();
+  void buildWifi();
+  void pollWifiScan();
   void buildNode();
   void refreshNode();
   void buildThread();
@@ -161,4 +176,20 @@ private:
   lv_obj_t* _map_me = nullptr;
   lv_obj_t* _map_zoom_lbl = nullptr;
   lv_obj_t* _map_hint = nullptr;
+  lv_obj_t* _map_dl_pill = nullptr;     // download progress over the map
+  lv_obj_t* _dl_overlay = nullptr;      // download popup
+  lv_obj_t* _dl_info = nullptr;
+  lv_obj_t* _dl_zoom_lbl = nullptr;
+  lv_obj_t* _dl_start_lbl = nullptr;
+  int       _dl_zmax = 0;
+  uint8_t   _dl_last_state = 0;
+
+  // WiFi settings (SCR_WIFI)
+  bool      _wifi_from_map = false;
+  bool      _wifi_scanning = false;
+  lv_obj_t* _wifi_ssid = nullptr;
+  lv_obj_t* _wifi_pass = nullptr;
+  lv_obj_t* _wifi_kb = nullptr;
+  lv_obj_t* _wifi_list = nullptr;
+  lv_obj_t* _wifi_status = nullptr;
 };

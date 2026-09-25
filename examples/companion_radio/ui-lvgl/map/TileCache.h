@@ -60,6 +60,9 @@ public:
     return s;
   }
 
+  // Forget the "no tile here" answers (new tiles may have been written).
+  void forgetMissing() { for (Slot& s : _slots) if (s.z >= 0 && !s.present) { s.z = -1; s.used = 0; } }
+
   // Forget everything (e.g. the card was swapped); keeps the buffers.
   void invalidate() { for (Slot& s : _slots) { s.z = -1; s.used = 0; } }
 

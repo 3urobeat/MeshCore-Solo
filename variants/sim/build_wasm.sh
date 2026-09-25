@@ -172,6 +172,7 @@ fi
 
 OUT_NAME=meshcore_sim
 EXPORT_NAME=MeshCoreSim
+LINK_EXTRA=()
 if [ "$SIM_UI" = "lvgl" ]; then
   OUT_NAME=meshcore_sim_lvgl
   EXPORT_NAME=MeshCoreSimLvgl   # distinct factory: web/lvgl.html loads both
@@ -183,6 +184,7 @@ if [ "$SIM_UI" = "lvgl" ]; then
   done
   DEFINES=("${kept[@]}" -DDISPLAY_CLASS=SimLcdDisplay -DMAX_GROUP_CHANNELS=40 -DUI_ZOOM=1 -DLV_CONF_INCLUDE_SIMPLE)
   INCLUDES+=("-I$LVGL_DIR")
+  LINK_EXTRA=(-sFETCH=1)   # map downloads (LvglPort.h) go through emscripten_fetch
 fi
 
 # -funsigned-char: carried over from Phase 1 verbatim -- real ARM cores
@@ -292,6 +294,7 @@ fi
   -sEXIT_RUNTIME=0 \
   -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,HEAPU8,HEAPF32,HEAP32 \
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free \
+  ${LINK_EXTRA[@]+"${LINK_EXTRA[@]}"} \
   -o "$OUT_DIR/$OUT_NAME.js"
 
 echo ""

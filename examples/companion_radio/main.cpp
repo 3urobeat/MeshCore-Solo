@@ -135,7 +135,21 @@ static uint32_t _atoi(const char* sp) {
 
 StdRNG fast_rng;
 SimpleMeshTables tables;
+#if defined(MESH_IN_PSRAM) && defined(ESP32)
+// ~120 KB of contacts/channels/queues: on PSRAM boards keep it out of internal
+// RAM, which WiFi + TLS + BLE need (PSRAM is on the heap before global
+// constructors run; internal RAM is the fallback).
+#include <new>
+#include <esp_heap_caps.h>
+static MyMesh* newMesh() {
+  void* p = heap_caps_malloc(sizeof(MyMesh), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p) p = malloc(sizeof(MyMesh));
+  return new (p) MyMesh(radio_driver, fast_rng, rtc_clock, tables, store);
+}
+MyMesh& the_mesh = *newMesh();
+#else
 MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store);
+#endif
 
 /* END GLOBAL OBJECTS */
 

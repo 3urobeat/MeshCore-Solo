@@ -768,4 +768,8 @@ private:
   void* _ping_callback_arg;
 };
 
+#if defined(MESH_IN_PSRAM) && defined(ESP32)
+extern MyMesh& the_mesh;   // allocated in PSRAM, see main.cpp
+#else
 extern MyMesh the_mesh;
+#endif
