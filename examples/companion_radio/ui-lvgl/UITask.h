@@ -107,7 +107,7 @@ public:
   // Settings > Radio (RadioScreen.h)
   void showRadio();
   void radioSet(int which, int v);
-  void radioFreqPopup();
+  void radioFreqPopup(bool repeater);   // the companion's frequency, or the repeater profile's
   void radioFreqDone(bool ok);
   // Settings > Radio: my presets, scopes (RadioExtras.h)
   void presetMenu(int slot);
@@ -117,6 +117,11 @@ public:
   void showScopes();
   void scopeMenu(int idx);
   void scopeAction(uint8_t act);
+  // Settings > Repeater (RepeaterScreen.h)
+  void showRepeater();
+  void repeaterSet(int which, int v);
+  void repeaterScopesPopup();
+  void repeaterScopeSet(uint8_t i, bool on);
   // Channels (ChannelScreen.h)
   void channelMenu(int idx);
   void channelSet(uint8_t which, int v);
@@ -180,7 +185,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -236,6 +241,8 @@ private:
   void rebuildRadio();
   void buildRadioExtras(lv_obj_t* body);
   void buildScopes();
+  void buildRepeater();
+  void rebuildRepeater();
   void radioCloseFreq();
   void buildChannelEdit();
   void buildAdmin();

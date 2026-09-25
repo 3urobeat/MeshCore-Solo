@@ -19,6 +19,7 @@ static const int TX_MAX = 22;
 
 static lv_obj_t* s_overlay = nullptr;   // frequency entry
 static lv_obj_t* s_ta = nullptr;
+static bool s_freq_rpt = false;         // the entry is for the repeater profile (RepeaterScreen.h)
 static char s_opts[1024];
 
 // Label + optional hint on the left of a settings row; the control goes on the right.
@@ -57,7 +58,7 @@ static void onRadioSwitch(lv_event_t* e) {
   s_ui->radioSet((int)(uintptr_t)lv_event_get_user_data(e),
                  lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED) ? 1 : 0);
 }
-static void onRadioFreq(lv_event_t* e)   { (void)e; s_ui->radioFreqPopup(); }
+static void onRadioFreq(lv_event_t* e)   { (void)e; s_ui->radioFreqPopup(false); }
 static void onRadioFreqKb(lv_event_t* e) { s_ui->radioFreqDone(lv_event_get_code(e) == LV_EVENT_READY); }
 static void onOpenRadio(lv_event_t* e)   { (void)e; s_ui->showRadio(); }
 
@@ -155,9 +156,10 @@ void UITask::rebuildRadio() {
   if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_to_y(_body, y, LV_ANIM_OFF); }
 }
 
-void UITask::radioFreqPopup() {
+void UITask::radioFreqPopup(bool repeater) {
   using namespace radioview;
   if (s_overlay) return;
+  s_freq_rpt = repeater;
   s_overlay = lv_obj_create(lv_screen_active());
   lv_obj_remove_style_all(s_overlay);
   lv_obj_set_size(s_overlay, LV_PCT(100), LV_PCT(100));
@@ -185,7 +187,7 @@ void UITask::radioFreqPopup() {
   lv_textarea_set_accepted_chars(s_ta, "0123456789.");
   lv_textarea_set_max_length(s_ta, 10);
   char fs[16];
-  snprintf(fs, sizeof(fs), "%.3f", _prefs->freq);
+  snprintf(fs, sizeof(fs), "%.3f", repeater ? _prefs->repeater_freq : _prefs->freq);
   lv_textarea_set_text(s_ta, fs);
   lv_obj_set_size(s_ta, LV_PCT(100), 34);
   lv_obj_set_style_border_width(s_ta, 1, 0);
@@ -211,12 +213,12 @@ void UITask::radioFreqDone(bool ok) {
     radio_driver.getFreqBounds(lo, hi);
     float f = strtof(lv_textarea_get_text(s_ta), nullptr);
     if (f < lo || f > hi) { showToast("Out of the radio's range"); return; }
-    _prefs->freq = f;
-    radioctl::applyParams();
+    if (s_freq_rpt) { _prefs->repeater_freq = f; rptctl::applyProfile(); }
+    else            { _prefs->freq = f; radioctl::applyParams(); }
     the_mesh.savePrefs();
   }
   radioCloseFreq();
-  if (ok) buildRadio();
+  if (ok) { if (s_freq_rpt) rebuildRepeater(); else rebuildRadio(); }
 }
 
 void UITask::radioCloseFreq() {

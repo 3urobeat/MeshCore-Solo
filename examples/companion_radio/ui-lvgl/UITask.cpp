@@ -13,6 +13,7 @@
 #include "../ui-core/GpsAverager.h"
 #include "../ui-core/TrackBack.h"
 #include "../ui-core/RadioControl.h"
+#include "../ui-core/RepeaterControl.h"
 #include "../ui-core/Diagnostics.h"
 #include "../ui-core/Battery.h"
 #include "../ui-core/ChannelControl.h"
@@ -390,7 +391,8 @@ void UITask::refreshStatusBar() {
     case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
     default: break;
   }
-  lv_label_set_text_fmt(_status_icons, "%s%s%s", hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, level);
+  lv_label_set_text_fmt(_status_icons, "%s%s%s%s", _prefs && _prefs->client_repeat ? LV_SYMBOL_LOOP "  " : "",
+                        hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, level);
   // GPS: green with a fix, muted while on and searching, absent when off.
   int32_t lat, lon;
   bool fix = _core->course.currentLocation(lat, lon);
@@ -513,6 +515,11 @@ void UITask::back() {
     case SCR_SETTINGS_NAV: showSettings(); break;
     case SCR_CLOCK:    showHome(); break;
     case SCR_RADIO:
+      if (radioPopupOpen()) radioCloseFreq();
+      else if (_nav_overlay) navClosePopup();
+      else showSettings();
+      break;
+    case SCR_REPEATER:
       if (radioPopupOpen()) radioCloseFreq();
       else if (_nav_overlay) navClosePopup();
       else showSettings();
@@ -2011,6 +2018,8 @@ void UITask::showSettings() {
 
 static void onOpenWifi(lv_event_t* e) { (void)e; s_ui->showWifi(false); }
 static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
+static void onOpenRepeater(lv_event_t* e);   // RepeaterScreen.h
+static void repeaterSummary(const NodePrefs* p, char* b, int n);
 
 void UITask::buildSettings() {
   lv_obj_t* body = newScreen("Settings", true);
@@ -2027,6 +2036,8 @@ void UITask::buildSettings() {
     if (pi >= 0) radioctl::presetAt(_prefs, pi, pn, f, b, sf, cr);
     snprintf(sub, sizeof(sub), "%s  -  %.3f MHz, %d dBm", pn, _prefs->freq, _prefs->tx_power_dbm);
     listRow(body, UI_SYMBOL_RADIO "  Radio", sub, onOpenRadio, NULL);
+    repeaterSummary(_prefs, sub, sizeof(sub));
+    listRow(body, LV_SYMBOL_LOOP "  Repeater", sub, onOpenRepeater, NULL);
   }
   if (_prefs) {   // the same NodePrefs switches as ui-new's Home GPS toggle / Live share / Locator screens
     sectionTitle(body, "NAVIGATION");
@@ -2083,3 +2094,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "DiagScreen.h"
 #include "CompassScreen.h"
 #include "RadioExtras.h"
+#include "RepeaterScreen.h"

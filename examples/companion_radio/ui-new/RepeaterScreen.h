@@ -24,6 +24,7 @@
 #include "../RadioPresets.h"
 #include "../MyMesh.h"
 #include "PopupMenu.h"
+#include "../ui-core/RepeaterControl.h"   // toggles, profile, filter ranges / labels, extra scopes
 
 extern MyMesh the_mesh;
 
@@ -115,44 +116,20 @@ class RepeaterScreen : public UIScreen {
       case IT_RBW:      snprintf(buf, n, "%.1f", p->repeater_bw); break;
       case IT_RCR:      snprintf(buf, n, "%d", (int)p->repeater_cr); break;
       case IT_SKIP:     strncpy(buf, p->repeat_skip_adverts ? "ON" : "OFF", n); break;
-      case IT_HOPS:
-        if (p->repeat_max_hops > 0) snprintf(buf, n, "%d", (int)p->repeat_max_hops);
-        else strncpy(buf, "OFF", n);
-        break;
-      case IT_YIELD:
-        if (p->repeat_delay_boost > 0) snprintf(buf, n, "x%d", (int)p->repeat_delay_boost + 1);
-        else strncpy(buf, "OFF", n);
-        break;
-      case IT_SNR:
-        if (p->repeat_min_snr != NodePrefs::REPEAT_SNR_DISABLED) snprintf(buf, n, "%ddB", (int)p->repeat_min_snr);
-        else strncpy(buf, "OFF", n);
-        break;
+      case IT_HOPS:     rptctl::fmtHops(buf, n, p->repeat_max_hops, "OFF"); break;
+      case IT_YIELD:    rptctl::fmtYield(buf, n, p->repeat_delay_boost, "OFF"); break;
+      case IT_SNR:      rptctl::fmtSnr(buf, n, p->repeat_min_snr, "OFF"); break;
       case IT_SUPPRESS: strncpy(buf, p->repeat_suppress_dup ? "ON" : "OFF", n); break;
       case IT_SCOPE:    strncpy(buf, p->repeat_scope_only ? "ON" : "OFF", n); break;
       case IT_SCOPE_EXTRA: {
-        // Bound the scan to the list's real length, not the mask's full bit
-        // width -- a stray high bit (e.g. leftover sentinel bytes from a
-        // pre-scope-list save file) must never be counted as "picked", or a
-        // device that's never touched this picker can show a bogus non-zero
-        // count. rebuildRepeatScopes() already ignores such bits the same way.
         uint8_t total = the_mesh.scopeList().count;
-        int picked = 0;
-        for (uint8_t i = 0; i < total; i++)
-          if (p->repeat_extra_scope_mask & (1u << i)) picked++;
         if (total == 0)   strncpy(buf, "(none)", n);
-        else              snprintf(buf, n, "%d/%d", picked, total);
+        else              snprintf(buf, n, "%d/%d", rptctl::extraScopesPicked(p), (int)total);
         break;
       }
       default: strncpy(buf, "", n); break;
     }
     buf[n - 1] = '\0';
-  }
-
-  // Seed the profile from the companion's current params (used when first
-  // switching to Custom, so the starting point is a valid, familiar config).
-  void seedProfileFromCompanion(NodePrefs* p) {
-    p->repeater_freq = p->freq; p->repeater_bw = p->bw;
-    p->repeater_sf = p->sf;     p->repeater_cr = p->cr;
   }
 
 public:
@@ -223,9 +200,7 @@ public:
         int i = _scope_menu.selectedIndex();
         bool now_on = !_scope_menu.isChecked(i);
         _scope_menu.setChecked(i, now_on);
-        if (now_on) p->repeat_extra_scope_mask |= (1u << i);
-        else        p->repeat_extra_scope_mask &= ~(uint16_t)(1u << i);
-        the_mesh.rebuildRepeatScopes();
+        rptctl::setExtraScope(p, (uint8_t)i, now_on);
         _dirty = true;
       } else if (res != PopupMenu::NONE && res != PopupMenu::VALUE_NEXT) {
         _scope_picker_active = false;   // Back closes it -- checklist has no plain-select row
@@ -279,19 +254,13 @@ public:
     int item = _items[_sel];
 
     if (item == IT_REPEATER && (left || right || enter)) {
-      p->client_repeat ^= 1;
-      the_mesh.applyRepeaterRadio();   // switch to profile on enable / restore companion on disable
-      _task->applyPowerSave();         // duty-cycle RX is forced off while repeating
-      _task->applyApc();               // pin TX power to the ceiling while repeating (APC suppressed)
+      rptctl::setEnabled(p, !p->client_repeat);   // radio profile, RX power save, APC follow
       buildItems(p);
       _dirty = true;
       return true;
     }
     if (item == IT_NETWORK && (left || right || enter)) {
-      p->repeater_use_profile ^= 1;
-      if (p->repeater_use_profile && !the_mesh.repeaterProfileValid())
-        seedProfileFromCompanion(p);   // start Custom from a valid, familiar config
-      the_mesh.applyRepeaterRadio();
+      rptctl::setUseProfile(p, !p->repeater_use_profile);   // seeds a fresh profile from the companion's params
       buildItems(p);
       _dirty = true;
       return true;
@@ -310,22 +279,22 @@ public:
       p->repeat_skip_adverts ^= 1; _dirty = true; return true;
     }
     if (item == IT_HOPS) {
-      if (right && p->repeat_max_hops < 8) { p->repeat_max_hops++; _dirty = true; return true; }
+      if (right && p->repeat_max_hops < rptctl::MAX_HOPS) { p->repeat_max_hops++; _dirty = true; return true; }
       if (left  && p->repeat_max_hops > 0) { p->repeat_max_hops--; _dirty = true; return true; }
     }
     if (item == IT_YIELD) {
-      if (right && p->repeat_delay_boost < 8) { p->repeat_delay_boost++; _dirty = true; return true; }
+      if (right && p->repeat_delay_boost < rptctl::MAX_YIELD) { p->repeat_delay_boost++; _dirty = true; return true; }
       if (left  && p->repeat_delay_boost > 0) { p->repeat_delay_boost--; _dirty = true; return true; }
     }
     if (item == IT_SNR) {
       int8_t v = p->repeat_min_snr;
       if (right) {
-        v = (v == NodePrefs::REPEAT_SNR_DISABLED) ? -20 : (v < 10 ? v + 1 : 10);
+        v = (v == NodePrefs::REPEAT_SNR_DISABLED) ? rptctl::SNR_MIN : (v < rptctl::SNR_MAX ? v + 1 : rptctl::SNR_MAX);
         p->repeat_min_snr = v; _dirty = true; return true;
       }
       if (left) {
         if (v != NodePrefs::REPEAT_SNR_DISABLED)
-          p->repeat_min_snr = (v <= -20) ? NodePrefs::REPEAT_SNR_DISABLED : (int8_t)(v - 1);
+          p->repeat_min_snr = (v <= rptctl::SNR_MIN) ? NodePrefs::REPEAT_SNR_DISABLED : (int8_t)(v - 1);
         _dirty = true; return true;
       }
     }

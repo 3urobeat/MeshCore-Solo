@@ -66,6 +66,15 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## New: Repeater mode (2026-09-25)
+- [ ] Settings > CONNECTIVITY > Repeater (row shows Off / On and what it relays on): switch on → "Repeater on", the loop icon appears in the status bar; off → it goes away
+- [ ] Relay on Custom: the radio moves to the profile's frequency while on and back to the chat frequency when off (Settings > Radio row / another node on each frequency); Current: stays on the chat frequency
+- [ ] Custom profile: Preset dropdown, Frequency (typed, out-of-range refused), SF / BW / CR apply at once; while relaying on it the change is live
+- [ ] While on: Settings > Radio > Auto power is greyed ("Off while repeating") and TX runs at the set power
+- [ ] Another node two hops away receives messages through this device; Skip adverts stops relaying adverts only; Max hops / Min SNR / Yield / Skip duplicates / Scope only take effect (compare with L1 Tools › Repeater showing the same values)
+- [ ] Extra scopes popup: a switch per scope, the row counts "N of M relayed"; with no scopes it points to Settings > Radio
+- [ ] Fresh device (erased flash): Min SNR starts at Off, not 0 dB (fixed default, also on L1)
+
 ## New: My presets, scopes, battery display, clock seconds (2026-09-25)
 - [ ] Settings > Radio > MY PRESETS > Save current settings: name popup, Enter → "Preset saved", the row shows freq / SF / BW / CR with a tick while in use, and it is in the Preset dropdown
 - [ ] Tap a saved preset → Use (radio switches) / Delete (confirm, red) → "Preset deleted"; a 5th name replaces the oldest (hint says so when all 4 are used); presets survive a reboot

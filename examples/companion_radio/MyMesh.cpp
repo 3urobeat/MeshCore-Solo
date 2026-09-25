@@ -1872,6 +1872,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.batt_display_mode = 0; // icon by default
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
   _prefs.client_repeat = 0;
+  // 0 dB is a real threshold, so "off" is its own sentinel. DataStore sets it
+  // too, but only when a prefs file exists -- a fresh device must start off.
+  _prefs.repeat_min_snr = NodePrefs::REPEAT_SNR_DISABLED;
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
   _prefs.rx_boosted_gain = SX126X_RX_BOOSTED_GAIN;
