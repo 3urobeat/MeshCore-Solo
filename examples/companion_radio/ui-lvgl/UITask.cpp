@@ -35,8 +35,10 @@ static UITask* s_ui = nullptr;   // for LVGL's C callbacks
 #if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
 #include <emscripten.h>
 // The board's one button, pressed from the simulator page (web/lvgl.html).
-static bool s_sim_btn_click = false;
+static bool s_sim_btn_click = false, s_sim_btn_hold = false, s_sim_wake = false;
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_lcd_button() { s_sim_btn_click = true; }
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_lcd_button_hold() { s_sim_btn_hold = true; }
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_wake_button() { s_sim_wake = true; }
 // The speaker, polled every frame by the page's Web Audio oscillator.
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_is_playing() { return s_ui && s_ui->isBuzzerPlaying() ? 1 : 0; }
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_freq_hz() { return s_ui ? (int)s_ui->buzzerFreqHz() : 0; }
@@ -200,23 +202,48 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
 
 MyMesh::Listener* UITask::meshListener() { return _core; }
 
+// The USER button's hold: sound on / off (leaves Auto, as the Sound page's
+// On / Off would).
+void UITask::toggleMute() {
+#ifdef PIN_BUZZER
+  if (!_prefs) return;
+  bool on = soundctl::mode(_prefs) != soundctl::MODE_ON;
+  soundctl::setMode(_prefs, _buzzer, on ? soundctl::MODE_ON : soundctl::MODE_OFF, isClientConnected());
+  the_mesh.savePrefs();
+  if (on) _buzzer.playForced(soundctl::MEL_VOLUME);
+  if (!_asleep) { showToast(on ? "Sound on" : "Sound off", 1200); refreshStatusBar(); }
+#endif
+}
+
 void UITask::loop() {
   pollConnection();
   drainCoreEvents();
 
-  bool btn_click = false;
+  // USER (BOOT) button: back; held, mutes / unmutes. WAKE button: screen off /
+  // on. Either one silences a ringing alarm first.
+  bool btn_click = false, btn_hold = false, wake_press = false;
 #ifdef PIN_USER_BTN
-  btn_click = user_btn.check() == BUTTON_EVENT_CLICK;
+  int ev = user_btn.check();
+  btn_click = ev == BUTTON_EVENT_CLICK;
+  btn_hold = ev == BUTTON_EVENT_LONG_PRESS;
 #elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
   btn_click = s_sim_btn_click;
-  s_sim_btn_click = false;
+  btn_hold = s_sim_btn_hold;
+  wake_press = s_sim_wake;
+  s_sim_btn_click = s_sim_btn_hold = s_sim_wake = false;
 #endif
-  if (btn_click) {
-    if (_core->clock.isRinging()) dismissRing();
-    else if (_asleep) wake();
-    else if (_screen == SCR_HOME || locked()) sleep();
-    else back();
+#if defined(SEEED_WIO_TRACKER_L2)
+  if ((int32_t)(millis() - _next_wake_poll_ms) >= 0) {   // an I2C read on the expander
+    _next_wake_poll_ms = millis() + 50;
+    bool down = board.readWakeButton();
+    wake_press = down && !_wake_down;
+    _wake_down = down;
   }
+#endif
+  if ((btn_click || btn_hold || wake_press) && _core->clock.isRinging()) dismissRing();
+  else if (wake_press) { if (_asleep) wake(); else sleep(); }
+  else if (btn_hold) toggleMute();
+  else if (btn_click) { if (_asleep) wake(); else if (!locked()) back(); }
 
   if (_asleep) {
     if (lvport::touched()) { lvport::swallowTouch(); wake(); }
@@ -1521,6 +1548,7 @@ void UITask::nodeAction(uint8_t action) {
   }
 }
 
+static lv_obj_t* switchRow(lv_obj_t* parent, const char* text, const char* sub, uint8_t* pref);   // below
 #include "MapScreen.h"
 #include "NavMap.h"
 #include "ClockScreen.h"
@@ -2172,7 +2200,6 @@ void UITask::showSettings() {
   buildSettings();
 }
 
-static void onOpenWifi(lv_event_t* e) { (void)e; s_ui->showWifi(false); }
 static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
 static void onOpenRepeater(lv_event_t* e);   // RepeaterScreen.h
 static void repeaterSummary(const NodePrefs* p, char* b, int n);
@@ -2184,9 +2211,7 @@ void UITask::buildSettings() {
   listRow(body, UI_SYMBOL_RADIO "  Send advert", "Let other nodes see you now", onAdvertRow, NULL);
   sectionTitle(body, "CONNECTIVITY");
   bluetoothRow(body);
-  char ssid[33], pass[65];
-  bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
-  listRow(body, LV_SYMBOL_WIFI "  WiFi", have ? ssid : "Not set (for map downloads)", onOpenWifi, NULL);
+  wifiRow(body);
   if (_prefs) {
     char sub[48];
     int pi = radioctl::currentPreset(_prefs);
@@ -2200,16 +2225,16 @@ void UITask::buildSettings() {
   if (_prefs) {   // the same NodePrefs switches as ui-new's Home GPS toggle / Live share / Locator screens
     sectionTitle(body, "NAVIGATION");
     if (_core->gpsAvailable()) {
-      lv_obj_t* sw = switchRow(body, "GPS", "Position for maps, sharing and adverts", nullptr);
+      lv_obj_t* sw = switchRow(body, "GPS", "For maps and sharing", nullptr);
       if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
       lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
     }
-    listRow(body, UI_SYMBOL_COMPASS "  Trail, live share, alerts", "Trail, sharing, auto-advert, radius",
+    listRow(body, UI_SYMBOL_COMPASS "  Trail, live share, alerts", "Trail, sharing, alerts",
             onOpenSchemaPage, (void*)(uintptr_t)settings::PG_NAV);
     sectionTitle(body, "DEVICE");
-    listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Brightness, screen off, battery, GPS, time zone",
+    listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Screen, battery, GPS, time",
             onOpenSchemaPage, (void*)(uintptr_t)settings::PG_DEVICE);
-    listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resending, contact expiry, sorting",
+    listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resend, expiry, sorting",
             onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
     char sub[48], vol[12];
     settings::optVolume(_prefs->buzzer_volume, vol, sizeof(vol), *_prefs);
@@ -2229,7 +2254,7 @@ void UITask::buildSettings() {
   label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
   sectionTitle(body, "SYSTEM");
-  listRow(body, UI_SYMBOL_CHART "  Diagnostics", "Packet counts, memory, radio, firmware", onOpenDiag, NULL);
+  listRow(body, UI_SYMBOL_CHART "  Diagnostics", "Packets, memory, firmware", onOpenDiag, NULL);
   listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
   listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
 

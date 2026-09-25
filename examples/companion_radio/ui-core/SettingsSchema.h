@@ -154,15 +154,15 @@ static void applySound(UiCore& c)        { c.host()->applySoundPrefs(); }
 #define SW(label, hint, sec, f, chg)             { label, hint, sec, NP_OFF(f), 2, nullptr, chg, nullptr, 1 }
 #define MAP(label, hint, sec, f, vals, opt, chg) { label, hint, sec, NP_OFF(f), COUNT_OF(vals), opt, chg, vals, NP_SIZE(f) }
 static const Setting ALL[] = {
-  IDX("Point spacing", "Distance between trail points", SEC_TRAIL, trail_min_delta_idx,
+  IDX("Point spacing", "Between trail points", SEC_TRAIL, trail_min_delta_idx,
       TrailStore::MIN_DELTA_COUNT, optMinDelta, nullptr),
-  IDX("Auto-pause", "Pause the trail when standing still", SEC_TRAIL, trail_autopause_idx,
+  IDX("Auto-pause", "Pause when standing still", SEC_TRAIL, trail_autopause_idx,
       NodePrefs::TRAIL_AUTOPAUSE_COUNT, optAutoPause, nullptr),
-  SW("Save on low battery", "Keep the trail when the battery runs out", SEC_TRAIL, trail_autosave_lowbatt, nullptr),
-  IDX("Waypoint averaging", "Average GPS fixes when marking", SEC_TRAIL, gps_avg_idx,
+  SW("Save on low battery", "Save it on low battery", SEC_TRAIL, trail_autosave_lowbatt, nullptr),
+  IDX("Waypoint averaging", "Average fixes when marking", SEC_TRAIL, gps_avg_idx,
       NodePrefs::GPS_AVG_COUNT, optGpsAvg, nullptr),
 
-  SW("Show others' positions", "People sharing [LOC] on the map", SEC_LIVE_SHARE, track_shared_loc, nullptr),
+  SW("Show others' positions", "Shared positions on the map", SEC_LIVE_SHARE, track_shared_loc, nullptr),
   IDX("Stop sharing after", nullptr, SEC_LIVE_SHARE, loc_share_duration_idx,
       NodePrefs::LOC_SHARE_DURATION_COUNT, optDuration, restartShareClock),
   IDX("Send after moving", nullptr, SEC_LIVE_SHARE, loc_share_move_idx,
@@ -179,15 +179,15 @@ static const Setting ALL[] = {
       NodePrefs::LOCATOR_RADIUS_COUNT, optRadius, rearmLocator),
   IDX("Alert on", nullptr, SEC_LOCATOR, locator_mode,
       NodePrefs::LOCATOR_MODE_COUNT, optLocMode, rearmLocator),
-  SW("Proximity beeper", "Faster ticks as you get closer", SEC_LOCATOR, locator_beeper, nullptr),
+  SW("Proximity beeper", "Ticks faster when closer", SEC_LOCATOR, locator_beeper, nullptr),
 
   SW("Imperial units", "Miles and feet", SEC_UNITS, units_imperial, nullptr),
 
   IDX("Brightness", nullptr, SEC_DISPLAY, display_brightness, 5, optBrightness, applyDisplay),
   MAP("Screen off after", "Without a touch", SEC_DISPLAY, auto_off_secs, AUTO_OFF, optAutoOff, nullptr),
-  MAP("Wake on message", "Turn the screen on for new messages", SEC_DISPLAY, msg_wake_screen_off, INVERTED,
+  MAP("Wake on message", "Screen on for new messages", SEC_DISPLAY, msg_wake_screen_off, INVERTED,
       nullptr, nullptr),
-  SW("Lock screen", "Slide to unlock after the screen turns off", SEC_DISPLAY, auto_lock, nullptr),
+  SW("Lock screen", "Slide to unlock after sleep", SEC_DISPLAY, auto_lock, nullptr),
   IDX("Battery display", "In the status bar", SEC_DISPLAY, batt_display_mode, 3, optBattDisplay, nullptr),
 
   MAP("Battery shutdown", "Power off below this voltage", SEC_POWER, low_batt_mv, LOW_BATT, optLowBatt, nullptr),
@@ -195,12 +195,12 @@ static const Setting ALL[] = {
 
   MAP("Time zone", "For the clock and the alarm", SEC_TIME, tz_offset_hours, TZ, optTz, nullptr),
   SW("12-hour clock", "AM / PM instead of 24 h", SEC_TIME, clock_12h, nullptr),
-  MAP("Clock seconds", "On the home and lock screen clock", SEC_TIME, clock_hide_seconds, INVERTED, nullptr, nullptr),
+  MAP("Clock seconds", "On the home clock", SEC_TIME, clock_hide_seconds, INVERTED, nullptr, nullptr),
 
-  IDX("Resend direct messages", "Extra tries without a delivery tick", SEC_MESSAGES, dm_resend_count, 6,
+  IDX("Resend direct messages", "Retries without a tick", SEC_MESSAGES, dm_resend_count, 6,
       optResend, nullptr),
 
-  IDX("Contact expiry", "Inactive this long can be pruned", SEC_CONTACTS, contact_expiry_idx,
+  IDX("Contact expiry", "Prune after inactivity", SEC_CONTACTS, contact_expiry_idx,
       NodePrefs::CONTACT_EXPIRY_COUNT, optExpiry, nullptr),
   MAP("Favourites first", "In contact and node lists", SEC_CONTACTS, fav_sort_off, INVERTED, nullptr, nullptr),
 

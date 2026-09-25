@@ -33,10 +33,22 @@ static void onBotScope(lv_event_t* e) {
 static void onBotPick(lv_event_t* e)   { s_ui->botPick((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onBotHour(lv_event_t* e)   { s_ui->botHour((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onBotTextKb(lv_event_t* e) { s_ui->botTextDone(lv_event_get_code(e) == LV_EVENT_READY); }
+static lv_obj_t* s_chip_ta = nullptr;   // the reply field the chips type into
 static void onBotPlaceholder(lv_event_t* e) {
-  lv_obj_t* ta = (lv_obj_t*)lv_event_get_user_data(e);
   lv_obj_t* btn = (lv_obj_t*)lv_event_get_target(e);
-  lv_textarea_add_text(ta, lv_label_get_text(lv_obj_get_child(btn, 0)));
+  if (s_chip_ta) lv_textarea_add_text(s_chip_ta, lv_label_get_text(lv_obj_get_child(btn, 0)));
+}
+// A placeholder button on `parent` (the reply editor's chips row).
+static void botChip(const char* ph, void* parent) {
+  lv_obj_t* b = lv_button_create((lv_obj_t*)parent);
+  lv_obj_set_height(b, 26);
+  lv_obj_set_style_pad_hor(b, 7, 0);
+  lv_obj_set_style_pad_ver(b, 0, 0);
+  lv_obj_set_style_radius(b, 13, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
+  lv_obj_add_event_cb(b, onBotPlaceholder, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(label(b, ph, THEME_FONT_SMALL, theme::TEXT));
 }
 static void onOpenBot(lv_event_t* e) { (void)e; s_ui->showBot(); }
 
@@ -166,17 +178,13 @@ void UITask::botRow(int row) {
       lv_obj_set_flex_flow(chips, LV_FLEX_FLOW_ROW);
       lv_obj_set_flex_align(chips, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
       lv_obj_set_style_pad_gap(chips, 4, 0);
-      for (int i = 0; i < botcfg::REPLY_PLACEHOLDER_COUNT - 1; i++) {   // {batt} and sensors: type them
-        lv_obj_t* b = lv_button_create(chips);
-        lv_obj_set_height(b, 26);
-        lv_obj_set_style_pad_hor(b, 7, 0);
-        lv_obj_set_style_pad_ver(b, 0, 0);
-        lv_obj_set_style_radius(b, 13, 0);
-        lv_obj_set_style_shadow_width(b, 0, 0);
-        lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
-        lv_obj_add_event_cb(b, onBotPlaceholder, LV_EVENT_CLICKED, _nav_ta);
-        lv_obj_center(label(b, botcfg::REPLY_PLACEHOLDERS[i], THEME_FONT_SMALL, theme::TEXT));
-      }
+      lv_obj_set_scroll_dir(chips, LV_DIR_HOR);   // swipe for the rest
+      lv_obj_set_scrollbar_mode(chips, LV_SCROLLBAR_MODE_OFF);
+      s_chip_ta = _nav_ta;
+      for (int i = 0; i < botcfg::REPLY_PLACEHOLDER_COUNT; i++) botChip(botcfg::REPLY_PLACEHOLDERS[i], chips);
+      msgtext::sensorPlaceholders(&sensors, [](const char* ph, void* c) {
+        if (strcmp(ph, "{batt}") != 0) botChip(ph, c);   // already there
+      }, chips);
     }
     _nav_kb = kb::create(_nav_overlay, _prefs);
     lv_obj_set_size(_nav_kb, LV_PCT(100), 124);

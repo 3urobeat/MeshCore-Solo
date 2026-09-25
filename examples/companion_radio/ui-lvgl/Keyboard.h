@@ -7,7 +7,9 @@
 //  - hold a key for its variants (ą ć ę … / ё є ї … / ά έ … / punctuation
 //    behind '.'), from the shared table in ui-core/KeyboardData.h. The popup
 //    opens above the key; tap a variant to type it, tap elsewhere to close.
-//  - one-shot shift; digits / symbols page behind "1#".
+//  - one-shot shift; digits / symbols page behind "1#"; the keyboard key
+//    closes it (LV_EVENT_CANCEL: the compose bar keeps its text, a dialog
+//    is left without saving).
 // Letters type on release (popover keys), so a long press never types the
 // base letter first.
 //
@@ -18,6 +20,7 @@ namespace kb {
 #define KB_BS  LV_SYMBOL_BACKSPACE
 #define KB_OK  LV_SYMBOL_OK
 #define KB_SH  LV_SYMBOL_UP
+#define KB_HIDE LV_SYMBOL_KEYBOARD   // closes it: lv_keyboard_def_event_cb sends LV_EVENT_CANCEL
 
 static const char* const K_SYM   = "1#";
 static const char* const K_BACK  = "abc";
@@ -56,7 +59,7 @@ static const char* const GRK_UP[] = {
 static const char* const SYM[] = {
   "1","2","3","4","5","6","7","8","9","0","\n",
   "-","/",":",";","(",")","€","&","@","\"","\n",
-  ".",",","?","!","'","#","%","+","=",KB_BS,"\n",
+  ".",",","?","!","'","#","%","+","=","_",KB_BS,"\n",
   nullptr };
 
 // Layout ids; letter layouts in (lower, upper) pairs, in NodePrefs
@@ -88,7 +91,7 @@ static uint8_t altScript() {
 static bool hasAlt() { return altScript() != mainScript(); }
 
 static bool isSpecial(const char* t) {
-  static const char* const SP[] = { KB_SH, KB_BS, KB_OK, K_SYM, K_BACK, K_GLOBE };
+  static const char* const SP[] = { KB_SH, KB_BS, KB_OK, KB_HIDE, K_SYM, K_BACK, K_GLOBE };
   for (const char* s : SP) if (strcmp(t, s) == 0) return true;
   return false;
 }
@@ -102,10 +105,10 @@ static void buildMaps() {
     int m = 0;
     for (const char* const* p = ROWS[l]; *p; p++) s_maps[l][m++] = *p;
     if (l == L_SYM) {
-      s_maps[l][m++] = K_BACK; s_maps[l][m++] = "_"; s_maps[l][m++] = " ";
+      s_maps[l][m++] = KB_HIDE; s_maps[l][m++] = K_BACK; s_maps[l][m++] = " ";
       s_maps[l][m++] = "*";    s_maps[l][m++] = KB_OK;
     } else {
-      s_maps[l][m++] = K_SYM;
+      s_maps[l][m++] = KB_HIDE; s_maps[l][m++] = K_SYM;
       if (alt) s_maps[l][m++] = K_GLOBE;
       s_maps[l][m++] = " ";    s_maps[l][m++] = "."; s_maps[l][m++] = KB_OK;
     }

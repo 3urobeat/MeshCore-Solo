@@ -91,7 +91,7 @@ void UITask::refreshDiag() {
 
 void UITask::diagResetPopup() {
   lv_obj_t* panel = navPopupPanel("Reset counters?", false);
-  lv_obj_t* t = label(panel, "Zeroes the packet counts, forwarded count and radio errors.", THEME_FONT_SMALL,
+  lv_obj_t* t = label(panel, "Zeroes packet and error counts.", THEME_FONT_SMALL,
                       theme::TEXT_MUTED);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_PCT(100));

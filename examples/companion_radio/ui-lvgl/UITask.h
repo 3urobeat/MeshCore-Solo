@@ -83,6 +83,7 @@ public:
   void shareToMessage(const char* text);
   void messageLocationAction(int idx, bool save);
   void showWifi(bool from_map);
+  void wifiSetAllowed(bool on);
   void wifiScan();
   void wifiPick(int idx);
   void wifiSave();
@@ -313,6 +314,9 @@ private:
   void onMessageArrived(const UiEvent& ev);
   void wake();
   void sleep();
+  void toggleMute();
+  uint32_t _next_wake_poll_ms = 0;
+  bool _wake_down = false;
   uint32_t autoOffMillis() const;
   void checkLowBattery();
 

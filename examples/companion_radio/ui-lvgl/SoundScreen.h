@@ -281,7 +281,7 @@ void UITask::buildSoundRows(lv_obj_t* body, bool top) {
     else snprintf(sub, sizeof(sub), "Empty  -  tap to compose");
     listRow(body, slot ? LV_SYMBOL_AUDIO "  Melody 2" : LV_SYMBOL_AUDIO "  Melody 1", sub, onMelodyRow, (void*)(uintptr_t)slot);
   }
-  lv_obj_t* t = label(body, "Pick them above for each kind of message, or for one chat in its options (hold it in Chats).",
+  lv_obj_t* t = label(body, "Per chat: hold it in Chats for its options.",
                       THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_PCT(100));

@@ -65,7 +65,7 @@ void UITask::buildRepeater() {
   lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
   if (p->client_repeat) lv_obj_add_state(sw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(sw, onRptSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)RP_ON);
-  lv_obj_t* t = label(body, "While on, auto power and RX power saving pause. Relaying uses more battery.",
+  lv_obj_t* t = label(body, "Uses more battery; auto power pauses.",
                       THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_PCT(100));
@@ -112,7 +112,7 @@ void UITask::buildRepeater() {
   }
 
   sectionTitle(body, "WHAT IT RELAYS");
-  switchRow(body, "Skip adverts", "Messages still relay, adverts don't", &p->repeat_skip_adverts);
+  switchRow(body, "Skip adverts", "Relay messages, not adverts", &p->repeat_skip_adverts);
   char v[12];
   int o = 0;
   for (int i = 0; i <= rptctl::MAX_HOPS; i++) {
@@ -135,7 +135,7 @@ void UITask::buildRepeater() {
   }
   rowDropdown(settingRow(body, "Min SNR", "Ignore weaker packets"), s_opts, rptctl::snrToChoice(p->repeat_min_snr), 100,
               onRptDropdown, RP_SNR);
-  switchRow(body, "Skip duplicates", "Cancel if another node relays it first", &p->repeat_suppress_dup);
+  switchRow(body, "Skip duplicates", "Skip if already relayed", &p->repeat_suppress_dup);
   switchRow(body, "Scope only", "Only floods in your scopes", &p->repeat_scope_only);
   char sub[48];
   extraScopesSummary(p, sub, sizeof(sub));
@@ -178,7 +178,7 @@ void UITask::repeaterScopesPopup() {
   if (sl.count == 0) { showToast("Set up scopes in Settings > Radio first"); return; }
   lv_obj_t* panel = navPopupPanel("Extra scopes", sl.count > 2);
   if (sl.count > 2) lv_obj_add_flag(panel, LV_OBJ_FLAG_SCROLLABLE);   // up to 8 rows
-  lv_obj_t* t = label(panel, "Relayed besides the default scope. With Scope only off, everything is relayed anyway.",
+  lv_obj_t* t = label(panel, "Relayed besides the default scope.",
                       THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_PCT(100));

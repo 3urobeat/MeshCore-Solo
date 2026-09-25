@@ -107,7 +107,7 @@ void UITask::showQuickMsgs() {
 void UITask::buildQuickMsgs() {
   using namespace qview;
   lv_obj_t* body = newScreen("Quick messages", true);
-  lv_obj_t* t = label(body, "Sent with one tap from a chat's \"+\". {loc}, {time}, {batt} are filled in when sent.",
+  lv_obj_t* t = label(body, "Sent from a chat's \"+\"; placeholders are filled in.",
                       THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_PCT(100));
@@ -185,12 +185,11 @@ void UITask::quickEditDone(bool ok) {
 void UITask::advertPopup() {
   using namespace qview;
   lv_obj_t* panel = navPopupPanel("Send advert", false);
-  lv_obj_t* t = label(panel, "Tells other nodes who you are (and where, if you share your position). "
-                             "Auto-advert can do it on a timer.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_t* t = label(panel, "Shows you (and your position, if shared) to other nodes.", THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_PCT(100));
-  listRow(panel, "Nearby only", "Nodes in direct range, not repeated", onAdvertGo, (void*)(uintptr_t)0);
-  listRow(panel, "Everyone", "Through repeaters, across the mesh", onAdvertGo, (void*)(uintptr_t)1);
+  listRow(panel, "Nearby only", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
+  listRow(panel, "Everyone", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
 }
 
 void UITask::advertSend(bool flood) {
@@ -207,10 +206,10 @@ void UITask::advertSend(bool flood) {
 static void bluetoothRow(lv_obj_t* body) {
   char sub[48];
   bool on = s_ui->isSerialEnabled();
-  if (!on) snprintf(sub, sizeof(sub), "Off  -  the phone app can't connect");
-  else if (s_ui->hasConnection()) snprintf(sub, sizeof(sub), "On  -  the app is connected");
-  else if (the_mesh.getBLEPin()) snprintf(sub, sizeof(sub), "On  -  pairing PIN %06lu", (unsigned long)the_mesh.getBLEPin());
-  else snprintf(sub, sizeof(sub), "On  -  waiting for the app");
+  if (!on) snprintf(sub, sizeof(sub), "Off");
+  else if (s_ui->hasConnection()) snprintf(sub, sizeof(sub), "App connected");
+  else if (the_mesh.getBLEPin()) snprintf(sub, sizeof(sub), "PIN %06lu", (unsigned long)the_mesh.getBLEPin());
+  else snprintf(sub, sizeof(sub), "Waiting for the app");
   lv_obj_t* sw = switchRow(body, LV_SYMBOL_BLUETOOTH "  Bluetooth", sub, nullptr);
   if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(sw, qview::onBtSwitch, LV_EVENT_VALUE_CHANGED, NULL);

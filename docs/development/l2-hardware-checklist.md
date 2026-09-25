@@ -66,6 +66,15 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## Roadmap stage 1: quick fixes (2026-09-26)
+- [ ] Keyboard: the keyboard key (bottom left) closes it; in a chat the typed text stays, in a dialog nothing is saved
+- [ ] Symbols page ("1#"): "_" is in the third row now
+- [ ] Bot > Reply: every placeholder in the row above the field ({name} {hops} {loc} {time} {batt}, sensors); swipe it sideways
+- [ ] WAKE button (side): screen off / on; silences a ringing alarm
+- [ ] USER button: back (answers at once, no double-click wait); held 1 s, sound off / on with a toast and the mute icon; wakes the screen when it's off
+- [ ] Settings > CONNECTIVITY > WiFi: a switch as on Bluetooth (toast, row says "Off" / the network); tapping the row opens the network settings (editable while off; Scan asks to turn it on); off: map download says "WiFi is off"; kept across a reboot
+- [ ] Shorter descriptions on settings rows, Bot, Repeater, Send advert, Bluetooth ("PIN 123456" / "App connected")
+
 ## New: Quick messages, placeholders, advert, Bluetooth (2026-09-26)
 - [ ] Chat "+" (left of the text field): Insert {loc} / {time} / {batt} (+ sensors) into the message; they are filled in when sent (a reply's "@[name] " stays as typed)
 - [ ] Chat "+" > a quick message sends it at once (the popup shows what will go out, filled in); "Edit quick messages" opens the list

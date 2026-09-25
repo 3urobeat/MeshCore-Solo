@@ -131,7 +131,7 @@ void UITask::buildRadio() {
   if (p->client_repeat) lv_obj_add_state(sw, LV_STATE_DISABLED);
   lv_obj_add_event_cb(sw, onRadioSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)R_APC);
 
-  lv_obj_t* note = label(body, "Everyone you talk to must use the same frequency, SF, bandwidth and coding rate.",
+  lv_obj_t* note = label(body, "Everyone you talk to needs the same settings.",
                          THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(note, LV_PCT(100));

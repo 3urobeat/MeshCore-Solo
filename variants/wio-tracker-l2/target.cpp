@@ -15,7 +15,7 @@ EnvironmentSensorManager sensors(gps);
 
 #ifdef DISPLAY_CLASS
   DISPLAY_CLASS display;
-  MomentaryButton user_btn(PIN_USER_BTN, 1000, true, true);
+  MomentaryButton user_btn(PIN_USER_BTN, 1000, true, true, false);   // no multi-click: back answers at once
 #endif
 
 #ifdef BUZZER_I2S

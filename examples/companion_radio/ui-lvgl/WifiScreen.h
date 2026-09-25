@@ -3,7 +3,7 @@
 // network map downloads connect to. Scan lists nearby networks to pick from;
 // the password field uses the same keyboard as compose. Saved through
 // lvport::saveWifi() (NVS on the board). WiFi itself stays off except while a
-// download runs.
+// download or scan runs; Settings > CONNECTIVITY's WiFi switch forbids even that.
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after MapScreen.h.
 
@@ -12,6 +12,9 @@ static char s_wifi_names[lvport::WIFI_SCAN_MAX][33];
 static void onWifiScan(lv_event_t* e) { (void)e; s_ui->wifiScan(); }
 static void onWifiSave(lv_event_t* e) { (void)e; s_ui->wifiSave(); }
 static void onWifiPick(lv_event_t* e) { s_ui->wifiPick((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onWifiAllowed(lv_event_t* e) {
+  s_ui->wifiSetAllowed(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
+}
 static void onWifiField(lv_event_t* e) { s_ui->wifiEdit((lv_obj_t*)lv_event_get_target(e)); }
 static void onWifiKb(lv_event_t* e) {
   if (lv_event_get_code(e) == LV_EVENT_READY) s_ui->wifiSave();
@@ -34,7 +37,8 @@ void UITask::showWifi(bool from_map) {
 void UITask::buildWifi() {
   lv_obj_t* body = newScreen("WiFi", true);
   lv_obj_set_style_pad_row(body, 4, 0);
-  label(body, "Used only to download maps; off otherwise.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  label(body, lvport::wifiAllowed() ? "Used only for map downloads." : "WiFi is off (Settings).", THEME_FONT_SMALL,
+        theme::TEXT_MUTED);
 
   lv_obj_t* row = lv_obj_create(body);
   styleSurface(row, theme::BG);
@@ -110,8 +114,43 @@ void UITask::wifiKeyboardHide() {
   if (_body) lv_obj_set_height(_body, lv_obj_get_height(_body) + lv_obj_get_height(_wifi_kb));
 }
 
+// Settings > CONNECTIVITY > WiFi, as the Bluetooth row: the switch turns it
+// on / off, the row opens the network settings.
+static void wifiRow(lv_obj_t* body) {
+  char ssid[33], pass[65], sub[48];
+  bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
+  bool on = lvport::wifiAllowed();
+  if (!on) snprintf(sub, sizeof(sub), "Off");
+  else if (have) snprintf(sub, sizeof(sub), "%s", ssid);
+  else snprintf(sub, sizeof(sub), "Tap to pick a network");
+  lv_obj_t* sw = switchRow(body, LV_SYMBOL_WIFI "  WiFi", sub, nullptr);
+  if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
+  lv_obj_add_event_cb(sw, onWifiAllowed, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_t* row = lv_obj_get_parent(sw);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(row, [](lv_event_t* e) {
+    if (lv_event_get_target(e) == lv_event_get_current_target(e)) s_ui->showWifi(false);   // not the switch
+  }, LV_EVENT_CLICKED, NULL);
+}
+
+void UITask::wifiSetAllowed(bool on) {
+  lvport::setWifiAllowed(on);
+  if (!on) {
+    if (mapview::s_dl.active()) mapDownloadStop();
+    if (_wifi_scanning) { _wifi_scanning = false; lvport::netEnd(); }
+  }
+  showToast(on ? "WiFi on - used for map downloads" : "WiFi off", 1500);
+  if (_screen == SCR_SETTINGS) {   // the row's subtitle
+    lv_obj_t* body = _body;
+    int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
+    buildSettings();
+    if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_to_y(_body, y, LV_ANIM_OFF); }
+  }
+}
+
 void UITask::wifiScan() {
   if (_wifi_scanning) return;
+  if (!lvport::wifiAllowed()) { lv_label_set_text(_wifi_status, "Turn WiFi on in Settings first."); return; }
   lvport::scanStart();
   _wifi_scanning = true;
   lv_label_set_text(_wifi_status, LV_SYMBOL_REFRESH "  Scanning...");

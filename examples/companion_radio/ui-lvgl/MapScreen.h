@@ -728,6 +728,7 @@ void UITask::refreshDownloadPopup() {
 void UITask::mapDownloadStart() {
   if (mapview::s_dl.active()) { mapDownloadStop(); return; }
   char ssid[33], pass[65];
+  if (!lvport::wifiAllowed()) { showToast("WiFi is off - Settings > WiFi"); return; }
   if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showWifi(true); return; }
   if (!lvport::mountStorage()) { showToast("No SD card"); return; }
   int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
@@ -740,6 +741,7 @@ void UITask::mapDownloadResume() {
   mapview::TileArea a;
   if (mapview::s_dl.active() || !mapview::s_dl.savedJob(a)) return;
   char ssid[33], pass[65];
+  if (!lvport::wifiAllowed()) { showToast("WiFi is off - Settings > WiFi"); return; }
   if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showWifi(true); return; }
   if (!lvport::mountStorage()) { showToast("No SD card"); return; }
   if (!mapview::s_dl.start(a, ssid, pass)) { showToast(mapview::s_dl.message()); return; }

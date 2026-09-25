@@ -24,30 +24,30 @@ struct Row { Kind kind; const char* label; const char* hint; };
 static const Row CHANNEL_ROWS[] = {
   { ENABLE_CH,   "Enable",   "Answer on one channel" },
   { CHANNEL,     "Channel",  nullptr },
-  { COMMANDS_CH, "Commands", "!ping, !help and other ! commands" },
-  { ACTIONS_CH,  "Actions",  "!gps, !gpio... (change this device)" },
-  { TRIGGER_CH,  "Trigger",  "Text that makes it reply; * = any" },
-  { REPLY_CH,    "Reply",    "{name} {hops} {loc} {time} ..." },
+  { COMMANDS_CH, "Commands", "!ping, !help, ..." },
+  { ACTIONS_CH,  "Actions",  "!gps, !gpio (this device)" },
+  { TRIGGER_CH,  "Trigger",  "Reply trigger; * = any" },
+  { REPLY_CH,    "Reply",    "{name} {loc} {time} ..." },
 };
 static const Row ROOM_ROWS[] = {
   { ENABLE_ROOM,   "Enable",   "Answer in one room server" },
   { ROOM,          "Room",     nullptr },
-  { COMMANDS_ROOM, "Commands", "!ping, !help and other ! commands" },
-  { ACTIONS_ROOM,  "Actions",  "!gps, !gpio... (change this device)" },
-  { TRIGGER_ROOM,  "Trigger",  "Text that makes it reply; * = any" },
-  { REPLY_ROOM,    "Reply",    "{name} {hops} {loc} {time} ..." },
+  { COMMANDS_ROOM, "Commands", "!ping, !help, ..." },
+  { ACTIONS_ROOM,  "Actions",  "!gps, !gpio (this device)" },
+  { TRIGGER_ROOM,  "Trigger",  "Reply trigger; * = any" },
+  { REPLY_ROOM,    "Reply",    "{name} {loc} {time} ..." },
 };
 static const Row DIRECT_ROWS[] = {
   { ENABLE_DM,   "Enable",   "Answer direct messages" },
   { DM_SCOPE,    "DM allow", "Everyone, or favourites only" },
-  { COMMANDS_DM, "Commands", "!ping, !help and other ! commands" },
-  { ACTIONS_DM,  "Actions",  "!gps, !gpio... (change this device)" },
-  { TRIGGER_DM,  "Trigger",  "Text that makes it reply; * = any" },
-  { REPLY_DM,    "Reply",    "{name} {hops} {loc} {time} ..." },
+  { COMMANDS_DM, "Commands", "!ping, !help, ..." },
+  { ACTIONS_DM,  "Actions",  "!gps, !gpio (this device)" },
+  { TRIGGER_DM,  "Trigger",  "Reply trigger; * = any" },
+  { REPLY_DM,    "Reply",    "{name} {loc} {time} ..." },
 };
 static const Row OTHER_ROWS[] = {
-  { QUIET_FROM, "Quiet from", "No replies between these hours" },
-  { QUIET_TO,   "Quiet to",   "Same hour on both = always on" },
+  { QUIET_FROM, "Quiet from", "No replies in these hours" },
+  { QUIET_TO,   "Quiet to",   "Same hour = always on" },
 };
 
 static int rowCount(int tab) {

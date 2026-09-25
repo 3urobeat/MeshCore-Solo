@@ -122,6 +122,21 @@ static void saveWifi(const char* ssid, const char* pass) {
   p.putString("pass", pass);
   p.end();
 }
+// Settings > WiFi's switch: off keeps the radio off for everything (scan, map
+// download). Kept with the credentials.
+static bool wifiAllowed() {
+  Preferences p;
+  if (!p.begin("mc_wifi", true)) return true;
+  bool on = p.getBool("on", true);
+  p.end();
+  return on;
+}
+static void setWifiAllowed(bool on) {
+  Preferences p;
+  if (!p.begin("mc_wifi", false)) return;
+  p.putBool("on", on);
+  p.end();
+}
 
 static void netBegin(const char* ssid, const char* pass) {
   WiFi.mode(WIFI_STA);
@@ -350,6 +365,9 @@ static void saveWifi(const char* ssid, const char* pass) {
   snprintf(s_ssid, sizeof(s_ssid), "%s", ssid);
   snprintf(s_pass, sizeof(s_pass), "%s", pass);
 }
+static bool s_wifi_on = true;
+static bool wifiAllowed() { return s_wifi_on; }
+static void setWifiAllowed(bool on) { s_wifi_on = on; }
 static void netBegin(const char*, const char*) {}
 static int  netState() { return NET_UP; }
 static void netEnd() {}

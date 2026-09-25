@@ -179,7 +179,7 @@ void UITask::adminRow(int row) {
   if (prompt) {   // takes the node out of service for a while: ask first
     s_confirm = &f;
     lv_obj_t* panel = navPopupPanel(prompt, false);
-    lv_obj_t* t = label(panel, "The node is offline until it comes back; nobody can reach it through it meanwhile.",
+    lv_obj_t* t = label(panel, "It's offline until it comes back.",
                         THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(t, LV_PCT(100));
@@ -296,7 +296,7 @@ void UITask::adminValuePopup() {
     lv_obj_add_event_cb(s_choice, onAdminChoice, LV_EVENT_VALUE_CHANGED, NULL);
   }
   if (f->isRadio()) {
-    lv_obj_t* note = label(panel, "The node leaves your network if it no longer matches it.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_obj_t* note = label(panel, "A mismatch cuts the node off.", THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(note, LV_PCT(100));
   }

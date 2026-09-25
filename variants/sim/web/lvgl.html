@@ -65,7 +65,8 @@
     <h2>Wio Tracker L2 &middot; ui-lvgl <span class="status" id="status-L">booting…</span></h2>
     <canvas id="sim-canvas-L" width="320" height="240"></canvas>
     <div class="row">
-      <button id="btn-L">Button (back / sleep)</button>
+      <button id="btn-L">User (back; hold: mute)</button>
+      <button id="wake-L">Wake (screen off / on)</button>
       <button id="reset-L">Reset L2</button>
     </div>
   </div>
@@ -272,7 +273,16 @@
     async function tap(x, y) { touch(x, y, true); await sleep(80); touch(x, y, false); await sleep(120); }
     async function hold(x, y, ms) { touch(x, y, true); await sleep(ms || 700); }   // leaves the finger down
 
-    document.getElementById('btn-L').addEventListener('click', () => L && L.call('sim_lcd_button', null));
+    // User button: a click goes back, a 1 s hold mutes (as MomentaryButton's long press).
+    let btnDownAt = 0;
+    const btnL = document.getElementById('btn-L');
+    btnL.addEventListener('pointerdown', () => { btnDownAt = performance.now(); });
+    btnL.addEventListener('pointerup', () => {
+      if (!L || !btnDownAt) return;
+      L.call(performance.now() - btnDownAt >= 1000 ? 'sim_lcd_button_hold' : 'sim_lcd_button', null);
+      btnDownAt = 0;
+    });
+    document.getElementById('wake-L').addEventListener('click', () => L && L.call('sim_wake_button', null));
     document.getElementById('reset-L').addEventListener('click', () => bootL());
     document.getElementById('advert').addEventListener('click', advertBoth);
     document.getElementById('peer-dm').addEventListener('click', () => {
