@@ -52,6 +52,20 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] L1 (ui-new): Messages > Channels add / edit / delete / mute / pin still work (now through the shared ChannelControl)
 - [ ] L1: deleting a contact from the app still unpins it from the dial and clears its mute / melody (cleanup moved into the Core)
 
+## New: Repeater admin (2026-09-25)
+- [ ] Nearby > a repeater or room server you have in contacts > "Admin" (the Fav button is just a star there)
+- [ ] First time: password field + keyboard; wrong password → "Login failed", back on the node; right one → tabs System / Radio / Routing / Actions
+- [ ] Next time: logs in by itself with the saved password (no keyboard); a node you just used opens straight away
+- [ ] Out of range: "No answer to the login" after a while, and the saved password is forgotten (asks again next time)
+- [ ] Name / Owner info: "Reading..." then a text field with the current value; ✓ sends it, reply popup "OK"
+- [ ] Admin password: set a new one → the saved password follows (next login works without typing)
+- [ ] Routing > Repeat switch; Advert interval / Flood advert / Max hops with − / +; Radio > SF / Bandwidth / Coding rate choices, Frequency typed, TX power − / +
+- [ ] Actions: Send advert / zero-hop / Sync clock give a reply; Reboot and Start OTA ask first (red button)
+- [ ] Custom command: e.g. `ver`, `neighbors` (long replies scroll)
+- [ ] "Reading... (tap to stop)" stops waiting when tapped
+- [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
+- [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
+
 ## Basics after the_mesh moved to PSRAM (`MESH_IN_PSRAM`)
 - [ ] Boots normally, contacts and channels are all there
 - [ ] Messages arrive and send (channel + DM), delivery ticks work

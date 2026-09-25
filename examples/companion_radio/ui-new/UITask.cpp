@@ -1898,11 +1898,9 @@ bool UITask::getAnyUnreadOverflow() const {
 }
 
 void UITask::onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) {
-  // Only one on-device login can be in flight at a time (MyMesh::ui_pending_login
-  // is a single slot) -- route the result to whichever of the two screens that
-  // can trigger a login is currently active, rather than always MessagesScreen.
-  if (curr == admin_screen) ((AdminScreen*)admin_screen)->onRoomLoginResult(pub_key, success, permissions);
-  else                      ((MessagesScreen*)messages_screen)->onRoomLoginResult(pub_key, success, permissions);
+  // Admin logins are answered to the Core's AdminSession; what reaches here is
+  // MessagesScreen's room login.
+  ((MessagesScreen*)messages_screen)->onRoomLoginResult(pub_key, success, permissions);
   // Unlike the keypress-driven showAlert() calls elsewhere, this fires from a
   // background mesh response with no keypress to schedule a redraw — without
   // forcing one, the alert's short expiry can lapse before the next scheduled
@@ -1910,8 +1908,7 @@ void UITask::onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t per
   _next_refresh = 0;
 }
 
-void UITask::onAdminReply(const uint8_t* pub_key, const char* text) {
-  ((AdminScreen*)admin_screen)->onAdminReply(pub_key, text);
+void UITask::onAdminStateChanged() {
   _next_refresh = 0;   // same reasoning as onRoomLoginResult above
 }
 

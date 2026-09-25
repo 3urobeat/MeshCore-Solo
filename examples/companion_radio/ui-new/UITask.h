@@ -357,7 +357,7 @@ public:
   bool isViewingDM(const uint8_t* pub_key) override;
   void onViewedHistoryGrew(bool channel) override;
   void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) override;
-  void onAdminReply(const uint8_t* pub_key, const char* text) override;
+  void onAdminStateChanged() override;
   int  getDMUnreadTotal() const;
   int  getMsgCount() const;
   int  getChannelUnreadCount() const;

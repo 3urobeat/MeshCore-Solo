@@ -175,6 +175,7 @@ void UITask::loop() {
     }
     if (_screen == SCR_MAP) mapLoop();
     if (_screen == SCR_WIFI) pollWifiScan();
+    if (_screen == SCR_ADMIN) adminPoll();
     if (_screen == SCR_CLOCK && (int32_t)(millis() - _next_clock_ms) >= 0) {
       _next_clock_ms = millis() + 100;   // stopwatch tenths
       refreshClock();
@@ -457,6 +458,7 @@ void UITask::back() {
     case SCR_THREAD:   if (_nav_overlay) navClosePopup(); else showChats(); break;
     case SCR_CONTACTS: showChats(); break;
     case SCR_CHANNEL_EDIT: showChats(); break;
+    case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
     case SCR_CLOCK:    showHome(); break;
@@ -805,7 +807,7 @@ void UITask::buildContacts() {
 // model, since it is a different set: who is in range, not who is known.
 
 static NearbyModel::Entry s_node;   // the node open in SCR_NODE (a copy: the list re-sorts)
-enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV };
+enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV, NODE_ADMIN };
 
 static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
@@ -1115,7 +1117,9 @@ void UITask::buildNode() {
   if (contact && e.type == ADV_TYPE_CHAT) actionButton(acts, LV_SYMBOL_ENVELOPE " Message", NODE_MSG, true);
   if (e.has_key) actionButton(acts, LV_SYMBOL_LOOP " Ping", NODE_PING, false);
   if (e.lat_e6 != 0 || e.lon_e6 != 0) actionButton(acts, UI_SYMBOL_COMPASS, NODE_NAV, false);
-  if (contact) actionButton(acts, e.fav ? UI_SYMBOL_STAR " Unfav" : UI_SYMBOL_STAR " Fav", NODE_FAV, false);
+  bool admin = contact && (e.type == ADV_TYPE_REPEATER || e.type == ADV_TYPE_ROOM);
+  if (contact) actionButton(acts, admin ? UI_SYMBOL_STAR : e.fav ? UI_SYMBOL_STAR " Unfav" : UI_SYMBOL_STAR " Fav", NODE_FAV, e.fav && admin);
+  if (admin) actionButton(acts, LV_SYMBOL_SETTINGS " Admin", NODE_ADMIN, false);
   if (!contact && e.has_key && !e.is_known) actionButton(acts, LV_SYMBOL_PLUS " Add", NODE_ADD, true);
   if (contact) _node_delete_lbl = actionButton(acts, LV_SYMBOL_TRASH, NODE_DELETE, false);
 
@@ -1233,6 +1237,9 @@ void UITask::nodeAction(uint8_t action) {
         navFrameTarget();
       }
       break;
+    case NODE_ADMIN:
+      openAdmin(e.pub_key);
+      break;
     case NODE_DELETE:
       if (!_delete_armed_ms) {   // destructive: second tap within 3 s confirms
         _delete_armed_ms = millis();
@@ -1255,6 +1262,7 @@ void UITask::nodeAction(uint8_t action) {
 #include "RadioScreen.h"
 #include "WifiScreen.h"
 #include "ChannelScreen.h"
+#include "AdminScreen.h"
 
 // ── Conversation ──────────────────────────────────────────────────────────────
 

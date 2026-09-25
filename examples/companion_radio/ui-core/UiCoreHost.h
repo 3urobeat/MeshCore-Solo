@@ -19,9 +19,14 @@ public:
   virtual bool isViewingDM(const uint8_t* pub_key) { (void)pub_key; return false; }
   virtual void onViewedHistoryGrew(bool channel) { (void)channel; }
 
-  // ── Not yet extracted (screen sessions, device controls, prefs cleanup) ──
+  // A room server login the admin session wasn't waiting for (the frontend's
+  // room screen sent it).
   virtual void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) {}
-  virtual void onAdminReply(const uint8_t* pub_key, const char* text) {}
+  // The admin session (UiCore::admin) got an answer: poll admin.take() soon
+  // (redraw now rather than at the next scheduled refresh).
+  virtual void onAdminStateChanged() {}
+
+  // ── Not yet extracted (device controls, prefs cleanup) ──
   virtual void onContactRemoved(const uint8_t* pub_key) {}
   virtual void onChannelRemoved(uint8_t channel_idx) {}
   virtual void botSetGPS(bool on) {}

@@ -119,6 +119,15 @@ public:
   void channelEditField(lv_obj_t* ta);
   void channelEditKbHide();
   void channelEditSave();
+  // Remote admin (AdminScreen.h)
+  void openAdmin(const uint8_t* pub_key);
+  void adminTab(int tab);
+  void adminRow(int row);
+  void adminValue(uint8_t act);
+  void adminChoice(int idx);
+  void adminLogin(bool ok);
+  void adminTextDone(bool ok);
+  void adminCancelWait();
   void setGps(bool on);
   bool ensureGps();   // true with a fix; else turns GPS on / says it's waiting
 
@@ -127,7 +136,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -182,6 +191,13 @@ private:
   void buildRadio();
   void radioCloseFreq();
   void buildChannelEdit();
+  void buildAdmin();
+  void refreshAdminStatus();
+  void adminLeave();
+  void adminPoll();
+  void adminValuePopup();
+  void adminTextPopup(const char* text, bool digits);
+  void adminReplyPopup(const char* text);
   bool radioPopupOpen() const;
   void refreshClock();
   void showRing(const char* text);

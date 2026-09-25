@@ -24,6 +24,7 @@
 #include "TrailEngine.h"
 #include "WaypointModel.h"
 #include "ChannelControl.h"
+#include "AdminSession.h"
 
 class UiCore : public MyMesh::Listener {
 public:
@@ -51,6 +52,7 @@ public:
     live_share.loop();
     locator.loop();
     trail.loop();
+    admin.loop();
   }
 
   UiEventQueue events;      // Core → frontend; drained by the frontend's loop()
@@ -62,6 +64,7 @@ public:
   LiveShareEngine live_share; // [LOC] auto-share session + peers' shared positions
   LocatorEngine locator;    // active target, geofence crossings, proximity beeper
   TrailEngine  trail;       // GPS trail store, sampling, auto-pause, shutdown save
+  AdminSession admin;       // remote repeater / room admin: login + CLI round trips
 
   // ── Models ────────────────────────────────────────────────────────────────
   MessageHistory history;   // channel + DM rings, delivery state, channel unread
@@ -236,11 +239,16 @@ public:
     live_share.onSharedLocation(pub_key, name, lat_1e6, lon_1e6, ts, verified);
   }
 
-  // Not yet extracted -- the frontend still owns these.
+  // Login answers go to the admin session when it's the one waiting, else to
+  // the frontend (room server logins from its messages screen).
   void onRoomLoginResult(const uint8_t* pub_key, bool success, uint8_t permissions) override {
-    _host->onRoomLoginResult(pub_key, success, permissions);
+    if (!admin.onLoginResult(pub_key, success, permissions)) _host->onRoomLoginResult(pub_key, success, permissions);
+    _host->onAdminStateChanged();
   }
-  void onAdminReply(const uint8_t* pub_key, const char* text) override { _host->onAdminReply(pub_key, text); }
+  void onAdminReply(const uint8_t* pub_key, const char* text) override {
+    admin.onReply(pub_key, text);
+    _host->onAdminStateChanged();
+  }
   // A contact / channel went away (deleted here, from the app, or evicted):
   // drop every pref keyed on it, then let the frontend refresh.
   void onContactRemoved(const uint8_t* pub_key) override {
