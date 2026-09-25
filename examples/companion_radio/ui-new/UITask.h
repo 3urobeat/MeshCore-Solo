@@ -42,6 +42,7 @@
 #include "../LiveTrack.h"
 #include "KeyboardWidget.h"
 #include "../ui-core/UiCoreHost.h"
+#include "../ui-core/Favourites.h"
 
 class UiCore;
 struct UiEvent;
@@ -298,17 +299,8 @@ public:
   // from waypoint deletion so the Locator can't keep pointing at a spot
   // that no longer exists.
   void clearTargetIfWaypoint(int32_t lat_1e6, int32_t lon_1e6);
-  // A contact was removed (companion app / CLI): drop any UI reference to its
-  // pubkey that would otherwise dangle — a pinned favourite slot, the Locator
-  // target if it was this contact, the Live Share target if it was this
-  // contact (auto-share turns off rather than guessing a new recipient), and
-  // any per-contact mute/melody override (those tables have only 16 shared
-  // slots, so an orphan isn't just stale — it can starve other contacts).
-  void onContactRemoved(const uint8_t* pub_key) override;
-  // A channel slot was cleared: turn off anything armed against it by index
-  // (the bot's channel, Live Share's channel target) and drop its per-channel
-  // melody bit, so a future channel re-added at the same slot starts clean.
-  void onChannelRemoved(uint8_t channel_idx) override;
+  // Contact / channel removal cleanup lives in the Core (UiCore::onContactRemoved,
+  // chanctl::onRemoved).
   // Resolve a person target (6-byte pubkey prefix) to a current position:
   // prefers an active [LOC] live share, falls back to their last-advertised
   // GPS fix. Returns false when neither is known. Optional live/ts report
@@ -397,56 +389,13 @@ public:
   // Favourites dial helpers. Slot index 0..FAVOURITES_COUNT-1. A slot holds
   // either a contact/room (pubkey prefix) or a channel (index), per
   // favourite_kinds[] — see NodePrefs.
-  uint8_t favouriteSlotKind(int slot) const {
-    if (!_node_prefs || slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT) return NodePrefs::FAV_KIND_CONTACT;
-    return _node_prefs->favourite_kinds[slot];
-  }
-  int findFavouriteSlot(const uint8_t* pub_key) const {
-    if (!_node_prefs || !pub_key) return -1;
-    for (int i = 0; i < NodePrefs::FAVOURITES_COUNT; i++) {
-      if (_node_prefs->favourite_kinds[i] != NodePrefs::FAV_KIND_CONTACT) continue;
-      if (memcmp(_node_prefs->favourite_contacts[i], pub_key, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {
-        // All-zero prefix is "empty" — never matches a real key.
-        bool any = false;
-        for (uint8_t b = 0; b < NodePrefs::FAVOURITE_PREFIX_LEN; b++)
-          if (_node_prefs->favourite_contacts[i][b]) { any = true; break; }
-        if (any) return i;
-      }
-    }
-    return -1;
-  }
-  int findFavouriteChannelSlot(uint8_t ch_idx) const {
-    if (!_node_prefs) return -1;
-    for (int i = 0; i < NodePrefs::FAVOURITES_COUNT; i++) {
-      if (_node_prefs->favourite_kinds[i] == NodePrefs::FAV_KIND_CHANNEL &&
-          _node_prefs->favourite_contacts[i][0] == ch_idx) return i;
-    }
-    return -1;
-  }
-  bool isFavouriteSlotEmpty(int slot) const {
-    if (!_node_prefs || slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT) return true;
-    // A channel slot is never empty: channel 0's prefix is all zeroes.
-    if (_node_prefs->favourite_kinds[slot] == NodePrefs::FAV_KIND_CHANNEL) return false;
-    for (uint8_t b = 0; b < NodePrefs::FAVOURITE_PREFIX_LEN; b++)
-      if (_node_prefs->favourite_contacts[slot][b]) return false;
-    return true;
-  }
-  void setFavouriteSlot(int slot, const uint8_t* pub_key) {
-    if (!_node_prefs || slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT || !pub_key) return;
-    memcpy(_node_prefs->favourite_contacts[slot], pub_key, NodePrefs::FAVOURITE_PREFIX_LEN);
-    _node_prefs->favourite_kinds[slot] = NodePrefs::FAV_KIND_CONTACT;
-  }
-  void setFavouriteChannelSlot(int slot, uint8_t ch_idx) {
-    if (!_node_prefs || slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT) return;
-    memset(_node_prefs->favourite_contacts[slot], 0, NodePrefs::FAVOURITE_PREFIX_LEN);
-    _node_prefs->favourite_contacts[slot][0] = ch_idx;
-    _node_prefs->favourite_kinds[slot] = NodePrefs::FAV_KIND_CHANNEL;
-  }
-  void clearFavouriteSlot(int slot) {
-    if (!_node_prefs || slot < 0 || slot >= NodePrefs::FAVOURITES_COUNT) return;
-    memset(_node_prefs->favourite_contacts[slot], 0, NodePrefs::FAVOURITE_PREFIX_LEN);
-    _node_prefs->favourite_kinds[slot] = NodePrefs::FAV_KIND_CONTACT;
-  }
+  uint8_t favouriteSlotKind(int slot) const { return favslots::kind(_node_prefs, slot); }
+  int findFavouriteSlot(const uint8_t* pub_key) const { return favslots::findContact(_node_prefs, pub_key); }
+  int findFavouriteChannelSlot(uint8_t ch_idx) const { return favslots::findChannel(_node_prefs, ch_idx); }
+  bool isFavouriteSlotEmpty(int slot) const { return favslots::isEmpty(_node_prefs, slot); }
+  void setFavouriteSlot(int slot, const uint8_t* pub_key) { favslots::setContact(_node_prefs, slot, pub_key); }
+  void setFavouriteChannelSlot(int slot, uint8_t ch_idx) { favslots::setChannel(_node_prefs, slot, ch_idx); }
+  void clearFavouriteSlot(int slot) { favslots::clear(_node_prefs, slot); }
   bool isButtonPressed() const;
 
   // Lock-screen support: the HomeScreen LOCK page draws the unlock hint from

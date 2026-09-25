@@ -358,8 +358,9 @@ with `resolvePersonPos()` (live `[LOC]` share, else last-advertised fix).
   (the ringtone player moved to a hardware timer for this reason).
 - **Reference cleanup.** Anything that remembers a contact by pubkey (favourite
   slot, Locator/Live-Share target, per-contact mute/melody) or a channel by
-  index must drop that reference when the entity goes away — hook
-  `UITask::onContactRemoved()` / `onChannelRemoved()`. New per-contact or
+  index must drop that reference when the entity goes away. The UI Core does
+  it for every frontend: `UiCore::cleanupContactPrefs()` (ui-core/UiCore.h) and
+  `chanctl::onRemoved()` (ui-core/ChannelControl.h). New per-contact or
   per-channel state should clear there too.
 - **Toasts:** `_task->showAlert("msg", duration_ms)` overlays a transient banner
   over any screen; no redraw plumbing needed.

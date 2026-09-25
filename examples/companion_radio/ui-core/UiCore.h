@@ -23,6 +23,7 @@
 #include "LocatorEngine.h"
 #include "TrailEngine.h"
 #include "WaypointModel.h"
+#include "ChannelControl.h"
 
 class UiCore : public MyMesh::Listener {
 public:
@@ -240,8 +241,19 @@ public:
     _host->onRoomLoginResult(pub_key, success, permissions);
   }
   void onAdminReply(const uint8_t* pub_key, const char* text) override { _host->onAdminReply(pub_key, text); }
-  void onContactRemoved(const uint8_t* pub_key) override { _host->onContactRemoved(pub_key); }
-  void onChannelRemoved(uint8_t channel_idx) override { _host->onChannelRemoved(channel_idx); }
+  // A contact / channel went away (deleted here, from the app, or evicted):
+  // drop every pref keyed on it, then let the frontend refresh.
+  void onContactRemoved(const uint8_t* pub_key) override {
+    if (pub_key) {
+      clearDMUnread(pub_key);
+      if (cleanupContactPrefs(pub_key)) the_mesh.savePrefs();
+    }
+    _host->onContactRemoved(pub_key);
+  }
+  void onChannelRemoved(uint8_t channel_idx) override {
+    if (chanctl::onRemoved(_prefs, channel_idx)) the_mesh.savePrefs();
+    _host->onChannelRemoved(channel_idx);
+  }
   void botSetGPS(bool on) override { _host->botSetGPS(on); }
   void botBuzz(int seconds) override { _host->botBuzz(seconds); }
   bool botSetGPIO(int idx, bool on) override { return _host->botSetGPIO(idx, on); }
@@ -261,6 +273,43 @@ private:
     for (int i = 0; i < _sensors->getNumSettings(); i++)
       if (strcmp(_sensors->getSettingName(i), "gps") == 0) return i;
     return -1;
+  }
+
+  // CONTRACT: every NodePrefs field keyed on a contact pubkey / prefix is
+  // cleared here (adding one: clear it below, mark it in NodePrefs.h). Runs
+  // for explicit removal and silent eviction (CMD_REMOVE_CONTACT /
+  // onContactOverwrite). Covers the favourite dial slot, locator
+  // target, live share / room bot targets (fail closed: turned off rather than
+  // inherited by a re-added contact), and the 16-slot notif / melody override
+  // tables, where an orphan would eventually starve live contacts. dm_notif /
+  // dm_melody key on 4 bytes, the others on FAVOURITE_PREFIX_LEN.
+  bool cleanupContactPrefs(const uint8_t* pub_key) {
+    NodePrefs* p = _prefs;
+    if (!p) return false;
+    bool changed = false;
+    int slot = favslots::findContact(p, pub_key);
+    if (slot >= 0) { favslots::clear(p, slot); changed = true; }
+    if (locator.onContactRemoved(pub_key)) changed = true;
+    if (p->loc_share_target_type == 1 &&
+        memcmp(p->loc_share_dm_prefix, pub_key, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {
+      p->loc_share_enabled = 0;
+      changed = true;
+    }
+    if (p->bot_room_enabled && memcmp(p->bot_room_prefix, pub_key, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {
+      p->bot_room_enabled = 0;
+      changed = true;
+    }
+    for (int i = 0; i < NodePrefs::DM_NOTIF_TABLE_MAX; i++)
+      if (p->dm_notif[i].state && memcmp(p->dm_notif[i].prefix, pub_key, 4) == 0) {
+        memset(&p->dm_notif[i], 0, sizeof(p->dm_notif[i]));
+        changed = true;
+      }
+    for (int i = 0; i < NodePrefs::DM_MELODY_TABLE_MAX; i++)
+      if (p->dm_melody[i].slot && memcmp(p->dm_melody[i].prefix, pub_key, 4) == 0) {
+        memset(&p->dm_melody[i], 0, sizeof(p->dm_melody[i]));
+        changed = true;
+      }
+    return changed;
   }
 
   UiCoreHost* _host = nullptr;

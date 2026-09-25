@@ -42,6 +42,16 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Settings > Radio: Preset list (built-ins + your saved ones), Frequency (tap, type), SF, Bandwidth, Coding rate, TX power, Auto power; changes apply at once — check messages still flow after switching back to your usual preset
 - [ ] L1 (ui-new): Settings > Radio TX power / Auto power / presets still apply (now through the shared RadioControl)
 
+## New: Channels (2026-09-25)
+- [ ] Messages: favourite channels first with a star, muted ones with a speaker icon
+- [ ] Hold a channel row (or ⚙ in an open channel) → options: Alerts (Default / Muted / Always, one tap), Scope (only if regions exist), Fav, Read (only with unread), Edit, Delete (second tap confirms)
+- [ ] "+ Add channel" → Public (re-adds the open channel; "already exists" if it's there), Hashtag (topic → "#topic"), Private (name + passphrase, or Hex key switch → exactly 32 hex chars)
+- [ ] A hashtag / private channel made on L2 talks to the same channel made on L1 or in the phone app
+- [ ] Edit: rename keeps the key (shown at the top); typing a new passphrase changes it
+- [ ] Deleting a channel that was the live share / bot target turns those off; a channel re-added in that slot starts with default notifications / no favourite (also when deleted from the phone app)
+- [ ] L1 (ui-new): Messages > Channels add / edit / delete / mute / pin still work (now through the shared ChannelControl)
+- [ ] L1: deleting a contact from the app still unpins it from the dial and clears its mute / melody (cleanup moved into the Core)
+
 ## Basics after the_mesh moved to PSRAM (`MESH_IN_PSRAM`)
 - [ ] Boots normally, contacts and channels are all there
 - [ ] Messages arrive and send (channel + DM), delivery ticks work

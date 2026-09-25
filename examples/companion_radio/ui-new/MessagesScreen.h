@@ -886,15 +886,9 @@ class MessagesScreen : public UIScreen {
     memcpy(tbl[0].prefix, pub_key, 4); tbl[0].*val = v;   // table full — overwrite slot 0
   }
 
-  // Channel notif: state 1 = muted (variant bit set), 2 = force-on (variant clear).
-  uint8_t chNotifState(uint8_t ch_idx) const {
-    NodePrefs* p = _task->getNodePrefs();
-    return p ? maskPairGet(p->ch_notif_override, p->ch_notif_muted, ch_idx, 1, 2) : 0;
-  }
-  void setChNotifState(uint8_t ch_idx, uint8_t state) {
-    NodePrefs* p = _task->getNodePrefs();
-    if (p) maskPairSet(p->ch_notif_override, p->ch_notif_muted, ch_idx, state, 1);
-  }
+  // Channel notif (ui-core/ChannelControl.h): 0 = default, 1 = muted, 2 = force-on.
+  uint8_t chNotifState(uint8_t ch_idx) const { return chanctl::notif(_task->getNodePrefs(), ch_idx); }
+  void setChNotifState(uint8_t ch_idx, uint8_t state) { chanctl::setNotif(_task->getNodePrefs(), ch_idx, state); }
 
   uint8_t dmNotifState(const uint8_t* pub_key) const {
     NodePrefs* p = _task->getNodePrefs();
@@ -955,13 +949,7 @@ public:
   bool navActive() const { return _nav_active; }
 
   // First free channel slot (existing config or blank name), or -1 if full.
-  int findFreeChannelSlot() const {
-    for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
-      ChannelDetails ch;
-      if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') return i;
-    }
-    return -1;
-  }
+  int findFreeChannelSlot() const { return chanctl::freeSlot(); }
 
   // CHANNEL_PICK row count including the synthetic "+ Add channel" row
   // (suppressed while picking a channel for the bot).
@@ -2198,9 +2186,7 @@ public:
         if (_ch_delete_confirm_active) {
           // Delete/Cancel sub-menu, defaults to Cancel (see where it's opened).
           if (res == PopupMenu::SELECTED && _ctx_menu.selectedIndex() == 0) {   // "Delete"
-            ChannelDetails ch;
-            memset(&ch, 0, sizeof(ch));
-            the_mesh.setChannelLocal(_ctx_ch_idx, ch);
+            chanctl::remove(_ctx_ch_idx);
             _task->showAlert("Channel deleted", 1000);
           }
           if (res != PopupMenu::NONE) {

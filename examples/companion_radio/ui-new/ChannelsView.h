@@ -29,7 +29,7 @@
 // Either way only a 16-byte (128-bit) secret is produced, matching the
 // existing CMD_GET_CHANNEL comment ("NOTE: only 128-bit supported").
 
-#include <Utils.h>
+#include "../ui-core/ChannelControl.h"
 
 class ChannelsView {
   UITask* _task;
@@ -57,107 +57,31 @@ class ChannelsView {
     _kb_active = true;
   }
 
-  // Parses exactly 32 hex chars into a 16-byte secret (zero-padded to 32 for
-  // ChannelDetails.secret's full field width). Rejects malformed hex and the
-  // all-zero sentinel setChannelLocal() reads as "slot deleted" (see
-  // isAllZero() in MyMesh.cpp) -- saving one would pass, then immediately
-  // trigger onChannelRemoved() on this very slot, silently discarding the
-  // channel and its bot/notif/favourite state. Shared by deriveSecret()'s
-  // hex-mode branch and the Public quick-add (a fixed, known-good constant,
-  // but parsed through the same path rather than duplicated).
-  static bool hexToSecret(const char* hex32, uint8_t out[32]) {
-    if (strlen(hex32) != 32) return false;
-    uint8_t tmp[16];
-    for (int i = 0; i < 16; i++) {
-      char byte_str[3] = { hex32[i * 2], hex32[i * 2 + 1], 0 };
-      char* end = nullptr;
-      long v = strtol(byte_str, &end, 16);
-      if (*end != 0) return false;
-      tmp[i] = (uint8_t)v;
-    }
-    bool all_zero = true;
-    for (int i = 0; i < 16 && all_zero; i++) if (tmp[i]) all_zero = false;
-    if (all_zero) return false;
-    memset(out, 0, 32);
-    memcpy(out, tmp, 16);
-    return true;
+  // Secret parsing, duplicate check and the save itself live in the Core
+  // (ui-core/ChannelControl.h), shared with ui-lvgl.
+  void report(chanctl::Result r, const char* ok_text) {
+    if (r == chanctl::OK) { _task->showAlert(ok_text, 1000); _mode = OFF; }
+    else if (r == chanctl::BAD_SECRET) _task->showAlert("Invalid secret", 1400);
+    else _task->showAlert(chanctl::resultText(r), 1400);
   }
 
-  // Turn the typed Secret field into a 16-byte channel secret. Returns false
-  // (and leaves out[] untouched) if the field can't be parsed as configured.
-  bool deriveSecret(uint8_t out[32]) const {
-    if (_hex_mode) return hexToSecret(_secret_text, out);
-    if (_secret_text[0] == '\0') return false;   // blank passphrase not allowed
-    uint8_t digest[32];
-    mesh::Utils::sha256(digest, sizeof(digest), (const uint8_t*)_secret_text, (int)strlen(_secret_text));
-    memset(out, 0, 32);
-    memcpy(out, digest, 16);
-    return true;
-  }
-
-  // True if a *different* slot already holds this secret. The secret is the
-  // channel's identity on the air (the name is only a label), so a second slot
-  // with the same key would be the same channel listed twice -- with split
-  // history/unread state. Edit skips its own slot (_idx) so re-saving a channel
-  // under a new name still works.
-  bool secretInUse(const uint8_t secret[32]) const {
-    for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
-      if (i == _idx) continue;
-      ChannelDetails ch;
-      if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
-      if (memcmp(ch.channel.secret, secret, 16) == 0) return true;
-    }
-    return false;
-  }
-
-  bool saveChannel(const char* name, const uint8_t secret[32]) {
-    ChannelDetails ch;
-    memset(&ch, 0, sizeof(ch));
-    strncpy(ch.name, name, sizeof(ch.name) - 1);
-    memcpy(ch.channel.secret, secret, sizeof(ch.channel.secret));
-    return the_mesh.setChannelLocal((uint8_t)_idx, ch);
-  }
-
-  // Type picker's Public row: no fields to fill in, so this commits directly
-  // instead of dropping into the Name+Secret form -- the well-known channel's
-  // name and secret are both fixed. Hex confirmed via
-  // `python3 -c "import base64; print(base64.b64decode('izOH6cXN6mrJ5e26oRXNcg==').hex())"`
-  // to match MyMesh.cpp's PUBLIC_GROUP_PSK (base64) and
-  // docs/companion_protocol.md's documented public channel key (hex).
+  // Type picker's Public row: no fields to fill in -- the well-known
+  // channel's name and secret are both fixed.
   void commitPublic() {
-    static const char PUBLIC_SECRET_HEX[] = "8b3387e9c5cdea6ac9e5edbaa115cd72";
-    uint8_t secret[32];
-    hexToSecret(PUBLIC_SECRET_HEX, secret);   // fixed, known-good constant -- can't fail
-    if (secretInUse(secret)) { _task->showAlert("Already added", 1200); _mode = OFF; return; }
-    if (saveChannel("Public", secret)) _task->showAlert("Channel added", 1000);
-    else                               _task->showAlert("Save failed", 1200);
+    chanctl::Result r = chanctl::addPublic();
+    if (r == chanctl::EXISTS) { _task->showAlert("Already added", 1200); _mode = OFF; return; }
+    report(r, "Channel added");
     _mode = OFF;
   }
 
   void commit() {
     if (_mode == ADD_HASHTAG) {
       if (_topic[0] == '\0') { _task->showAlert("Topic required", 1200); return; }
-      // "#topic" as both the channel's display name and the passphrase fed to
-      // sha256 -- the exact "Hashtag Channels" convention in
-      // docs/companion_protocol.md, just synthesized instead of hand-typed.
-      snprintf(_name, sizeof(_name), "#%s", _topic);
-      strncpy(_secret_text, _name, sizeof(_secret_text) - 1);
-      _secret_text[sizeof(_secret_text) - 1] = '\0';
-      _hex_mode = false;
-    }
-    if (_name[0] == '\0') { _task->showAlert("Name required", 1200); return; }
-    uint8_t secret[32];
-    if (!deriveSecret(secret)) {
-      _task->showAlert(_hex_mode ? "Invalid secret" : "Secret required", 1400);
+      report(chanctl::addHashtag(_topic), "Channel added");
       return;
     }
-    if (secretInUse(secret)) { _task->showAlert("Channel already exists", 1400); return; }
-    if (saveChannel(_name, secret)) {
-      _task->showAlert((_mode == ADD || _mode == ADD_HASHTAG) ? "Channel added" : "Channel updated", 1000);
-      _mode = OFF;
-    } else {
-      _task->showAlert("Save failed", 1200);
-    }
+    report(chanctl::savePrivate(_idx, _name, _secret_text, _hex_mode),
+           _mode == ADD ? "Channel added" : "Channel updated");
   }
 
 public:

@@ -109,6 +109,16 @@ public:
   void radioSet(int which, int v);
   void radioFreqPopup();
   void radioFreqDone(bool ok);
+  // Channels (ChannelScreen.h)
+  void channelMenu(int idx);
+  void channelSet(uint8_t which, int v);
+  void channelAction(uint8_t act);
+  void showChannelEdit(int idx);
+  void channelEditType(int type);
+  void channelEditHex(bool hex);
+  void channelEditField(lv_obj_t* ta);
+  void channelEditKbHide();
+  void channelEditSave();
   void setGps(bool on);
   bool ensureGps();   // true with a fix; else turns GPS on / says it's waiting
 
@@ -117,7 +127,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -171,6 +181,7 @@ private:
   void buildClock();
   void buildRadio();
   void radioCloseFreq();
+  void buildChannelEdit();
   bool radioPopupOpen() const;
   void refreshClock();
   void showRing(const char* text);

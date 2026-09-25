@@ -13,6 +13,7 @@
 #include "../ui-core/GpsAverager.h"
 #include "../ui-core/TrackBack.h"
 #include "../ui-core/RadioControl.h"
+#include "../ui-core/ChannelControl.h"
 #include "Theme.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
@@ -453,13 +454,14 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
 
 void UITask::back() {
   switch (_screen) {
-    case SCR_THREAD:   showChats(); break;
+    case SCR_THREAD:   if (_nav_overlay) navClosePopup(); else showChats(); break;
     case SCR_CONTACTS: showChats(); break;
+    case SCR_CHANNEL_EDIT: showChats(); break;
     case SCR_SETTINGS: showHome(); break;
     case SCR_SETTINGS_NAV: showSettings(); break;
     case SCR_CLOCK:    showHome(); break;
     case SCR_RADIO:    if (radioPopupOpen()) radioCloseFreq(); else showSettings(); break;
-    case SCR_CHATS:    showHome(); break;
+    case SCR_CHATS:    if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_NEARBY:
       if (_scan_overlay) closeScanPopup();
       else showHome();
@@ -665,6 +667,9 @@ static void onOpenContactRow(lv_event_t* e) {
   s_ui->openDM(s_contact_rows[(uintptr_t)lv_event_get_user_data(e)]);
 }
 static void onNewChat(lv_event_t* e) { (void)e; s_ui->showContacts(); }
+static void onChanRowHold(lv_event_t* e);      // ChannelScreen.h
+static void onChanAdd(lv_event_t* e);
+static void onChanThreadMenu(lv_event_t* e);
 
 // One tappable list row: title, optional muted subtitle, optional badge.
 static lv_obj_t* listRow(lv_obj_t* parent, const char* title, const char* sub,
@@ -704,20 +709,37 @@ void UITask::showChats() {
 void UITask::buildChats() {
   lv_obj_t* body = newScreen("Messages", true);
 
-  // Channels
+  // Channels: favourites first (unless turned off), hold a row for its options
   sectionTitle(body, "CHANNELS");
-  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
-    ChannelDetails ch;
-    if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
-    char sub[64] = "";
-    int n = _core->history.histCountForChannel(i);
-    if (n > 0) {
-      const ChHistEntry& e = _core->history.chAtPos(_core->history.histEntryForChannel(i, 0));
-      snprintf(sub, sizeof(sub), "%s", e.text);
+  bool fav_first = !(_prefs && _prefs->fav_sort_off);
+  for (int pass = fav_first ? 0 : 1; pass < 2; pass++) {
+    for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+      ChannelDetails ch;
+      if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
+      bool fav = chanctl::favourite(_prefs, i);
+      if (fav_first && fav != (pass == 0)) continue;
+      char title[48], sub[64] = "";
+      snprintf(title, sizeof(title), "%s%s%s", fav ? UI_SYMBOL_STAR " " : "", ch.name,
+               chanctl::notif(_prefs, i) == chanctl::NOTIF_MUTED ? "  " LV_SYMBOL_MUTE : "");
+      int n = _core->history.histCountForChannel(i);
+      if (n > 0) {
+        const ChHistEntry& e = _core->history.chAtPos(_core->history.histEntryForChannel(i, 0));
+        snprintf(sub, sizeof(sub), "%s", e.text);
+      }
+      lv_obj_t* row = listRow(body, title, sub[0] ? sub : NULL, onOpenChannel, (void*)(uintptr_t)i);
+      lv_obj_add_event_cb(row, onChanRowHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)i);
+      badge(row, _core->history.chUnread(i), _core->history.chUnreadOverflow(i));
     }
-    lv_obj_t* row = listRow(body, ch.name, sub[0] ? sub : NULL, onOpenChannel, (void*)(uintptr_t)i);
-    badge(row, _core->history.chUnread(i), _core->history.chUnreadOverflow(i));
   }
+  lv_obj_t* add_ch = lv_button_create(body);
+  lv_obj_set_size(add_ch, LV_PCT(100), 32);
+  lv_obj_set_style_bg_color(add_ch, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_border_color(add_ch, lv_color_hex(theme::SURFACE_2), 0);
+  lv_obj_set_style_border_width(add_ch, 1, 0);
+  lv_obj_set_style_radius(add_ch, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(add_ch, 0, 0);
+  lv_obj_add_event_cb(add_ch, onChanAdd, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(label(add_ch, LV_SYMBOL_PLUS "  Add channel", THEME_FONT_SMALL, theme::TEXT_MUTED));
 
   // Recent direct conversations (DM ring, newest first, one row per contact)
   sectionTitle(body, "DIRECT");
@@ -1232,6 +1254,7 @@ void UITask::nodeAction(uint8_t action) {
 #include "ClockScreen.h"
 #include "RadioScreen.h"
 #include "WifiScreen.h"
+#include "ChannelScreen.h"
 
 // ── Conversation ──────────────────────────────────────────────────────────────
 
@@ -1306,7 +1329,7 @@ void UITask::buildThread() {
   bool can_send = true;
   if (_thread_is_channel) {
     ChannelDetails ch;
-    if (the_mesh.getChannel(_thread_channel, ch)) snprintf(title, sizeof(title), "# %s", ch.name);
+    if (the_mesh.getChannel(_thread_channel, ch)) snprintf(title, sizeof(title), "%s%s", ch.name[0] == '#' ? "" : "# ", ch.name);
     else snprintf(title, sizeof(title), "Channel %d", _thread_channel);
   } else {
     contactName(_thread_key, title, sizeof(title));
@@ -1316,6 +1339,10 @@ void UITask::buildThread() {
   lv_obj_t* body = newScreen(title, true);
   lv_obj_set_style_pad_all(body, 0, 0);
   lv_obj_set_style_pad_row(body, 0, 0);
+  if (_thread_is_channel && _header) {   // channel options
+    lv_obj_set_width(lv_obj_get_child(_header, 1), 200);   // title, clear of the button
+    headerButton(_header, LV_SYMBOL_SETTINGS, onChanThreadMenu, 4, NULL);
+  }
 
   _thread_list = lv_obj_create(body);
   styleSurface(_thread_list, theme::BG);
