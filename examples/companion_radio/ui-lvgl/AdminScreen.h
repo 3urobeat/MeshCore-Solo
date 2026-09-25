@@ -110,22 +110,7 @@ void UITask::buildAdmin() {
   static const char* TABS[admin::TAB_COUNT + 1];
   for (int i = 0; i < admin::TAB_COUNT; i++) TABS[i] = admin::TAB_LABELS[i];
   TABS[admin::TAB_COUNT] = "";
-  s_tabs = lv_buttonmatrix_create(body);
-  lv_buttonmatrix_set_map(s_tabs, TABS);
-  lv_buttonmatrix_set_button_ctrl_all(s_tabs, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-  lv_buttonmatrix_set_one_checked(s_tabs, true);
-  lv_buttonmatrix_set_button_ctrl(s_tabs, s_tab, LV_BUTTONMATRIX_CTRL_CHECKED);
-  lv_obj_set_size(s_tabs, LV_PCT(100), 34);
-  lv_obj_set_style_pad_all(s_tabs, 0, 0);
-  lv_obj_set_style_pad_column(s_tabs, 4, 0);
-  lv_obj_set_style_bg_opa(s_tabs, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(s_tabs, 0, 0);
-  lv_obj_set_style_bg_color(s_tabs, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(s_tabs, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-  lv_obj_set_style_text_color(s_tabs, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(s_tabs, THEME_FONT_SMALL, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(s_tabs, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(s_tabs, 8, LV_PART_ITEMS);
+  s_tabs = segmented(body, TABS, s_tab, LV_PCT(100), 34, theme::SURFACE);
   lv_obj_add_event_cb(s_tabs, onAdminTab, LV_EVENT_VALUE_CHANGED, NULL);
 
   s_status = label(body, "", THEME_FONT_SMALL, theme::ACCENT);
@@ -307,22 +292,7 @@ void UITask::adminValuePopup() {
     int per_row = 1;
     int sel = radioChoices(*f, S, per_row);
     int rows = f->kind == admin::K_RADIO_BW ? 2 : 1;
-    s_choice = lv_buttonmatrix_create(panel);
-    lv_buttonmatrix_set_map(s_choice, s_map);
-    lv_buttonmatrix_set_button_ctrl_all(s_choice, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-    lv_buttonmatrix_set_one_checked(s_choice, true);
-    lv_buttonmatrix_set_button_ctrl(s_choice, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
-    lv_obj_set_size(s_choice, LV_PCT(100), rows * 34 + (rows - 1) * 4);
-    lv_obj_set_style_pad_all(s_choice, 0, 0);
-    lv_obj_set_style_pad_gap(s_choice, 4, 0);
-    lv_obj_set_style_bg_opa(s_choice, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(s_choice, 0, 0);
-    lv_obj_set_style_bg_color(s_choice, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
-    lv_obj_set_style_bg_color(s_choice, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-    lv_obj_set_style_text_color(s_choice, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-    lv_obj_set_style_text_font(s_choice, THEME_FONT_SMALL, LV_PART_ITEMS);
-    lv_obj_set_style_shadow_width(s_choice, 0, LV_PART_ITEMS);
-    lv_obj_set_style_radius(s_choice, 8, LV_PART_ITEMS);
+    s_choice = segmented(panel, s_map, sel, LV_PCT(100), rows * 34 + (rows - 1) * 4, theme::SURFACE);
     lv_obj_add_event_cb(s_choice, onAdminChoice, LV_EVENT_VALUE_CHANGED, NULL);
   }
   if (f->isRadio()) {
@@ -340,19 +310,11 @@ void UITask::adminTextPopup(const char* text, bool digits) {
   const admin::Field* f = S.currentField();
   lv_obj_t* panel = navPopupPanel(f ? f->label : "Command", false);
   lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
-  _nav_ta = lv_textarea_create(panel);
-  lv_textarea_set_one_line(_nav_ta, true);
+  _nav_ta = textField(panel);
   lv_textarea_set_max_length(_nav_ta, 150);
   if (digits) lv_textarea_set_accepted_chars(_nav_ta, "0123456789.");
   if (f && f->isCustom()) lv_textarea_set_placeholder_text(_nav_ta, "e.g. get advert.interval");
   lv_textarea_set_text(_nav_ta, text);
-  lv_obj_set_size(_nav_ta, LV_PCT(100), 34);
-  lv_obj_set_style_border_width(_nav_ta, 1, 0);
-  lv_obj_set_style_pad_ver(_nav_ta, 6, 0);
-  lv_obj_set_style_pad_hor(_nav_ta, 10, 0);
-  lv_obj_set_scrollbar_mode(_nav_ta, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_border_color(_nav_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(_nav_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_add_state(_nav_ta, LV_STATE_FOCUSED);
   _nav_kb = kb::create(_nav_overlay, _prefs);
   lv_obj_set_size(_nav_kb, LV_PCT(100), 124);

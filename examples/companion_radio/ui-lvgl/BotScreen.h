@@ -57,26 +57,6 @@ void UITask::showBot() {
   buildBot();
 }
 
-static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, int h) {
-  lv_obj_t* m = lv_buttonmatrix_create(parent);
-  lv_buttonmatrix_set_map(m, map);
-  lv_buttonmatrix_set_button_ctrl_all(m, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-  lv_buttonmatrix_set_one_checked(m, true);
-  lv_buttonmatrix_set_button_ctrl(m, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
-  lv_obj_set_size(m, w, h);
-  lv_obj_set_style_pad_all(m, 0, 0);
-  lv_obj_set_style_pad_column(m, 4, 0);
-  lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(m, 0, 0);
-  lv_obj_set_style_bg_color(m, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(m, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-  lv_obj_set_style_text_color(m, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(m, THEME_FONT_SMALL, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(m, 8, LV_PART_ITEMS);
-  return m;
-}
-
 void UITask::buildBot() {
   using namespace botview;
   lv_obj_t* body = newScreen("Bot", true);
@@ -169,18 +149,10 @@ void UITask::botRow(int row) {
     bool reply = !botcfg::isTrigger(r.kind);
     lv_obj_t* panel = navPopupPanel(r.label, false);
     lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
-    _nav_ta = lv_textarea_create(panel);
-    lv_textarea_set_one_line(_nav_ta, true);
+    _nav_ta = textField(panel);
     lv_textarea_set_max_length(_nav_ta, cap - 1);
     lv_textarea_set_text(_nav_ta, t);
     lv_textarea_set_placeholder_text(_nav_ta, botcfg::isTrigger(r.kind) ? "e.g. !hi, or * for any message" : "Reply text");
-    lv_obj_set_size(_nav_ta, LV_PCT(100), 34);
-    lv_obj_set_style_border_width(_nav_ta, 1, 0);
-    lv_obj_set_style_pad_ver(_nav_ta, 6, 0);
-    lv_obj_set_style_pad_hor(_nav_ta, 10, 0);
-    lv_obj_set_scrollbar_mode(_nav_ta, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_style_border_color(_nav_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(_nav_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
     lv_obj_add_state(_nav_ta, LV_STATE_FOCUSED);
     if (reply) {
       // Placeholders the bot fills in, as buttons in place of the title (no

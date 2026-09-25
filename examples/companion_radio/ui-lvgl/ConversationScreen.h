@@ -25,28 +25,6 @@ static bool s_login_wait = false;       // open the room once this login answers
 static lv_obj_t* s_fav_btn = nullptr;
 static int s_msg = -1;                  // s_msg_meta index the message popup is about
 
-static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, lv_event_cb_t cb) {
-  lv_obj_t* seg = lv_buttonmatrix_create(parent);
-  lv_buttonmatrix_set_map(seg, map);
-  lv_buttonmatrix_set_button_ctrl_all(seg, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-  lv_buttonmatrix_set_one_checked(seg, true);
-  lv_buttonmatrix_set_button_ctrl(seg, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
-  lv_obj_set_size(seg, w, 36);
-  lv_obj_align(seg, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_set_style_pad_all(seg, 0, 0);
-  lv_obj_set_style_pad_column(seg, 3, 0);
-  lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(seg, 0, 0);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-  lv_obj_set_style_text_color(seg, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(seg, THEME_FONT_SMALL, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(seg, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(seg, 8, LV_PART_ITEMS);
-  lv_obj_add_event_cb(seg, cb, LV_EVENT_VALUE_CHANGED, NULL);
-  return seg;
-}
-
 static lv_obj_t* actionRow(lv_obj_t* panel) {
   lv_obj_t* acts = lv_obj_create(panel);
   styleSurface(acts, theme::BG);
@@ -186,10 +164,10 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
   if (!room) {   // alerts: three segments (a dropdown's list runs off screen this low)
     static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
     lv_obj_t* row = radioview::settingRow(panel, "Alerts", NULL);
-    segmented(row, NOTIF, contactctl::notif(_prefs, ci.id.pub_key), 200, onConvNotif);
+    radioview::rowSegmented(row, NOTIF, contactctl::notif(_prefs, ci.id.pub_key), 200, onConvNotif, 0);
     static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
     row = radioview::settingRow(panel, "Sound", NULL);
-    segmented(row, MELODY, contactctl::melody(_prefs, ci.id.pub_key), 200, onConvMelody);
+    radioview::rowSegmented(row, MELODY, contactctl::melody(_prefs, ci.id.pub_key), 200, onConvMelody, 0);
   } else {
     bool in = _core->rooms.isLoggedIn(ci.id.pub_key);
     lv_obj_t* st = label(panel, in ? LV_SYMBOL_OK "  Logged in: you can post"

@@ -19,18 +19,8 @@ static void onWifiKb(lv_event_t* e) {
 }
 
 static lv_obj_t* wifiField(lv_obj_t* parent, const char* placeholder, bool password) {
-  lv_obj_t* ta = lv_textarea_create(parent);
-  lv_textarea_set_one_line(ta, true);
-  lv_textarea_set_placeholder_text(ta, placeholder);
+  lv_obj_t* ta = textField(parent, placeholder);
   lv_textarea_set_password_mode(ta, password);
-  lv_obj_set_width(ta, LV_PCT(100));
-  lv_obj_set_height(ta, 34);   // one 20 px line: 2*1 border + 2*6 pad + 20 (as the compose field)
-  lv_obj_set_style_border_width(ta, 1, 0);
-  lv_obj_set_style_pad_ver(ta, 6, 0);
-  lv_obj_set_style_pad_hor(ta, 10, 0);
-  lv_obj_set_scrollbar_mode(ta, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_border_color(ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_add_event_cb(ta, onWifiField, LV_EVENT_CLICKED, NULL);
   return ta;
 }

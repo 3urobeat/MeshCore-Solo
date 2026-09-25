@@ -679,8 +679,8 @@ class MessagesScreen : public UIScreen {
   // Flip a contact's/room's favourite flag and refresh the menu label. The list
   // rebuild is deferred to menu close (see the channel Fav toggle for why).
   void toggleContactFav(const ContactInfo& ci) {
-    bool now_fav = !(ci.flags & 0x01);
-    if (!the_mesh.setContactFavourite(ci.id.pub_key, now_fav)) return;
+    bool now_fav = !contactctl::favourite(ci);
+    if (!contactctl::setFavourite(ci.id.pub_key, now_fav)) return;
     snprintf(_ctx_fav_item, sizeof(_ctx_fav_item), now_fav ? "Fav: ON" : "Fav: OFF");
   }
 
@@ -712,7 +712,7 @@ class MessagesScreen : public UIScreen {
     for (int i = 0; i < total; i++) {
       if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c)) continue;
       if (c.type != (rooms ? ADV_TYPE_ROOM : ADV_TYPE_CHAT)) continue;
-      bool fav = (c.flags & 0x01) != 0;
+      bool fav = contactctl::favourite(c);
       if (fav_only && !fav) continue;
       uint8_t k = rooms ? 0 : _history.dmHistCountForContact(c.id.pub_key);
       if (k > 127) k = 127;
@@ -1234,7 +1234,7 @@ public:
           uint8_t dm_unread = _task->getDMUnread(c.id.pub_key);
           bool dm_overflow = dm_unread > 0 && _task->getDMUnreadOverflow(c.id.pub_key);
           int bw = dm_unread > 0 ? display.unreadBadgeWidth(dm_unread, dm_overflow) + 2 : 0;
-          int sw = (c.flags & 0x01) ? favStarWidth(display) : 0;
+          int sw = contactctl::favourite(c) ? favStarWidth(display) : 0;
           // See the channel/DM history bodies' identical comment: suppress this
           // row's own marquee while a context menu covers it, so the two don't
           // fight over DisplayDriver's single shared marquee slot.
@@ -1963,7 +1963,7 @@ public:
         bool have = the_mesh.getContactByIdx(_sorted[_contact_sel], ci);
         bool logged_in = have && isRoomLoggedIn(ci.id.pub_key);
         snprintf(_ctx_fav_item, sizeof(_ctx_fav_item),
-                 (have && (ci.flags & 0x01)) ? "Fav: ON" : "Fav: OFF");
+                 (have && contactctl::favourite(ci)) ? "Fav: ON" : "Fav: OFF");
         { int pinned_slot = have ? _task->findFavouriteSlot(ci.id.pub_key) : -1;
           if (pinned_slot >= 0) snprintf(_ctx_pin_item, sizeof(_ctx_pin_item), "Unpin (slot %d)", pinned_slot + 1);
           else                  snprintf(_ctx_pin_item, sizeof(_ctx_pin_item), "Pin to dial"); }
@@ -1987,7 +1987,7 @@ public:
         if (pinned_slot >= 0) snprintf(_ctx_pin_item, sizeof(_ctx_pin_item), "Unpin (slot %d)", pinned_slot + 1);
         else                  snprintf(_ctx_pin_item, sizeof(_ctx_pin_item), "Pin to dial");
         snprintf(_ctx_fav_item, sizeof(_ctx_fav_item),
-                 (ci.flags & 0x01) ? "Fav: ON" : "Fav: OFF");
+                 contactctl::favourite(ci) ? "Fav: ON" : "Fav: OFF");
         _ctx_menu.begin("Contact options", 3);
         _ctx_menu.addItem("Mark as read");
         _ctx_menu.addValueItem(_ctx_notif_item);

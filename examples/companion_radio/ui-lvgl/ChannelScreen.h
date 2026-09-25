@@ -204,21 +204,8 @@ void UITask::buildChannelEdit() {
 
   if (!edit) {
     static const char* TYPES[] = { "Public", "Hashtag", "Private", "" };
-    s_types = lv_buttonmatrix_create(body);
-    lv_buttonmatrix_set_map(s_types, TYPES);
-    lv_buttonmatrix_set_button_ctrl_all(s_types, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-    lv_buttonmatrix_set_one_checked(s_types, true);
-    lv_buttonmatrix_set_button_ctrl(s_types, s_type, LV_BUTTONMATRIX_CTRL_CHECKED);
-    lv_obj_set_size(s_types, LV_PCT(100), 38);
-    lv_obj_set_style_pad_all(s_types, 2, 0);
-    lv_obj_set_style_pad_column(s_types, 4, 0);
-    lv_obj_set_style_bg_color(s_types, lv_color_hex(theme::BG), 0);
-    lv_obj_set_style_border_width(s_types, 0, 0);
-    lv_obj_set_style_bg_color(s_types, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
-    lv_obj_set_style_bg_color(s_types, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-    lv_obj_set_style_text_color(s_types, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
+    s_types = segmented(body, TYPES, s_type, LV_PCT(100), 38, theme::SURFACE);
     lv_obj_set_style_text_font(s_types, THEME_FONT_BODY, LV_PART_ITEMS);
-    lv_obj_set_style_shadow_width(s_types, 0, LV_PART_ITEMS);
     lv_obj_add_event_cb(s_types, onChanType, LV_EVENT_VALUE_CHANGED, NULL);
   }
 

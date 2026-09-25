@@ -642,16 +642,8 @@ void UITask::navRenamePopup(int idx) {
   _nav_wp = idx;
   lv_obj_t* panel = navPopupPanel("Waypoint name", false);
   lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
-  _nav_ta = lv_textarea_create(panel);
-  lv_textarea_set_one_line(_nav_ta, true);
+  _nav_ta = textField(panel);
   lv_textarea_set_text(_nav_ta, _core->waypoints.at(idx).label);
-  lv_obj_set_size(_nav_ta, LV_PCT(100), 34);
-  lv_obj_set_style_border_width(_nav_ta, 1, 0);
-  lv_obj_set_style_pad_ver(_nav_ta, 6, 0);
-  lv_obj_set_style_pad_hor(_nav_ta, 10, 0);
-  lv_obj_set_scrollbar_mode(_nav_ta, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_border_color(_nav_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(_nav_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_add_state(_nav_ta, LV_STATE_FOCUSED);   // draws the cursor
   lv_obj_add_event_cb(_nav_ta, navmap::onLabelInsert, LV_EVENT_INSERT, NULL);
 
@@ -848,7 +840,7 @@ void UITask::navToolsPopup() {
   for (int i = 0; i < the_mesh.getNumContacts() && favs < 16 && navmap::s_share_n < navmap::SHARE_TARGETS; i++) {
     ContactInfo c;
     if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c)) continue;
-    if (c.type != ADV_TYPE_CHAT || !(c.flags & 0x01)) continue;
+    if (c.type != ADV_TYPE_CHAT || !contactctl::favourite(c)) continue;
     if (_prefs->loc_share_target_type == 1 &&
         memcmp(_prefs->loc_share_dm_prefix, c.id.pub_key, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) sel = navmap::s_share_n;
     navmap::s_share_kind[navmap::s_share_n] = 1;
@@ -1101,16 +1093,8 @@ void UITask::navCoordsPopup() {
   if (_core->waypoints.full()) { showToast("Waypoints full (16)"); return; }
   lv_obj_t* panel = navPopupPanel("Add by coordinates", false);
   lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
-  _nav_ta = lv_textarea_create(panel);
-  lv_textarea_set_one_line(_nav_ta, true);
+  _nav_ta = textField(panel);
   lv_textarea_set_placeholder_text(_nav_ta, "50.06142, 19.93721 Name");
-  lv_obj_set_size(_nav_ta, LV_PCT(100), 34);
-  lv_obj_set_style_border_width(_nav_ta, 1, 0);
-  lv_obj_set_style_pad_ver(_nav_ta, 6, 0);
-  lv_obj_set_style_pad_hor(_nav_ta, 10, 0);
-  lv_obj_set_scrollbar_mode(_nav_ta, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_border_color(_nav_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(_nav_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_add_state(_nav_ta, LV_STATE_FOCUSED);   // draws the cursor
 
   _nav_kb = kb::create(_nav_overlay, _prefs);

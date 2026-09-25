@@ -356,7 +356,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     const Entry* e = selected();
     if (!e || !e->has_key) return;
     bool now_fav = !e->fav;
-    if (!the_mesh.setContactFavourite(e->pub_key, now_fav)) return;
+    if (!contactctl::setFavourite(e->pub_key, now_fav)) return;
     snprintf(_fav_label, sizeof(_fav_label), now_fav ? "Fav: ON" : "Fav: OFF");
     refreshKeepingSelection();
   }

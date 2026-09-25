@@ -52,23 +52,8 @@ static lv_obj_t* rowDropdown(lv_obj_t* row, const char* opts, int sel, int width
 // A few choices side by side at the right of a row (a dropdown's list can run
 // off the bottom of a popup). `map` ends with "".
 static lv_obj_t* rowSegmented(lv_obj_t* row, const char** map, int sel, int width, lv_event_cb_t cb, uintptr_t which) {
-  lv_obj_t* seg = lv_buttonmatrix_create(row);
-  lv_buttonmatrix_set_map(seg, map);
-  lv_buttonmatrix_set_button_ctrl_all(seg, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-  lv_buttonmatrix_set_one_checked(seg, true);
-  lv_buttonmatrix_set_button_ctrl(seg, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
-  lv_obj_set_size(seg, width, 36);
+  lv_obj_t* seg = segmented(row, map, sel, width, 36);
   lv_obj_align(seg, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_set_style_pad_all(seg, 0, 0);
-  lv_obj_set_style_pad_column(seg, 3, 0);
-  lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(seg, 0, 0);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
-  lv_obj_set_style_text_color(seg, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_font(seg, THEME_FONT_SMALL, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(seg, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(seg, 8, LV_PART_ITEMS);
   lv_obj_add_event_cb(seg, cb, LV_EVENT_VALUE_CHANGED, (void*)which);
   return seg;
 }
@@ -206,20 +191,12 @@ void UITask::radioFreqPopup(bool repeater) {
   char t[48];
   snprintf(t, sizeof(t), "Frequency, MHz (%.0f - %.0f)", lo, hi);
   label(panel, t, THEME_FONT_BODY, theme::TEXT);
-  s_ta = lv_textarea_create(panel);
-  lv_textarea_set_one_line(s_ta, true);
+  s_ta = textField(panel);
   lv_textarea_set_accepted_chars(s_ta, "0123456789.");
   lv_textarea_set_max_length(s_ta, 10);
   char fs[16];
   snprintf(fs, sizeof(fs), "%.3f", repeater ? _prefs->repeater_freq : _prefs->freq);
   lv_textarea_set_text(s_ta, fs);
-  lv_obj_set_size(s_ta, LV_PCT(100), 34);
-  lv_obj_set_style_border_width(s_ta, 1, 0);
-  lv_obj_set_style_pad_ver(s_ta, 6, 0);
-  lv_obj_set_style_pad_hor(s_ta, 10, 0);
-  lv_obj_set_scrollbar_mode(s_ta, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_border_color(s_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(s_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_add_state(s_ta, LV_STATE_FOCUSED);
   lv_obj_t* kbd = kb::create(s_overlay, _prefs);
   lv_obj_set_size(kbd, LV_PCT(100), 124);

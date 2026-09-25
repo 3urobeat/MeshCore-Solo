@@ -61,6 +61,48 @@ static lv_obj_t* label(lv_obj_t* parent, const char* text, const lv_font_t* font
   return l;
 }
 
+// A one-of-N choice: a row (or grid, with "\n" in the map) of checkable
+// buttons, `sel` checked (-1: none). `item` is the unchecked button colour —
+// SURFACE on a SURFACE_2 panel, SURFACE_2 on the page.
+static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, int h,
+                           uint32_t item = theme::SURFACE_2) {
+  lv_obj_t* m = lv_buttonmatrix_create(parent);
+  lv_buttonmatrix_set_map(m, map);
+  lv_buttonmatrix_set_button_ctrl_all(m, LV_BUTTONMATRIX_CTRL_CHECKABLE);
+  lv_buttonmatrix_set_one_checked(m, true);
+  if (sel >= 0) lv_buttonmatrix_set_button_ctrl(m, sel, LV_BUTTONMATRIX_CTRL_CHECKED);
+  lv_obj_set_size(m, w, h);
+  lv_obj_set_style_pad_all(m, 0, 0);
+  lv_obj_set_style_pad_gap(m, 4, 0);
+  lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_set_style_bg_color(m, lv_color_hex(item), LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(m, lv_color_hex(theme::ACCENT_DIM), LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(m, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
+  lv_obj_set_style_text_font(m, THEME_FONT_SMALL, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
+  lv_obj_set_style_radius(m, 8, LV_PART_ITEMS);
+  return m;
+}
+
+// A one-line text field, full width. The theme's padding leaves less than one
+// line inside 34 px, which makes the field scroll vertically (text jumps as
+// it's typed), so it's padded to fit exactly one body line: 34 = 2*1 border +
+// 2*6 pad + 20. The theme draws the cursor only while FOCUSED.
+static lv_obj_t* textField(lv_obj_t* parent, const char* placeholder = NULL) {
+  lv_obj_t* ta = lv_textarea_create(parent);
+  lv_textarea_set_one_line(ta, true);
+  if (placeholder) lv_textarea_set_placeholder_text(ta, placeholder);
+  lv_obj_set_size(ta, LV_PCT(100), 34);
+  lv_obj_set_style_border_width(ta, 1, 0);
+  lv_obj_set_style_pad_ver(ta, 6, 0);
+  lv_obj_set_style_pad_hor(ta, 10, 0);
+  lv_obj_set_scrollbar_mode(ta, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_style_border_color(ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
+  lv_obj_set_style_border_width(ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
+  return ta;
+}
+
 // Unread badge: amber pill with a count, on the right edge of `parent`.
 static void badge(lv_obj_t* parent, int n, bool overflow) {
   if (n <= 0) return;
@@ -77,16 +119,6 @@ static void badge(lv_obj_t* parent, int n, bool overflow) {
   lv_obj_t* l = label(b, "", THEME_FONT_SMALL, theme::BG);
   lv_label_set_text_fmt(l, "%d%s", n, overflow ? "+" : "");
   lv_obj_center(l);
-}
-
-// "12s" / "5m" / "3h" / "2d" since a unix timestamp.
-static void formatAge(char* buf, size_t n, uint32_t ts) {
-  uint32_t now = rtc_clock.getCurrentTime();
-  uint32_t d = (ts && now > ts) ? now - ts : 0;
-  if (d < 60)          snprintf(buf, n, "%lus", (unsigned long)d);
-  else if (d < 3600)   snprintf(buf, n, "%lum", (unsigned long)(d / 60));
-  else if (d < 86400)  snprintf(buf, n, "%luh", (unsigned long)(d / 3600));
-  else                 snprintf(buf, n, "%lud", (unsigned long)(d / 86400));
 }
 
 // Local time (NodePrefs::tz_offset_hours); false before the clock is set.
@@ -1431,7 +1463,7 @@ void UITask::nodeAction(uint8_t action) {
       break;
     }
     case NODE_FAV:
-      if (the_mesh.setContactFavourite(e.pub_key, !e.fav)) {
+      if (contactctl::setFavourite(e.pub_key, !e.fav)) {
         e.fav = !e.fav;
         buildNode();
       }
@@ -1613,22 +1645,10 @@ void UITask::buildThread() {
     lv_obj_set_style_bg_color(more, lv_color_hex(theme::SURFACE), 0);
     lv_obj_add_event_cb(more, onComposeMore, LV_EVENT_CLICKED, NULL);
     lv_obj_center(label(more, LV_SYMBOL_PLUS, THEME_FONT_BODY, theme::TEXT));
-    _compose_ta = lv_textarea_create(bar);
-    lv_textarea_set_one_line(_compose_ta, true);
-    lv_textarea_set_placeholder_text(_compose_ta, "Message");
+    _compose_ta = textField(bar, "Message");   // FOCUSED while the keyboard is up
     lv_obj_add_event_cb(_compose_ta, onComposeInsert, LV_EVENT_INSERT, NULL);
-    lv_obj_set_size(_compose_ta, lv_display_get_horizontal_resolution(NULL) - 8 - 34 - 4, 34);   // beside "+"
+    lv_obj_set_width(_compose_ta, lv_display_get_horizontal_resolution(NULL) - 8 - 34 - 4);   // beside "+"
     lv_obj_align(_compose_ta, LV_ALIGN_RIGHT_MID, 0, 0);
-    // The theme's padding leaves less than one line inside 36 px, which makes
-    // the field scroll vertically (text jumps as it's typed). Pad so exactly one
-    // body line (20 px) fits: 34 = 2*1 border + 2*6 pad + 20.
-    lv_obj_set_style_border_width(_compose_ta, 1, 0);
-    lv_obj_set_style_pad_ver(_compose_ta, 6, 0);
-    lv_obj_set_style_pad_hor(_compose_ta, 10, 0);
-    lv_obj_set_scrollbar_mode(_compose_ta, LV_SCROLLBAR_MODE_OFF);
-    // Cursor: the theme draws it only while FOCUSED (set while the keyboard is up).
-    lv_obj_set_style_border_color(_compose_ta, lv_color_hex(theme::ACCENT), LV_PART_CURSOR | LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(_compose_ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
 
     // In the body's flex column below the compose bar: showing it shrinks the
     // message list, so the text field stays visible just above the keys.
@@ -1741,7 +1761,8 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
 
   char meta[32];
-  formatAge(meta, sizeof(meta), ts);
+  uint32_t now = rtc_clock.getCurrentTime();
+  geo::fmtAgeShort(meta, sizeof(meta), now, ts ? ts : now);   // "12s" / "5m" / "3h" / "2d"
 
   // Channel messages: "Sender  5m" on one line above the text, which keeps
   // the bubble two lines tall -- matters with the keyboard up.
