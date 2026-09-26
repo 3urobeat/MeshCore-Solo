@@ -19,9 +19,14 @@ static lv_obj_t* s_sky = nullptr;      // sky plot (drawn)
 static lv_obj_t* s_bars = nullptr;     // signal bars (drawn, as wide as the satellites need)
 static lv_obj_t* s_status = nullptr;
 static lv_obj_t* s_used = nullptr;
-static lv_obj_t* s_info = nullptr;
-static lv_obj_t* s_systems = nullptr;
-static lv_obj_t* s_note = nullptr;
+// Beside the plot: in view, search time / time to first fix, UTC.
+static lv_obj_t *s_inview = nullptr, *s_search = nullptr, *s_ttff = nullptr, *s_utc = nullptr;
+// Under the bars: the position card (hidden without a fix), one pill per
+// constellation, the USB warning.
+static lv_obj_t *s_fix_title = nullptr, *s_fix_card = nullptr;
+static lv_obj_t *s_pos = nullptr, *s_alt = nullptr, *s_speed = nullptr, *s_dop = nullptr;
+static lv_obj_t* s_sys_pill[GpsSky::SYS_COUNT];
+static lv_obj_t* s_usb = nullptr;
 static lv_obj_t* s_on_btn = nullptr;
 static const int SKY = 150;
 static const int BAR_PITCH = 26, BAR_W = 16, BARS_H = 104;
@@ -273,7 +278,7 @@ void UITask::showGps(bool from_settings) {
 void UITask::buildGps() {
   using namespace gpsview;
   lv_obj_t* body = newScreen("GPS", true);
-  s_sky = s_bars = s_status = s_used = s_info = s_systems = s_note = s_on_btn = nullptr;
+  s_sky = s_bars = s_status = s_used = s_on_btn = nullptr;
 
   // Sky plot left, the fix right.
   lv_obj_t* top = lv_obj_create(body);
@@ -298,12 +303,16 @@ void UITask::buildGps() {
   lv_obj_set_style_pad_top(col, 4, 0);
   s_status = label(col, "", THEME_FONT_LARGE, theme::TEXT);
   s_used = label(col, "", THEME_FONT_BODY, theme::TEXT);
-  s_info = label(col, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_obj_set_style_text_line_space(s_info, 2, 0);
-  for (lv_obj_t* l : { s_used, s_info }) {
-    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(l, LV_PCT(100));
-  }
+  lv_label_set_long_mode(s_used, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(s_used, LV_PCT(100));
+  lv_obj_set_style_pad_bottom(s_used, 4, 0);
+  lv_obj_t* facts = infoCard(col);   // no card of its own: rows on the page
+  lv_obj_set_style_bg_opa(facts, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_pad_hor(facts, 0, 0);
+  s_inview = infoRow(facts, "In view", "", theme::TEXT, THEME_FONT_SMALL);
+  s_search = infoRow(facts, "Searching", "", theme::TEXT, THEME_FONT_SMALL);
+  s_ttff = infoRow(facts, "First fix", "", theme::TEXT, THEME_FONT_SMALL);
+  s_utc = infoRow(facts, "UTC", "", theme::TEXT, THEME_FONT_SMALL);
   s_on_btn = lv_button_create(col);
   lv_obj_set_height(s_on_btn, 34);
   lv_obj_set_style_radius(s_on_btn, theme::RADIUS, 0);
@@ -312,6 +321,16 @@ void UITask::buildGps() {
   lv_obj_center(label(s_on_btn, LV_SYMBOL_GPS "  Turn on", THEME_FONT_BODY, theme::TEXT));
   lv_obj_add_event_cb(s_on_btn, onGpsTurnOn, LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(s_on_btn, LV_OBJ_FLAG_HIDDEN);
+
+  s_usb = label(body, LV_SYMBOL_WARNING "  On USB power: charging disturbs GPS", THEME_FONT_SMALL, theme::ACCENT);
+  lv_obj_add_flag(s_usb, LV_OBJ_FLAG_HIDDEN);
+
+  s_fix_title = sectionTitle(body, "POSITION");
+  s_fix_card = infoCard(body);
+  s_pos = infoRow(s_fix_card, "Coordinates", "");
+  s_alt = infoRow(s_fix_card, "Altitude", "");
+  s_speed = infoRow(s_fix_card, "Speed", "");
+  s_dop = infoRow(s_fix_card, "Precision (DOP)", "");
 
   sectionTitle(body, "SIGNAL (dB-Hz)");
   lv_obj_t* sc = lv_obj_create(body);   // scrolls sideways when the satellites don't fit
@@ -326,13 +345,28 @@ void UITask::buildGps() {
   lv_obj_set_size(s_bars, BAR_PITCH, BARS_H);
   lv_obj_add_event_cb(s_bars, onGpsBarsDraw, LV_EVENT_DRAW_MAIN_END, NULL);
 
-  s_systems = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(s_systems, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_systems, LV_PCT(100));
-  s_note = label(body, "Solid = used in the fix. Green is a strong signal (30+ dB-Hz); "
-                 "indoors, below 25 a fix is unlikely.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(s_note, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_note, LV_PCT(100));
+  // Constellations: used / in view, a pill each (a pill never breaks in two).
+  lv_obj_t* pills = lv_obj_create(body);
+  lv_obj_remove_style_all(pills);
+  lv_obj_set_size(pills, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(pills, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_set_style_pad_column(pills, 6, 0);
+  lv_obj_set_style_pad_row(pills, 6, 0);
+  for (uint8_t k = 0; k < GpsSky::SYS_COUNT; k++) {
+    lv_obj_t* p = label(pills, "", THEME_FONT_SMALL, theme::TEXT);
+    lv_obj_set_style_bg_color(p, lv_color_hex(theme::SURFACE), 0);
+    lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(p, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_pad_hor(p, 10, 0);
+    lv_obj_set_style_pad_ver(p, 3, 0);
+    lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
+    s_sys_pill[k] = p;
+  }
+
+  lv_obj_t* note = label(body, "Solid bar = used in the fix. Green is a strong signal (30+ dB-Hz); "
+                         "indoors, below 25 a fix is unlikely.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(note, LV_PCT(100));
   refreshGps();
 }
 
@@ -348,7 +382,9 @@ void UITask::refreshGps() {
   if (off) lv_obj_remove_flag(s_on_btn, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(s_on_btn, LV_OBJ_FLAG_HIDDEN);
 
-  char used[48] = "", info[240] = "";
+  char used[48] = "", inview[16] = "", search[16] = "", ttff[16] = "", utc[16] = "";
+  char pos[32] = "", alt[16] = "", speed[16] = "", dop[32] = "";
+  bool fix = false;
   if (!g) {
     lv_label_set_text(s_status, "Not available");
     lv_obj_set_style_text_color(s_status, lv_color_hex(theme::TEXT_MUTED), 0);
@@ -359,51 +395,58 @@ void UITask::refreshGps() {
     lv_label_set_text(s_status, "No data");
     lv_obj_set_style_text_color(s_status, lv_color_hex(theme::FAIL), 0);
 #if defined(SEEED_WIO_TRACKER_L2)
-    snprintf(info, sizeof(info), "Nothing from the receiver\n(%lu bytes so far)", (unsigned long)gps.rxChars());
+    snprintf(used, sizeof(used), "Nothing from the receiver (%lu B)", (unsigned long)gps.rxChars());
 #else
-    snprintf(info, sizeof(info), "Nothing from the receiver");
+    snprintf(used, sizeof(used), "Nothing from the receiver");
 #endif
   } else {
     int tracked = 0, used_n = 0;
     for (int i = 0; i < s_n; i++) { if (s_sats[i].snr >= 0) tracked++; if (s_used_flag[i]) used_n++; }
-    if (g->hasFix()) {
+    fix = g->hasFix();
+    if (fix) {
       lv_label_set_text(s_status, g->fix_mode == 2 ? "2D fix" : "3D fix");
-      lv_obj_set_style_text_color(s_status, lv_color_hex(0x6FCF6F), 0);
+      lv_obj_set_style_text_color(s_status, lv_color_hex(theme::OK), 0);
     } else {
       lv_label_set_text(s_status, "Searching");
       lv_obj_set_style_text_color(s_status, lv_color_hex(theme::ACCENT), 0);
     }
-    snprintf(used, sizeof(used), "%d of %d used", g->hasFix() ? (used_n ? used_n : g->sats_used) : 0, s_n);
-    int o = snprintf(info, sizeof(info), "%d with a signal\n", tracked);
+    snprintf(used, sizeof(used), "%d of %d used", fix ? (used_n ? used_n : g->sats_used) : 0, s_n);
+    snprintf(inview, sizeof(inview), "%d heard", tracked);
     uint32_t since = g->start_ms ? (millis() - g->start_ms) / 1000 : 0;
-    if (g->ttff_ms) o += snprintf(info + o, sizeof(info) - o, "First fix after %lu s\n", (unsigned long)(g->ttff_ms / 1000));
-    else o += snprintf(info + o, sizeof(info) - o, "Searching for %lu:%02lu\n", (unsigned long)(since / 60), (unsigned long)(since % 60));
-    if (g->hasFix() && g->hdop > 0)
-      o += snprintf(info + o, sizeof(info) - o, "DOP  H %.1f  V %.1f  P %.1f\n", g->hdop, g->vdop, g->pdop);
+    if (g->ttff_ms) snprintf(ttff, sizeof(ttff), "%lu s", (unsigned long)(g->ttff_ms / 1000));
+    else snprintf(search, sizeof(search), "%lu:%02lu", (unsigned long)(since / 60), (unsigned long)(since % 60));
+    if (g->utc_valid) snprintf(utc, sizeof(utc), "%02u:%02u:%02u", g->utc_h, g->utc_m, g->utc_s);
     int32_t lat, lon;
-    if (g->hasFix() && _core->course.currentLocation(lat, lon))
-      o += snprintf(info + o, sizeof(info) - o, "%.5f, %.5f\n", lat / 1e6, lon / 1e6);
-    if (g->hasFix() && g->alt_valid)
-      o += snprintf(info + o, sizeof(info) - o, "%.0f m  -  %.1f km/h\n", g->alt_m, g->speed_kmh);
-    if (g->utc_valid) o += snprintf(info + o, sizeof(info) - o, "UTC %02u:%02u:%02u", g->utc_h, g->utc_m, g->utc_s);
-  }
-  if (g && !off && _board->isExternalPowered()) {   // measured: on the cable the L76K never decodes indoors
-    size_t o = strlen(info);
-    snprintf(info + o, sizeof(info) - o, "%sOn USB power: charging disturbs GPS", o ? "\n" : "");
+    if (fix && _core->course.currentLocation(lat, lon)) snprintf(pos, sizeof(pos), "%.5f, %.5f", lat / 1e6, lon / 1e6);
+    if (fix && g->alt_valid) {
+      snprintf(alt, sizeof(alt), "%.0f m", g->alt_m);
+      snprintf(speed, sizeof(speed), "%.1f km/h", g->speed_kmh);
+    }
+    if (fix && g->hdop > 0) snprintf(dop, sizeof(dop), "H %.1f  V %.1f  P %.1f", g->hdop, g->vdop, g->pdop);
   }
   lv_label_set_text(s_used, used);
-  lv_label_set_text(s_info, info);
+  infoSet(s_inview, inview);
+  infoSet(s_search, search);
+  infoSet(s_ttff, ttff);
+  infoSet(s_utc, utc);
+  infoSet(s_pos, pos);
+  infoSet(s_alt, alt);
+  infoSet(s_speed, speed);
+  infoSet(s_dop, dop);
+  if (fix && pos[0]) { lv_obj_remove_flag(s_fix_title, LV_OBJ_FLAG_HIDDEN); lv_obj_remove_flag(s_fix_card, LV_OBJ_FLAG_HIDDEN); }
+  else { lv_obj_add_flag(s_fix_title, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(s_fix_card, LV_OBJ_FLAG_HIDDEN); }
+  // measured: on the cable the L76K never decodes indoors
+  if (g && !off && _board->isExternalPowered()) lv_obj_remove_flag(s_usb, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(s_usb, LV_OBJ_FLAG_HIDDEN);
 
   // Per constellation: used / in view.
-  char sys[160] = "";
-  int o = 0;
   for (uint8_t k = 0; k < GpsSky::SYS_COUNT; k++) {
-    int inview = 0, u = 0;
-    for (int i = 0; i < s_n; i++) if (s_sats[i].sys == k) { inview++; if (s_used_flag[i]) u++; }
-    if (inview) o += snprintf(sys + o, sizeof(sys) - o, "%s%c %s %d/%d", o ? "   " : "", GpsSky::sysLetter(k),
-                              GpsSky::sysName(k), u, inview);
+    int n = 0, u = 0;
+    for (int i = 0; i < s_n; i++) if (s_sats[i].sys == k) { n++; if (s_used_flag[i]) u++; }
+    if (!n) { lv_obj_add_flag(s_sys_pill[k], LV_OBJ_FLAG_HIDDEN); continue; }
+    lv_label_set_text_fmt(s_sys_pill[k], "%c  %s  %d/%d", GpsSky::sysLetter(k), GpsSky::sysName(k), u, n);
+    lv_obj_remove_flag(s_sys_pill[k], LV_OBJ_FLAG_HIDDEN);
   }
-  lv_label_set_text(s_systems, sys);
 
   int32_t w = s_n * BAR_PITCH;
   if (w < BAR_PITCH) w = BAR_PITCH;

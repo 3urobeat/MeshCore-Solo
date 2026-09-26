@@ -168,6 +168,76 @@ static lv_obj_t* settingRow(lv_obj_t* parent, const char* text, const char* hint
   return row;
 }
 
+// ── Info cards ──
+// Label / value rows on a card (Diagnostics, GPS, node detail, About): the
+// label small and muted on the left, the value on the right -- wrapping,
+// right-aligned, when it's long -- and a hairline between rows. infoRow()
+// returns the value label to update in place; infoSet() also hides its row
+// while there's nothing to show.
+static lv_obj_t* infoCard(lv_obj_t* parent) {
+  lv_obj_t* c = lv_obj_create(parent);
+  styleSurface(c, theme::SURFACE);
+  lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(c, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(c, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_radius(c, theme::RADIUS, 0);
+  lv_obj_set_style_pad_hor(c, theme::PAD, 0);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+  return c;
+}
+
+static lv_obj_t* infoLine(lv_obj_t* card) {   // one row's box, the hairline above all but the first
+  lv_obj_t* r = lv_obj_create(card);
+  lv_obj_remove_style_all(r);
+  lv_obj_remove_flag(r, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_ver(r, 5, 0);
+  if (lv_obj_get_index(r) > 0) {
+    lv_obj_set_style_border_side(r, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(r, 1, 0);
+    lv_obj_set_style_border_color(r, lv_color_hex(theme::SURFACE_2), 0);
+  }
+  return r;
+}
+
+static lv_obj_t* infoRow(lv_obj_t* card, const char* key, const char* value, uint32_t col = theme::TEXT,
+                         const lv_font_t* font = THEME_FONT_BODY) {
+  lv_obj_t* r = infoLine(card);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(r, 8, 0);
+  lv_obj_t* k = label(r, key, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(k, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(k, 1);
+  lv_obj_set_flex_grow(k, 1);
+  lv_obj_t* v = label(r, value, font, col);
+  lv_label_set_long_mode(v, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(v, LV_SIZE_CONTENT);
+  lv_obj_set_style_max_width(v, LV_PCT(66), 0);
+  lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+  return v;
+}
+
+// A row whose text is a sentence (credits, notes): the label over it.
+static lv_obj_t* infoNote(lv_obj_t* card, const char* key, const char* text) {
+  lv_obj_t* r = infoLine(card);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(r, 2, 0);
+  label(r, key, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_t* t = label(r, text, THEME_FONT_SMALL, theme::TEXT);
+  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(t, LV_PCT(100));
+  return t;
+}
+
+static void infoSet(lv_obj_t* value, const char* text) {
+  lv_obj_t* row = lv_obj_get_parent(value);
+  if (!text || !text[0]) { lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN); return; }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(value, text);
+}
+
 // A bare flex row / column sized to its content, taps passing through.
 static lv_obj_t* flexBox(lv_obj_t* parent, lv_flex_flow_t flow) {
   lv_obj_t* b = lv_obj_create(parent);
@@ -1434,6 +1504,8 @@ void UITask::buildContacts() {
 // model, since it is a different set: who is in range, not who is known.
 
 static NearbyModel::Entry s_node;   // the node open in SCR_NODE (a copy: the list re-sorts)
+// Its info card's values (UITask::_node_info is the card).
+static lv_obj_t *s_nd_type, *s_nd_status, *s_nd_dist, *s_nd_pos, *s_nd_heard, *s_nd_signal, *s_nd_id;
 enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV, NODE_ADMIN, NODE_WAYPOINT, NODE_PIN };
 
 static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
@@ -1708,16 +1780,16 @@ void UITask::buildNode() {
   const NearbyModel::Entry& e = s_node;
   lv_obj_t* body = newScreen(e.name[0] ? e.name : "(unknown)", true);
 
-  _node_info = label(body, "", THEME_FONT_BODY, theme::TEXT);
-  lv_label_set_long_mode(_node_info, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(_node_info, LV_PCT(100));
-  lv_obj_set_style_text_line_space(_node_info, 3, 0);
-  _node_ping = label(body, "", THEME_FONT_BODY, theme::ACCENT);
-
-  lv_obj_t* spacer = lv_obj_create(body);   // pushes the actions to the bottom
-  lv_obj_remove_style_all(spacer);
-  lv_obj_set_width(spacer, 1);
-  lv_obj_set_flex_grow(spacer, 1);
+  lv_obj_t* info = scrollList(body);   // the info, scrolling above the actions at the bottom
+  _node_info = infoCard(info);
+  s_nd_type = infoRow(_node_info, "Type", "");
+  s_nd_status = infoRow(_node_info, "Status", "");
+  s_nd_dist = infoRow(_node_info, "Distance", "");
+  s_nd_pos = infoRow(_node_info, "Position", "");
+  s_nd_heard = infoRow(_node_info, "Heard", "");
+  s_nd_signal = infoRow(_node_info, "Signal", "");
+  s_nd_id = infoRow(_node_info, "ID", "");
+  _node_ping = label(info, "", THEME_FONT_BODY, theme::ACCENT);
 
   lv_obj_t* acts = lv_obj_create(body);
   styleSurface(acts, theme::BG);
@@ -1763,36 +1835,40 @@ void UITask::refreshNode() {
     if (same) { s_node = m; break; }
   }
 
-  char buf[320];
-  int o = 0;
   // A scan row carries no contact index; is_known says whether it's in the contacts.
   bool known = e.contact_idx >= 0 || (_node_from_scan && e.is_known);
-  o += snprintf(buf + o, sizeof(buf) - o, "%s%s%s%s", NearbyModel::typeName(e.type),
-                known ? "" : "  -  not a contact",
-                e.is_live ? (e.live_verified ? "  -  live position" : "  -  live position (channel)") : "",
-                e.fav ? "  -  favourite" : "");
+  char status[64] = "", dist[40] = "", pos[32] = "", heard[16] = "", sig[40] = "", id[12] = "";
+  int o = 0;
+  auto tag = [&](const char* t) { o += snprintf(status + o, sizeof(status) - o, "%s%s", o ? ", " : "", t); };
+  if (!known) tag("not a contact");
+  if (e.is_live) tag(e.live_verified ? "live position" : "live position (channel)");
+  if (e.fav) tag("favourite");
+  if (status[0] >= 'a' && status[0] <= 'z') status[0] -= 'a' - 'A';
   int32_t lat, lon;
-  bool gps = _nearby->ownPosition(lat, lon);
   if (e.lat_e6 != 0 || e.lon_e6 != 0) {
-    if (gps && e.dist_km >= 0.0f) {
+    if (_nearby->ownPosition(lat, lon) && e.dist_km >= 0.0f) {
       char d[16];
       geo::fmtDist(d, sizeof(d), e.dist_km, _prefs && _prefs->units_imperial);
       int az = geo::bearingDeg(lat, lon, e.lat_e6, e.lon_e6);
-      o += snprintf(buf + o, sizeof(buf) - o, "\n%s  %d\xC2\xB0 %s", d, az, geo::bearingCardinal(az));
+      snprintf(dist, sizeof(dist), "%s  %d\xC2\xB0 %s", d, az, geo::bearingCardinal(az));
     }
-    o += snprintf(buf + o, sizeof(buf) - o, "\n%.5f, %.5f", e.lat_e6 / 1e6, e.lon_e6 / 1e6);
+    snprintf(pos, sizeof(pos), "%.5f, %.5f", e.lat_e6 / 1e6, e.lon_e6 / 1e6);
   } else if (!_node_from_scan) {
-    o += snprintf(buf + o, sizeof(buf) - o, "\nNo position shared");
+    snprintf(pos, sizeof(pos), "Not shared");
   }
   char age[8];
   geo::fmtAgeShort(age, sizeof(age), rtc_clock.getCurrentTime(), e.lastmod);
-  if (age[0]) o += snprintf(buf + o, sizeof(buf) - o, "\nHeard %s ago", age);
+  if (age[0]) snprintf(heard, sizeof(heard), "%s ago", age);
   if (_node_from_scan)
-    o += snprintf(buf + o, sizeof(buf) - o, "\nRSSI %d dBm  -  SNR %.1f / %.1f dB", e.rssi,
-                  e.snr_x4 / 4.0f, e.remote_snr_x4 / 4.0f);
-  if (e.has_prefix)
-    o += snprintf(buf + o, sizeof(buf) - o, "\nID %02X%02X%02X%02X", e.pub_key[0], e.pub_key[1], e.pub_key[2], e.pub_key[3]);
-  lv_label_set_text(_node_info, buf);
+    snprintf(sig, sizeof(sig), "%d dBm, SNR %.1f / %.1f", e.rssi, e.snr_x4 / 4.0f, e.remote_snr_x4 / 4.0f);
+  if (e.has_prefix) snprintf(id, sizeof(id), "%02X%02X%02X%02X", e.pub_key[0], e.pub_key[1], e.pub_key[2], e.pub_key[3]);
+  infoSet(s_nd_type, NearbyModel::typeName(e.type));
+  infoSet(s_nd_status, status);
+  infoSet(s_nd_dist, dist);
+  infoSet(s_nd_pos, pos);
+  infoSet(s_nd_heard, heard);
+  infoSet(s_nd_signal, sig);
+  infoSet(s_nd_id, id);
 
   // Ping result (PingEngine releases its slot on reply; the view owns the timeout)
   if (_pinging) {
@@ -2721,15 +2797,13 @@ void UITask::buildSettings() {
   }
 
   sectionTitle(body, "ABOUT");
-  char about[300], built[24] = "";
-  if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) snprintf(built, sizeof(built), " (%s)", FIRMWARE_BUILD_DATE);
-  snprintf(about, sizeof(about), "%s\nFirmware %s%s\n\nMap data: %s\nEmoji: Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC\xE2\x80\x91" "BY 4.0)",
-           the_mesh.getNodeName(), FIRMWARE_VERSION, built,
-           (lvport::mountStorage() && mapview::s_provider->available()) ? mapview::s_provider->attribution()
-                                                                         : "\xC2\xA9 OpenStreetMap contributors");
-  lv_obj_t* a = label(body, about, THEME_FONT_SMALL, theme::TEXT);
-  lv_label_set_long_mode(a, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(a, LV_PCT(100));
+  lv_obj_t* about = infoCard(body);
+  infoRow(about, "Node", the_mesh.getNodeName());
+  infoRow(about, "Firmware", FIRMWARE_VERSION);
+  if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) infoRow(about, "Built", FIRMWARE_BUILD_DATE);
+  infoNote(about, "Map data", (lvport::mountStorage() && mapview::s_provider->available())
+                                  ? mapview::s_provider->attribution() : "\xC2\xA9 OpenStreetMap contributors");
+  infoNote(about, "Emoji", "Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC\xE2\x80\x91" "BY\xC2\xA0" "4.0)");
 }
 
 void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
@@ -2751,3 +2825,19 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "OtaScreen.h"
 #include "StorageScreen.h"
 #include "Splash.h"
+
+#if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+// Sim tests: straight to a screen by name.
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_open(const char* name) {
+  if (!s_ui) return;
+  struct { const char* n; void (UITask::*fn)(); } const SCREENS[] = {
+    { "home", &UITask::showHome }, { "chats", &UITask::showChats }, { "settings", &UITask::showSettings },
+    { "nodes", &UITask::showNearby }, { "ota", &UITask::showOta }, { "wifi", &UITask::showWifi },
+    { "clock", &UITask::showClock }, { "radio", &UITask::showRadio }, { "scopes", &UITask::showScopes },
+    { "repeater", &UITask::showRepeater }, { "bot", &UITask::showBot }, { "storage", &UITask::showStorage },
+    { "diag", &UITask::showDiag }, { "compass", &UITask::showCompass }, { "admin", &UITask::showAdminPick },
+    { "quick", &UITask::showQuickMsgs },
+  };
+  for (auto& s : SCREENS) if (!strcmp(s.n, name)) { (s_ui->*s.fn)(); return; }
+}
+#endif

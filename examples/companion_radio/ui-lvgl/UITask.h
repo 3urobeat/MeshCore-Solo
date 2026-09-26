@@ -303,6 +303,7 @@ private:
   void navAddWaypoint(int32_t lat, int32_t lon);
   void navDropAt(int x, int y);
   void navSpotPopup(int32_t lat, int32_t lon);
+  void placeCard(lv_obj_t* parent, int32_t lat, int32_t lon);
   void refreshNavTools();
   void navPollAveraging();
   void navPollTrackBack();

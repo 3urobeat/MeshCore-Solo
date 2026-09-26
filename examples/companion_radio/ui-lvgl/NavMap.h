@@ -594,21 +594,27 @@ void UITask::navTargetsPopup() {
   if (live == 0) label(list, "Nobody is sharing their position.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 }
 
+// A place's coordinates and, with a fix, how far and which way.
+void UITask::placeCard(lv_obj_t* parent, int32_t lat, int32_t lon) {
+  lv_obj_t* card = infoCard(parent);
+  char t[40];
+  snprintf(t, sizeof(t), "%.5f, %.5f", lat / 1e6, lon / 1e6);
+  infoRow(card, "Coordinates", t);
+  int32_t mlat, mlon;
+  if (!_core->course.currentLocation(mlat, mlon)) return;
+  char d[12];
+  geo::fmtDist(d, sizeof(d), geo::haversineKm(mlat, mlon, lat, lon), _prefs && _prefs->units_imperial);
+  int az = geo::bearingDeg(mlat, mlon, lat, lon);
+  snprintf(t, sizeof(t), "%s  %d\xC2\xB0 %s", d, az, geo::bearingCardinal(az));
+  infoRow(card, "Distance", t);
+}
+
 void UITask::navWaypointMenu(int idx) {
   if (idx < 0 || idx >= _core->waypoints.count()) return;
   _nav_wp = idx;
   const Waypoint& w = _core->waypoints.at(idx);
   lv_obj_t* panel = navPopupPanel(w.label[0] ? w.label : "(unnamed)", false);
-  char info[80];
-  int o = snprintf(info, sizeof(info), "%.5f, %.5f", w.lat_1e6 / 1e6, w.lon_1e6 / 1e6);
-  int32_t lat, lon;
-  if (_core->course.currentLocation(lat, lon)) {
-    char d[12];
-    geo::fmtDist(d, sizeof(d), geo::haversineKm(lat, lon, w.lat_1e6, w.lon_1e6), _prefs && _prefs->units_imperial);
-    int az = geo::bearingDeg(lat, lon, w.lat_1e6, w.lon_1e6);
-    snprintf(info + o, sizeof(info) - o, "\n%s  %d\xC2\xB0 %s", d, az, geo::bearingCardinal(az));
-  }
-  label(panel, info, THEME_FONT_BODY, theme::TEXT);
+  placeCard(panel, w.lat_1e6, w.lon_1e6);
 
   lv_obj_t* acts = lv_obj_create(panel);
   styleSurface(acts, theme::BG);
@@ -1387,16 +1393,7 @@ void UITask::navSpotPopup(int32_t lat, int32_t lon) {
   _nav_spot_lat = lat;
   _nav_spot_lon = lon;
   lv_obj_t* panel = navPopupPanel("This spot", false);
-  char info[64];
-  int o = snprintf(info, sizeof(info), "%.5f, %.5f", lat / 1e6, lon / 1e6);
-  int32_t mlat, mlon;
-  if (_core->course.currentLocation(mlat, mlon)) {
-    char d[12];
-    geo::fmtDist(d, sizeof(d), geo::haversineKm(mlat, mlon, lat, lon), _prefs && _prefs->units_imperial);
-    int az = geo::bearingDeg(mlat, mlon, lat, lon);
-    snprintf(info + o, sizeof(info) - o, "\n%s  %d\xC2\xB0 %s", d, az, geo::bearingCardinal(az));
-  }
-  label(panel, info, THEME_FONT_BODY, theme::TEXT);
+  placeCard(panel, lat, lon);
   lv_obj_t* r = toolRow(panel);
   toolButton(r, UI_SYMBOL_FLAG " Add waypoint", navmap::TL_SPOT_ADD, true);
   toolButton(r, UI_SYMBOL_COMPASS " Go here", navmap::TL_SPOT_GO, false);

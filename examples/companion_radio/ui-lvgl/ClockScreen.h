@@ -148,10 +148,14 @@ void UITask::buildClock() {
     lv_obj_set_size(col, 120, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(col, 6, 0);
+    lv_obj_set_style_pad_row(col, 4, 0);
     lv_obj_set_style_pad_left(col, 8, 0);
-    label(col, "Alarm on", THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_obj_t* sw = s_alarm_sw = lv_switch_create(col);
+    lv_obj_t* on = flexBox(col, LV_FLEX_FLOW_ROW);   // the switch and its label: one line
+    lv_obj_set_flex_align(on, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(on, 8, 0);
+    lv_obj_set_style_pad_bottom(on, 4, 0);
+    lv_obj_t* sw = s_alarm_sw = lv_switch_create(on);
+    label(on, "Alarm on", THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_obj_set_size(sw, 50, 26);
     if (_prefs->alarm_on) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, onAlarmSwitch, LV_EVENT_VALUE_CHANGED, NULL);

@@ -39,6 +39,9 @@
 // Image glyphs (the emoji) are drawn only with this on; lv_imgfont itself is unused.
 #define LV_USE_IMGFONT          1
 #define LV_FONT_DEFAULT         &ui_font_14
+// Where a line may break: not after '.', which would split "4.0", "v1.23" or
+// a coordinate across two lines.
+#define LV_TXT_BREAK_CHARS      " ,;:-_)]}"
 #define LV_USE_FONT_COMPRESSED  0      // fonts are generated uncompressed: no per-glyph decompression on every draw
 
 // PNG decoder for raster map tiles (map/TileProvider.h calls lodepng directly).

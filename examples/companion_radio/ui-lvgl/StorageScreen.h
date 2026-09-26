@@ -163,19 +163,6 @@ static void showUsage(lv_obj_t* bar, lv_obj_t* lbl, uint64_t total, uint64_t use
   lv_label_set_text(lbl, line);
 }
 
-// Name left, size right.
-static lv_obj_t* sizeRow(lv_obj_t* parent, const char* name) {
-  lv_obj_t* row = lv_obj_create(parent);
-  styleSurface(row, theme::SURFACE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), 34);
-  lv_obj_set_style_radius(row, theme::RADIUS, 0);
-  lv_obj_align(label(row, name, THEME_FONT_BODY, theme::TEXT), LV_ALIGN_LEFT_MID, theme::PAD, 0);
-  lv_obj_t* v = label(row, "...", THEME_FONT_BODY, theme::ACCENT);
-  lv_obj_align(v, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
-  return v;
-}
-
 static void refreshSizes() {
   for (int c = 0; c < C_COUNT; c++) {
     if (!s_cat_val[c]) continue;
@@ -185,7 +172,7 @@ static void refreshSizes() {
   }
   if (s_status) {
     char t[48];
-    snprintf(t, sizeof(t), s_walking ? "Counting files... %lu" : "%lu files", (unsigned long)s_files);
+    snprintf(t, sizeof(t), s_walking ? "counting... %lu" : "%lu", (unsigned long)s_files);
     lv_label_set_text(s_status, t);
   }
 }
@@ -220,8 +207,9 @@ void UITask::buildStorage() {
   } else {
     s_sd_bar = usageBar(body, &s_sd_lbl);
     lv_label_set_text(s_sd_lbl, "Reading the card...");
-    for (int c = 0; c < C_COUNT; c++) s_cat_val[c] = sizeRow(body, CAT_NAME[c]);
-    s_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_obj_t* cats = infoCard(body);   // what takes the space
+    for (int c = 0; c < C_COUNT; c++) s_cat_val[c] = infoRow(cats, CAT_NAME[c], "...", theme::ACCENT);
+    s_status = infoRow(cats, "Files", "");
     s_sd_read = false;   // read in pollStorage(): the first read of a big card takes a moment
     startWalk();
   }

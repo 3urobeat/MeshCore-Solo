@@ -166,6 +166,8 @@ static bool startTask() {
 
 }  // namespace ota
 
+static lv_obj_t* s_ota_latest = nullptr;   // the release found, once checked
+
 static void onOpenOta(lv_event_t* e) { (void)e; s_ui->showOta(); }
 static void onOtaButton(lv_event_t* e) { (void)e; s_ui->otaAction(); }
 
@@ -181,10 +183,10 @@ bool UITask::otaBusy() const { return ota::s_state == ota::CHECKING || ota::s_st
 
 void UITask::buildOta() {
   lv_obj_t* body = newScreen("Firmware update", true);
-  char t[96];
-  snprintf(t, sizeof(t), "Installed: %s", FIRMWARE_VERSION);
-  label(body, t, THEME_FONT_BODY, theme::TEXT);
-  _ota_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_t* card = infoCard(body);
+  infoRow(card, "Installed", FIRMWARE_VERSION);
+  s_ota_latest = infoRow(card, "Latest release", "");
+  _ota_status = label(body, "", THEME_FONT_BODY, theme::TEXT);
   lv_label_set_long_mode(_ota_status, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(_ota_status, LV_PCT(100));
   _ota_bar = lv_bar_create(body);
@@ -258,6 +260,7 @@ void UITask::refreshOta() {
       break;
   }
   lv_label_set_text(_ota_status, st);
+  if (s_ota_latest) infoSet(s_ota_latest, s_latest);
   lv_label_set_text(_ota_btn_lbl, btn);
   if (bar) lv_obj_remove_flag(_ota_bar, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(_ota_bar, LV_OBJ_FLAG_HIDDEN);
   if (btn_on) lv_obj_remove_flag(_ota_btn, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(_ota_btn, LV_OBJ_FLAG_HIDDEN);
