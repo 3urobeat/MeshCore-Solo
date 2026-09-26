@@ -5,8 +5,10 @@ for what comes next, in order. Tick items off as they land.
 
 Decisions already made:
 
-- **Buttons:** WAKE (side, expander P00) turns the screen off / on. USER/BOOT
-  goes back; holding it mutes / unmutes the device.
+- **Buttons:** WAKE (top, expander P00) turns the screen off / on. USER/BOOT
+  (side) goes back; holding it mutes / unmutes the device, also with the
+  screen off; it doesn't wake the screen (a press in a pocket). Later: a
+  click takes you to the main menu page, once the menu is rebuilt.
 - **Placeholders:** the "+" popup next to a text field is the placeholder UI;
   it must offer every placeholder and appear at every field that sends text.
 - **Message history:** kept on the SD card, about 100 per conversation to
@@ -251,7 +253,8 @@ User list, second batch (2026-09-26):
       the MeshCore title font (the wordmark's letters plus l, v, d, digits,
       '.', '-' drawn to match; Noto for a line with anything else).
 - [ ] Emoji, ideally the full range (glyphs could live on the SD card).
-- [ ] Tap-to-wake toggle.
+- [x] Tap-to-wake toggle (Settings > Display & power > WAKE, NVS, on by
+      default; off: only the top button wakes it).
 - [ ] Favourites as their own screen in the menu rather than a tile.
 - [ ] WiFi indicator icon in the status bar.
 

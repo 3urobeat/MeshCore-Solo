@@ -226,6 +226,21 @@ static void saveLiveCap(int idx) {
   p.putChar("ltcap", (int8_t)idx);
   p.end();
 }
+// Settings > Display & power > Tap to wake: a touch turns the dark screen on
+// (off: only the side button does).
+static bool loadTapWake() {
+  Preferences p;
+  if (!p.begin("mc_ui", true)) return true;
+  bool on = p.getBool("tapwake", true);
+  p.end();
+  return on;
+}
+static void saveTapWake(bool on) {
+  Preferences p;
+  if (!p.begin("mc_ui", false)) return;
+  p.putBool("tapwake", on);
+  p.end();
+}
 // Filesystem size and space in use (Settings > Storage), plus the card's own
 // size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
 // imager) shows both. The first free-space count on a big card takes a moment.
@@ -514,6 +529,9 @@ static void saveHistKeep(int idx) { s_hist_keep = idx; }
 static int s_live_cap = -1;
 static int loadLiveCap() { return s_live_cap; }
 static void saveLiveCap(int idx) { s_live_cap = idx; }
+static bool s_tap_wake = true;
+static bool loadTapWake() { return s_tap_wake; }
+static void saveTapWake(bool on) { s_tap_wake = on; }
 // The browser has no card: a nominal 32 GB, used = what the files add up to
 // (the storage screen counts them anyway; it passes that in).
 static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) { total = card = 32ULL << 30; used = 0; return true; }

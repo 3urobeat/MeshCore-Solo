@@ -222,6 +222,7 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
     s_archive.restore(_core->history);
     _core->history.setArchive(&s_archive);
   }
+  _tap_wake = lvport::loadTapWake();
   msgtext::seedQuick(node_prefs);   // "OK" in quick message 1 on first boot
   _nearby = new NearbyModel();
   _nearby->bindModel(_core, node_prefs);
@@ -274,8 +275,9 @@ void UITask::loop() {
   pollConnection();
   drainCoreEvents();
 
-  // USER (BOOT) button: back; held, mutes / unmutes. WAKE button: screen off /
-  // on. Either one silences a ringing alarm first.
+  // USER (BOOT, side) button: back; held, mutes / unmutes, also with the
+  // screen off, which it doesn't wake. WAKE (top) button: screen off / on.
+  // Either one silences a ringing alarm first.
   bool btn_click = false, btn_hold = false, wake_press = false;
 #ifdef PIN_USER_BTN
   int ev = user_btn.check();
@@ -298,10 +300,10 @@ void UITask::loop() {
   if ((btn_click || btn_hold || wake_press) && _core->clock.isRinging()) dismissRing();
   else if (wake_press) { if (_asleep) wake(); else sleep(); }
   else if (btn_hold) toggleMute();
-  else if (btn_click) { if (_asleep) wake(); else if (!locked()) back(); }
+  else if (btn_click) { if (!_asleep && !locked()) back(); }   // the side button doesn't wake: pockets
 
   if (_asleep) {
-    if (lvport::touched()) { lvport::swallowTouch(); wake(); }
+    if (lvport::touched()) { lvport::swallowTouch(); if (_tap_wake) wake(); }   // off: the top (WAKE) button only
   } else {
     uint32_t aoff = autoOffMillis();
     if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging() && !otaBusy()) sleep();
@@ -2374,6 +2376,15 @@ void UITask::setBrightnessPct(uint8_t pct, bool save) {
   if (save) the_mesh.savePrefs();
 }
 
+static void onTapWake(lv_event_t* e) {
+  s_ui->setTapWake(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
+void UITask::setTapWake(bool on) {
+  _tap_wake = on;
+  lvport::saveTapWake(on);
+}
+
 void UITask::buildSchemaSettings() {
   lv_obj_t* body = newScreen(settings::pageTitle(_settings_page), true);
   _prune_lbl = nullptr;
@@ -2390,6 +2401,10 @@ void UITask::buildSchemaSettings() {
     lv_obj_center(_prune_lbl);
   }
   if (_settings_page == settings::PG_DEVICE) {   // after Lock screen's section, in NVS not the schema
+    sectionTitle(body, "WAKE");
+    lv_obj_t* tw = switchRow(body, "Tap to wake", "Off: only the top button turns it on", nullptr);
+    if (_tap_wake) lv_obj_add_state(tw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(tw, onTapWake, LV_EVENT_VALUE_CHANGED, NULL);
     sectionTitle(body, "SECURITY");
     listRow(body, LV_SYMBOL_EYE_CLOSE "  Screen PIN", _pin[0] ? "On  -  asked when the screen wakes" : "Off",
             onPinSetup, NULL);

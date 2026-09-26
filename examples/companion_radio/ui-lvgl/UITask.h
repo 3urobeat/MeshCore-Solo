@@ -64,6 +64,7 @@ public:
   void mapPan(int dx, int dy);
   void mapOpenMarker(int idx);
   void mapDownloadPopup();
+  void setTapWake(bool on);
   void mapDownloadClose();
   void mapDownloadStart();
   void mapDownloadStop();
@@ -404,6 +405,7 @@ private:
   lv_obj_t* _prune_lbl = nullptr;
   // Screen PIN (DeviceScreen.h); stored in NVS (lvport::loadPin)
   char      _pin[9] = "";          // "" = no PIN
+  bool      _tap_wake = true;      // a touch wakes the dark screen (NVS)
   char      _pin_entry[9] = "";    // digits typed so far
   char      _pin_new[9] = "";      // setup: the first entry, waiting for its confirmation
   uint8_t   _pin_fails = 0;
