@@ -616,7 +616,7 @@ void UITask::refreshStatusBar() {
     case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
     default: break;
   }
-  lv_label_set_text_fmt(_status_batt, "%s%s", batt, level);
+  lv_label_set_text_fmt(_status_batt, "%s%s%s", _board->isExternalPowered() ? LV_SYMBOL_CHARGE " " : "", batt, level);
 
   // Status icons, as the original's status bar (ui-new): Bluetooth (bright
   // when the app is connected), GPS (green with a fix), the alarm, mute, then

@@ -125,6 +125,20 @@ void WioTrackerL2Board::begin() {
 
   Wire.beginTransmission(0x22);
   aw_ok = Wire.endTransmission() == 0;
+  if (aw_ok) {
+    // AW35615 = FUSB302-style register map. VBUSOK (STATUS0 bit 7) only
+    // works with the measure block powered: POWER (0x0B) resets to 0x01
+    // (bandgap only), which reads "no USB" forever. Add the receiver /
+    // current references and the measure block (PWR[1..2]).
+    // Verified on hardware: device ID 0x91; STATUS0 0x01 -> 0x80 on USB.
+    int pw = awRead(0x0B);
+    if (pw >= 0) {
+      Wire.beginTransmission(0x22);
+      Wire.write((uint8_t)0x0B);
+      Wire.write((uint8_t)(pw | 0x07));
+      Wire.endTransmission();
+    }
+  }
   MESH_DEBUG_PRINTLN("WioTrackerL2Board: init done");
 
   esp_reset_reason_t reason = esp_reset_reason();
@@ -156,13 +170,18 @@ int WioTrackerL2Board::expReadInputs() {
   return lo | (hi << 8);
 }
 
-bool WioTrackerL2Board::isExternalPowered() {
-  if (!aw_ok) return false;
+int WioTrackerL2Board::awRead(uint8_t reg) {
+  if (!aw_ok) return -1;
   Wire.beginTransmission(0x22);
-  Wire.write((uint8_t)0x40);   // STATUS0
-  if (Wire.endTransmission() != 0) return false;
-  if (Wire.requestFrom(0x22, 1) != 1) return false;
-  return (Wire.read() & 0x80) != 0;   // VBUSOK bit
+  Wire.write(reg);
+  if (Wire.endTransmission() != 0) return -1;
+  if (Wire.requestFrom(0x22, 1) != 1) return -1;
+  return Wire.read();
+}
+
+bool WioTrackerL2Board::isExternalPowered() {
+  int st0 = awRead(0x40);   // STATUS0
+  return st0 >= 0 && (st0 & 0x80) != 0;   // VBUSOK
 }
 
 bool WioTrackerL2Board::readWakeButton() {

@@ -348,7 +348,7 @@ void UITask::refreshGps() {
   if (off) lv_obj_remove_flag(s_on_btn, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(s_on_btn, LV_OBJ_FLAG_HIDDEN);
 
-  char used[48] = "", info[200] = "";
+  char used[48] = "", info[240] = "";
   if (!g) {
     lv_label_set_text(s_status, "Not available");
     lv_obj_set_style_text_color(s_status, lv_color_hex(theme::TEXT_MUTED), 0);
@@ -386,6 +386,10 @@ void UITask::refreshGps() {
     if (g->hasFix() && g->alt_valid)
       o += snprintf(info + o, sizeof(info) - o, "%.0f m  -  %.1f km/h\n", g->alt_m, g->speed_kmh);
     if (g->utc_valid) o += snprintf(info + o, sizeof(info) - o, "UTC %02u:%02u:%02u", g->utc_h, g->utc_m, g->utc_s);
+  }
+  if (g && !off && _board->isExternalPowered()) {   // measured: on the cable the L76K never decodes indoors
+    size_t o = strlen(info);
+    snprintf(info + o, sizeof(info) - o, "%sOn USB power: charging disturbs GPS", o ? "\n" : "");
   }
   lv_label_set_text(s_used, used);
   lv_label_set_text(s_info, info);

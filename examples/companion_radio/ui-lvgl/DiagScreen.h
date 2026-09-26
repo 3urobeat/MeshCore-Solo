@@ -10,7 +10,7 @@ namespace diagview {
 enum : uint8_t { TAB_LIVE, TAB_SYSTEM, TAB_FONT, TAB_COUNT };
 static uint8_t s_tab = TAB_LIVE;   // kept across visits
 static lv_obj_t* s_list = nullptr;
-static const int EXTRA = 3;   // GPS, last reset, last crash (L2 only)
+static const int EXTRA = 4;   // GPS, power, last reset, last crash (L2 only)
 static lv_obj_t* s_vals[diag::MAX_ROWS + EXTRA];
 static int s_rows = 0;
 
@@ -34,6 +34,7 @@ static int allRows(diag::Row* rows, bool gps_on) {
   if (!gps_on) extraRow(rows, n, "GPS", "off");
   else if (!data) extraRow(rows, n, "GPS", "no data (%lu B)", (unsigned long)c);
   else extraRow(rows, n, "GPS", "%s, %ld sats", gps.isValid() ? "fix" : "no fix", gps.satellitesCount());
+  extraRow(rows, n, "Power", "%s", board.isExternalPowered() ? "USB" : "battery");
 #else
   (void)gps_on;
 #endif

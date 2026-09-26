@@ -196,13 +196,12 @@ this roadmap is done; the Cardputer follows whatever the spike shows.
 
 ## Backlog (found along the way)
 
-- [ ] USB power detection: `WioTrackerL2Board::isExternalPowered()` reads
-      STATUS0 (0x40) bit 7 of the chip at I2C 0x22 and always gets 0 with
-      USB plugged in (0x40 reads 0x01). Needed for a charging indicator and
-      for skipping the low-battery shutdown on the cable. Find the right
-      chip / register (devices on the bus: 0x14, 0x18, 0x21, 0x22, 0x2c,
-      0x34, 0x48, 0x5d). Found 2026-09-26. Also wanted for a hint on the
-      GPS screen while on the cable (see below).
+- [x] USB power detection (fixed 2026-09-26): the AW35615 at 0x22 has a
+      FUSB302-style register map (device ID 0x91); VBUSOK (STATUS0 bit 7)
+      needs the measure block on, and POWER (0x0B) resets to 0x01. Board
+      init sets PWR[1..2]; STATUS0 then reads 0x80 on USB. Used by the
+      status bar (charge bolt), Diagnostics > Live "Power", the GPS screen
+      hint and the low-battery warning (skipped on the cable).
 - [x] GPS screen (2026-09-26): Home > GPS and Settings > System > GPS
       details -- sky plot, C/N0 bar per satellite, fix / TTFF / DOPs,
       per-constellation counts (helpers/sensors/GpsSky.h, -D GPS_SKYVIEW;
@@ -214,6 +213,11 @@ this roadmap is done; the Cardputer follows whatever the spike shows.
       seconds, first fix after 377 s. Screen, WiFi, Bluetooth and LoRa TX
       were ruled out. Cause: noise from USB power / the charger -- a board
       property, not fixable in firmware. Test GPS on battery.
+- [ ] GPS indoors, still open (user, 2026-09-26): even on battery the L2
+      does worse than the L1 with the same L76K -- first fix after 377 s by
+      a window, 4 of 22 satellites used, the fix drops and comes back.
+      Something is still off (antenna / placement / another noise source);
+      look again later with the GPS screen, e.g. side by side with the L1.
 
 Ideas to come back to (2026-09-26):
 

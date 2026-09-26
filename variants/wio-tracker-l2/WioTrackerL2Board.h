@@ -84,6 +84,7 @@ public:
 
   // VBUS presence via the AW35615 USB-C controller (I2C 0x22)
   bool isExternalPowered() override;
+  int awRead(uint8_t reg);   // AW35615 register, -1 on error
 
   bool expanderOK() const { return expander_ok; }
 
