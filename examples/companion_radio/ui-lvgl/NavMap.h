@@ -777,6 +777,9 @@ struct FilePrint {
 }  // namespace navmap
 
 static void onNavTools(lv_event_t* e)       { (void)e; s_ui->navToolsPopup(); }
+static void onLiveTiles(lv_event_t* e) {
+  s_ui->setLiveTiles(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
+}
 static void onNavTool(lv_event_t* e)        { s_ui->navToolAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNavShareTarget(lv_event_t* e) {
   s_ui->navSetShareTarget((int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
@@ -881,6 +884,9 @@ void UITask::navToolsPopup() {
   label(list, al, THEME_FONT_SMALL, theme::TEXT);
 
   sectionTitle(list, "MAP");
+  lv_obj_t* lsw = switchRow(list, "Live tiles", "Load missing tiles over WiFi", nullptr);
+  if (lvport::liveTiles()) lv_obj_add_state(lsw, LV_STATE_CHECKED);
+  lv_obj_add_event_cb(lsw, onLiveTiles, LV_EVENT_VALUE_CHANGED, NULL);
   r = toolRow(list);
   toolButton(r, LV_SYMBOL_DOWNLOAD " Download this area", navmap::TL_DOWNLOAD, false);
   r = toolRow(list);

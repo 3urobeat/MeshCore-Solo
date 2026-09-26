@@ -23,12 +23,13 @@ jobs:
       - name: Clone Repo
         uses: actions/checkout@v4
 
-      - name: List solo_dual envs
+      - name: List solo envs
         id: list-envs
         run: |
+          # *_solo_dual: the OLED / e-ink boards; *_solo_lvgl: the LVGL touch UI (Wio Tracker L2).
           envs=$(grep -rh '^\[env:' solo/ \
             | sed 's/\[env://;s/\]//' \
-            | grep '_solo_dual$' \
+            | grep -E '_solo_dual$|_solo_lvgl$' \
             | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "envs=$envs" >> $GITHUB_OUTPUT
 
@@ -61,7 +62,7 @@ jobs:
 
       - name: Rename firmware
         run: |
-          DEVICE_NAME=$(echo "${{ matrix.env }}" | sed 's/_solo_dual$//;s/_companion$//' | tr '_' '-')
+          DEVICE_NAME=$(echo "${{ matrix.env }}" | sed 's/_solo_dual$//;s/_solo_lvgl$//;s/_companion$//' | tr '_' '-')
           mv out/*.uf2 "out/solo-${{ env.BUILD_VERSION }}-${DEVICE_NAME}.uf2" 2>/dev/null || true
           # nRF52 DFU package (adafruit-nrfutil) — used for OTA / BLE-DFU updates.
           mv out/*.zip "out/solo-${{ env.BUILD_VERSION }}-${DEVICE_NAME}-ota.zip" 2>/dev/null || true
@@ -71,6 +72,15 @@ jobs:
           # already on the chip, so shipping it next to the merged image would only
           # invite bricked-looking flashes. Anyone who wants it can build it locally.
           mv out/${{ matrix.env }}-*-merged.bin "out/solo-${{ env.BUILD_VERSION }}-${DEVICE_NAME}-merged.bin" 2>/dev/null || true
+          # Exception: boards that update themselves over WiFi (Settings > Firmware
+          # update, ui-lvgl/OtaScreen.h) fetch the app-only image, named -ota.bin
+          # so it isn't mistaken for a fresh-install image.
+          case "${{ matrix.env }}" in
+            *_solo_lvgl)
+              for f in out/${{ matrix.env }}-*.bin; do
+                if [ -e "$f" ]; then mv "$f" "out/solo-${{ env.BUILD_VERSION }}-${DEVICE_NAME}-ota.bin"; fi
+              done ;;
+          esac
           rm -f out/${{ matrix.env }}-*.bin
 
       - name: Upload Firmware
@@ -105,3 +115,4 @@ jobs:
             out/*.uf2
             out/*.zip
             out/*-merged.bin
+            out/*-ota.bin

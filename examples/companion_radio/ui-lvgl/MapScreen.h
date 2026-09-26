@@ -197,6 +197,7 @@ void UITask::openMap(bool nav) {
 
 void UITask::showMap() {
   _screen = SCR_MAP;
+  mapLiveBegin();
   mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
   if (_map_z == 0) {   // first open: own position, else the node's own advert position, else Poland
     int32_t lat, lon;
@@ -335,6 +336,7 @@ void UITask::layoutMap() {
       bool stand_in = false;
       if (s && !s->present) {   // none at this zoom: magnify a coarser one
         missing++;
+        mapview::s_dl.liveRequest(_map_z, wx, ty);   // online: fetch it (no-op when live tiles are off)
         int wz, ax, ay;
         show = mapview::ancestorFor(_map_z, wx, ty, k, wz, ax, ay);
         if (!show && wz >= 0) _map_pending = true;
@@ -380,6 +382,7 @@ void UITask::layoutMap() {
   if (over) lv_label_set_text_fmt(_map_zoom_lbl, "z%d  (map z%d)", _map_z, _map_z - over);   // magnified
   else lv_label_set_text_fmt(_map_zoom_lbl, "z%d", _map_z);
   const char* hint = !have_provider ? "No map on the SD card.\nPut tiles in /maps (tools/maps)."
+                   : mapview::s_dl.liveQueued() > 0 ? nullptr   // being fetched
                    : (!_map_pending && shown == 0 && missing > 0)
                        ? "No map detail here at this zoom.\nZoom out, or download this area." : nullptr;
   if (hint) { lv_label_set_text(_map_hint, hint); lv_obj_remove_flag(_map_hint, LV_OBJ_FLAG_HIDDEN); }
@@ -761,9 +764,45 @@ void UITask::mapDownloadStop() {
 static mapview::TileArea s_job_tmp;
 
 // Every UI loop pass, whatever the screen: a download keeps going in the background.
+// Live tiles on while the map is open: WiFi allowed, a network saved, a card in.
+void UITask::mapLiveBegin() {
+  _map_left_ms = 0;
+  char ssid[33], pass[65];
+  if (!lvport::liveTiles() || !lvport::wifiAllowed() || !lvport::mountStorage()) { mapview::s_dl.liveEnd(); return; }
+  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) return;
+  mapview::s_dl.liveBegin(ssid, pass);
+}
+
+void UITask::setLiveTiles(bool on) {
+  lvport::setLiveTiles(on);
+  if (on) {
+    char ssid[33], pass[65];
+    if (!lvport::wifiAllowed()) showToast("WiFi is off - Settings > WiFi");
+    else if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) showToast("Pick a WiFi network first - Settings > WiFi", 3000);
+    else showToast("Missing tiles load over WiFi");
+    mapLiveBegin();
+    mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
+  } else {
+    mapview::s_dl.liveEnd();
+    showToast("Live tiles off");
+  }
+  if (_screen == SCR_MAP) layoutMap();
+}
+
 void UITask::mapDownloadTick() {
   mapview::TileDownloader& dl = mapview::s_dl;
   dl.loop();
+  if (dl.liveOn()) {
+    int z, x, y;
+    bool got = false;
+    while (dl.liveTake(z, x, y)) { mapview::s_cache.forgetMissing(z, x, y); got = true; }
+    if (got && _screen == SCR_MAP) layoutMap();
+    // The WiFi goes 30 s after the map was left (a quick look elsewhere keeps it).
+    if (_screen != SCR_MAP) {
+      if (!_map_left_ms) _map_left_ms = millis() | 1;
+      else if (millis() - _map_left_ms > 30000) dl.liveEnd();
+    }
+  }
   uint8_t st = dl.state();
   bool was_active = _dl_last_state == mapview::TileDownloader::CONNECTING ||
                     _dl_last_state == mapview::TileDownloader::RUNNING;
@@ -792,6 +831,12 @@ void UITask::mapDownloadTick() {
         lv_label_set_text_fmt(_map_dl_pill, LV_SYMBOL_DOWNLOAD " %lu / %lu", (unsigned long)dl.processed(),
                               (unsigned long)dl.total());
       lv_obj_remove_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
+    } else if (dl.liveConnecting()) {
+      lv_label_set_text(_map_dl_pill, LV_SYMBOL_WIFI " Connecting...");
+      lv_obj_remove_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
+    } else if (dl.liveQueued() > 0) {
+      lv_label_set_text_fmt(_map_dl_pill, LV_SYMBOL_DOWNLOAD " live %d", dl.liveQueued());
+      lv_obj_remove_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
     } else if (mapview::s_available && dl.savedJob(s_job_tmp)) {
       lv_label_set_text(_map_dl_pill, LV_SYMBOL_DOWNLOAD " Resume?");
       lv_obj_remove_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
@@ -803,3 +848,8 @@ void UITask::mapDownloadTick() {
   // New tiles in view while downloading: let the map pick them up.
   if (dl.active() && _screen == SCR_MAP && dl.downloaded() > 0) { mapview::s_cache.forgetMissing(); layoutMap(); }
 }
+
+#if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+// Sim page / tests: a saved WiFi network without going through Settings > WiFi.
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_wifi_save(const char* ssid, const char* pass) { lvport::saveWifi(ssid, pass); }
+#endif

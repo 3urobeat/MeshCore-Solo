@@ -137,6 +137,36 @@ static void setWifiAllowed(bool on) {
   p.putBool("on", on);
   p.end();
 }
+// Map tools > Live tiles: missing tiles fetched over WiFi while the map is open.
+static bool liveTiles() {
+  Preferences p;
+  if (!p.begin("mc_wifi", true)) return true;
+  bool on = p.getBool("live", true);
+  p.end();
+  return on;
+}
+static void setLiveTiles(bool on) {
+  Preferences p;
+  if (!p.begin("mc_wifi", false)) return;
+  p.putBool("live", on);
+  p.end();
+}
+
+// Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
+// In NVS for the same reason as the WiFi credentials.
+static void loadPin(char* out, size_t n) {
+  Preferences p;
+  out[0] = '\0';
+  if (!p.begin("mc_lock", true)) return;
+  p.getString("pin", out, n);
+  p.end();
+}
+static void savePin(const char* pin) {
+  Preferences p;
+  if (!p.begin("mc_lock", false)) return;
+  p.putString("pin", pin);
+  p.end();
+}
 
 static void netBegin(const char* ssid, const char* pass) {
   WiFi.mode(WIFI_STA);
@@ -365,9 +395,15 @@ static void saveWifi(const char* ssid, const char* pass) {
   snprintf(s_ssid, sizeof(s_ssid), "%s", ssid);
   snprintf(s_pass, sizeof(s_pass), "%s", pass);
 }
+static char s_pin[9] = "";   // the screen PIN, for the session
+static void loadPin(char* out, size_t n) { snprintf(out, n, "%s", s_pin); }
+static void savePin(const char* pin) { snprintf(s_pin, sizeof(s_pin), "%s", pin); }
 static bool s_wifi_on = true;
 static bool wifiAllowed() { return s_wifi_on; }
 static void setWifiAllowed(bool on) { s_wifi_on = on; }
+static bool s_live_tiles = true;
+static bool liveTiles() { return s_live_tiles; }
+static void setLiveTiles(bool on) { s_live_tiles = on; }
 static void netBegin(const char*, const char*) {}
 static int  netState() { return NET_UP; }
 static void netEnd() {}

@@ -251,3 +251,29 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] Nearby header: back, title, advert (tower), map, sort, scan (refresh icon) -- nothing overlaps; advert popup sends Nearby only / Everyone and sets Auto-advert
 - [ ] Status bar, right to left next to the battery: Bluetooth (grey on, white with the app), GPS (grey searching, green fix), bell (alarm set), mute, then amber: auto-advert (tower), trail (route), live share (pin), repeater (loop), arrival alert (flag, with a target); each appears / disappears within a second of switching it
 - [ ] All icons at once still leave the clock readable on the left
+
+## Roadmap stage 5: screen PIN (2026-09-26)
+- [ ] Settings > Display & power > SECURITY > Screen PIN "Off"; tap → keypad; 1234 ✓, 1234 ✓ → toast "PIN set", row "On", list stays at the bottom
+- [ ] A different second entry → "Didn't match - new PIN again"; fewer than 4 digits + ✓ → "At least 4 digits"
+- [ ] Screen off (WAKE or timeout) and on → PIN card (clock, unread count, keypad) instead of the slider, even with "Lock screen" off
+- [ ] Right PIN unlocks as soon as the last digit is in; wrong one → "Wrong PIN - n tries left"; 5 misses → "Too many tries - wait 30 s" counting down, keys ignored meanwhile
+- [ ] USER button does nothing on the PIN card; a ringing alarm is still dismissed by the buttons
+- [ ] Reboot → PIN card straight after boot
+- [ ] Change PIN (row tap with a PIN set) works; "Remove" in the popup's header → "PIN removed", slider lock / no lock as before
+- [ ] PIN survives a reboot and a firmware update (NVS "mc_lock"), not stored in NodePrefs
+
+## Roadmap stage 5: live map tiles (2026-09-26)
+- [ ] Map > ☰ > MAP > "Live tiles" on by default; with WiFi on and a network saved, zoom into an area without tiles → pill "WiFi Connecting..." then "live n", tiles appear one by one, the "(map zN)" magnification goes away
+- [ ] The fetched tiles are on the card (/maps/z/x/y.png): reopen the map offline → still there
+- [ ] Leave the map: WiFi drops ~30 s later; back within 30 s → no reconnect
+- [ ] Live tiles off → nothing fetched, toast "Live tiles off"; on without a saved network → "Pick a WiFi network first"
+- [ ] WiFi off in Settings → no live fetching; an area download still works as before (and takes over from live tiles)
+- [ ] No SD card map folder at all + live tiles → the folder is created and the map fills in
+
+## Roadmap stage 5: firmware update (2026-09-26, Arduino 3.x build only)
+- [ ] Settings > SYSTEM > Firmware update shows the installed version; 2.0.17 build: "Not available in this build"
+- [ ] Check for update: connects WiFi, asks GitHub; before a release with an L2 image: "vX has no image for this device" (proves TLS + the API work)
+- [ ] With a release carrying solo-vX-Wio-Tracker-L2-ota.bin: "vX is available" + Install (size in MB); install shows progress, screen stays on, back is refused ("Updating - wait")
+- [ ] After "restarting..." the device boots the new version (Settings shows it); contacts, messages, settings, PIN and WiFi kept
+- [ ] Up to date → "Up to date - the latest release is vX"; WiFi off / no network / map download running → toasts instead
+- [ ] Wrong network in the middle (unplug router) → "Download stalled", old firmware still boots

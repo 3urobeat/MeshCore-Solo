@@ -208,6 +208,8 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   buildStatusBar();
   applyDisplayPrefs();   // a slider percentage overrides the level main.cpp set
   showHome();
+  lvport::loadPin(_pin, sizeof(_pin));
+  if (_pin[0]) lockScreen();   // a reboot doesn't get round the PIN
 }
 
 MyMesh::Listener* UITask::meshListener() { return _core; }
@@ -259,7 +261,7 @@ void UITask::loop() {
     if (lvport::touched()) { lvport::swallowTouch(); wake(); }
   } else {
     uint32_t aoff = autoOffMillis();
-    if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging()) sleep();
+    if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging() && !otaBusy()) sleep();
   }
 
   _core->loop();
@@ -285,6 +287,7 @@ void UITask::loop() {
 #endif
   checkLowBattery();
   mapDownloadTick();   // a map download keeps running on any screen, and asleep
+  otaTick();           // so does a firmware update
   if ((int32_t)(millis() - _next_trackback_ms) >= 0) {   // walking the trail back, on any screen
     _next_trackback_ms = millis() + 1000;
     navPollTrackBack();
@@ -382,7 +385,7 @@ void UITask::sleep() {
   if (_asleep) return;
   _asleep = true;
   if (_display) _display->turnOff();
-  if (_prefs && _prefs->auto_lock) lockScreen();   // Settings > Display & power > Lock screen
+  if ((_prefs && _prefs->auto_lock) || _pin[0]) lockScreen();   // Lock screen, or a screen PIN
 }
 
 void UITask::wake() {
@@ -613,6 +616,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
   _wifi_ssid = _wifi_pass = _wifi_kb = _wifi_list = _wifi_status = nullptr;
   _wifi_scanning = false;
+  _ota_status = _ota_bar = _ota_btn = _ota_btn_lbl = nullptr;
   for (lv_obj_t*& t : _map_tiles) t = nullptr;
   lv_obj_t* prev = lv_screen_active();
   lv_obj_t* scr = lv_obj_create(NULL);
@@ -665,6 +669,7 @@ void UITask::back() {
     case SCR_FAVS:     if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_DIAG:     if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_ADMIN_PICK: showHome(); break;
+    case SCR_OTA:      otaLeave(); break;
     case SCR_COMPASS:  showHome(); break;
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
@@ -2092,6 +2097,8 @@ static void onSchemaDropdown(lv_event_t* e) {
 static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
 static void onOpenQuickMsgs(lv_event_t* e);
+static void onPinSetup(lv_event_t* e);   // DeviceScreen.h
+static void onOpenOta(lv_event_t* e);    // OtaScreen.h
 static void bluetoothRow(lv_obj_t* body);
 static void onVolumeSlider(lv_event_t* e) {
   s_ui->setSoundVolume((int)lv_slider_get_value((lv_obj_t*)lv_event_get_target(e)));
@@ -2157,6 +2164,11 @@ void UITask::buildSchemaSettings() {
     lv_obj_add_event_cb(b, onPruneContacts, LV_EVENT_CLICKED, NULL);
     _prune_lbl = label(b, LV_SYMBOL_TRASH "  Remove inactive contacts now", THEME_FONT_BODY, theme::TEXT);
     lv_obj_center(_prune_lbl);
+  }
+  if (_settings_page == settings::PG_DEVICE) {   // after Lock screen's section, in NVS not the schema
+    sectionTitle(body, "SECURITY");
+    listRow(body, LV_SYMBOL_EYE_CLOSE "  Screen PIN", _pin[0] ? "On  -  asked when the screen wakes" : "Off",
+            onPinSetup, NULL);
   }
   if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
   if (_settings_page == settings::PG_MESSAGES) {
@@ -2292,6 +2304,7 @@ void UITask::buildSettings() {
   wifiRow(body);
   sectionTitle(body, "SYSTEM");
   listRow(body, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
+  listRow(body, LV_SYMBOL_DOWNLOAD "  Firmware update", FIRMWARE_VERSION, onOpenOta, NULL);
   if (_core->gpsAvailable()) {
     lv_obj_t* sw = switchRow(body, "GPS", "For maps and sharing", nullptr);
     if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
@@ -2343,3 +2356,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "RepeaterScreen.h"
 #include "SoundScreen.h"
 #include "QuickScreen.h"
+#include "OtaScreen.h"

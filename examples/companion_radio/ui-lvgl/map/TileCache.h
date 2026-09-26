@@ -73,6 +73,10 @@ public:
 
   // Forget the "no tile here" answers (new tiles may have been written).
   void forgetMissing() { for (Missing& m : _missing) m.z = -1; }
+  // Forget one "no tile here" answer (that tile was just fetched).
+  void forgetMissing(int z, int x, int y) {
+    for (Missing& m : _missing) if (m.z == z && m.x == x && m.y == y) m.z = -1;
+  }
 
   // Forget everything (e.g. the card was swapped); keeps the buffers.
   void invalidate() { for (Slot& s : _slots) { s.z = -1; s.used = 0; } forgetMissing(); }

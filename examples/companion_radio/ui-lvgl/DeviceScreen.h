@@ -3,7 +3,9 @@
 //  - node name (Settings > Node), reboot / power off (Settings > System);
 //  - lock screen (Settings > Display & power > Lock screen, NodePrefs::auto_lock):
 //    once the screen turns off, waking shows a clock card and nothing reacts
-//    until "slide to unlock" -- against touches in a pocket;
+//    until "slide to unlock" -- against touches in a pocket; with a screen PIN
+//    (NVS, lvport::loadPin) the card always comes up, also after a reboot, and
+//    asks for the PIN on a keypad instead of the slider;
 //  - favourites dial (Home > Favourites, NodePrefs::favourite_contacts): six
 //    slots holding a contact, room or channel; tap opens it, hold changes /
 //    removes it; "Pin" in a conversation's / channel's options puts it on one.
@@ -19,6 +21,13 @@ static lv_obj_t* s_lock_clock = nullptr;
 static lv_obj_t* s_lock_date = nullptr;
 static lv_obj_t* s_lock_unread = nullptr;
 static lv_obj_t* s_lock_slider = nullptr;
+static lv_obj_t* s_pin_dots = nullptr;    // lock card / setup popup: one dot per digit typed
+static lv_obj_t* s_pin_msg = nullptr;     // "Wrong PIN" / "Try again in 30 s" / setup step
+static const uint8_t PIN_MIN = 4, PIN_MAX = 8;
+static const uint8_t PIN_TRIES = 5;       // misses before a pause
+static const uint32_t PIN_PAUSE_MS = 30000;
+static const char* const PIN_MAP[] = { "1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n",
+                                       LV_SYMBOL_BACKSPACE, "0", LV_SYMBOL_OK, "" };
 
 static int s_fav_slot = -1;               // slot the hold / pick popup is about
 static const int PICK_MAX = 64;
@@ -55,6 +64,56 @@ static void onFavHold(lv_event_t* e) {
 static void onFavAction(lv_event_t* e) { s_ui->favAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onFavPick(lv_event_t* e)   { s_ui->favPick((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onPinSlot(lv_event_t* e)   { s_ui->pinTo((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onPinPad(lv_event_t* e) {
+  lv_obj_t* m = (lv_obj_t*)lv_event_get_target(e);
+  const char* k = lv_buttonmatrix_get_button_text(m, lv_buttonmatrix_get_selected_button(m));
+  if (!k) return;
+  if (lv_event_get_user_data(e)) s_ui->pinSetupKey(k); else s_ui->pinKey(k);
+}
+static void onPinSetup(lv_event_t* e)  { (void)e; s_ui->pinSetupPopup(); }
+static void onPinRemove(lv_event_t* e) { (void)e; s_ui->pinRemove(); }
+
+namespace devview {
+// The digit keypad (1-9, backspace, 0, OK) under a row of dots.
+static lv_obj_t* pinPad(lv_obj_t* parent, bool setup, int w, int h) {
+  s_pin_dots = label(parent, "", THEME_FONT_LARGE, theme::TEXT);
+  lv_obj_set_style_text_letter_space(s_pin_dots, 6, 0);
+  lv_obj_set_height(s_pin_dots, 22);
+  s_pin_msg = label(parent, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_t* m = lv_buttonmatrix_create(parent);
+  lv_buttonmatrix_set_map(m, PIN_MAP);
+  lv_obj_set_size(m, w, h);
+  lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_set_style_pad_all(m, 0, 0);
+  lv_obj_set_style_pad_gap(m, 6, 0);
+  lv_obj_set_style_bg_color(m, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(m, lv_color_hex(theme::SURFACE_2), LV_PART_ITEMS | LV_STATE_PRESSED);
+  lv_obj_set_style_text_font(m, THEME_FONT_LARGE, LV_PART_ITEMS);
+  lv_obj_set_style_text_color(m, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
+  lv_obj_set_style_radius(m, theme::RADIUS, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
+  lv_obj_add_event_cb(m, onPinPad, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)(setup ? 1 : 0));
+  return m;
+}
+
+static void showDots(const char* entry) {
+  if (!s_pin_dots) return;
+  char d[PIN_MAX * 3 + 1] = "";
+  for (size_t i = 0; entry[i] && i < PIN_MAX; i++) strcat(d, "\xE2\x80\xA2");   // U+2022 bullet
+  lv_label_set_text(s_pin_dots, d);
+}
+
+// Digit / backspace into `entry`; true when OK was pressed.
+static bool pinEdit(char* entry, const char* key) {
+  size_t n = strlen(entry);
+  if (!strcmp(key, LV_SYMBOL_BACKSPACE)) { if (n) entry[n - 1] = '\0'; }
+  else if (!strcmp(key, LV_SYMBOL_OK)) return true;
+  else if (key[0] >= '0' && key[0] <= '9' && !key[1] && n < PIN_MAX) { entry[n] = key[0]; entry[n + 1] = '\0'; }
+  showDots(entry);
+  return false;
+}
+}  // namespace devview
 
 // ── Node name, reboot, power off ──────────────────────────────────────────────
 
@@ -125,6 +184,25 @@ void UITask::lockScreen() {
   lv_obj_set_flex_align(s_lock, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_top(s_lock, 18, 0);
   lv_obj_set_style_pad_row(s_lock, 4, 0);
+  if (_pin[0]) {   // compact card: the time and unread on one line, the keypad below
+    lv_obj_set_style_pad_top(s_lock, 4, 0);
+    lv_obj_set_style_pad_row(s_lock, 2, 0);
+    lv_obj_t* top = lv_obj_create(s_lock);
+    lv_obj_remove_style_all(top);
+    lv_obj_set_size(top, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(top, 14, 0);
+    s_lock_clock = label(top, "--:--", THEME_FONT_LARGE, theme::TEXT);
+    s_lock_unread = label(top, "", THEME_FONT_BODY, theme::ACCENT);
+    s_lock_date = nullptr;
+    _pin_entry[0] = '\0';
+    pinPad(s_lock, false, 228, 124);
+    showDots(_pin_entry);
+    if (_toast) lv_obj_move_foreground(_toast);
+    refreshLock();
+    return;
+  }
   s_lock_clock = label(s_lock, "--:--", THEME_FONT_CLOCK, theme::TEXT);
   s_lock_date = label(s_lock, "", THEME_FONT_BODY, theme::TEXT_MUTED);
   s_lock_unread = label(s_lock, "", THEME_FONT_BODY, theme::ACCENT);
@@ -160,7 +238,8 @@ void UITask::unlockScreen() {
   if (!s_lock) return;
   lv_indev_wait_release(lv_indev_active());   // the slide isn't also a tap underneath
   lv_obj_delete_async(s_lock);
-  s_lock = s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = nullptr;
+  s_lock = s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = s_pin_dots = s_pin_msg = nullptr;
+  _pin_entry[0] = '\0';
   if (_screen == SCR_HOME) refreshHome();
   else if (_screen == SCR_CHATS) buildChats();   // counts moved on while locked
 }
@@ -207,11 +286,106 @@ void UITask::refreshLock() {
     fmtClock(clk, sizeof(clk), ti, _prefs, false, true);
     fmtDate(date, sizeof(date), ti, _prefs);
     lv_label_set_text(s_lock_clock, clk);
-    lv_label_set_text(s_lock_date, date);
+    if (s_lock_date) lv_label_set_text(s_lock_date, date);
   }
   int unread = _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
+  if (!s_lock_date) {   // PIN card: the count next to the clock, the keypad's line
+    if (unread > 0) lv_label_set_text_fmt(s_lock_unread, LV_SYMBOL_ENVELOPE " %d", unread);
+    else lv_label_set_text(s_lock_unread, "");
+    if (!s_pin_msg) return;
+    int32_t left = (int32_t)(_pin_block_until - millis());
+    if (_pin_block_until && left > 0) lv_label_set_text_fmt(s_pin_msg, "Too many tries - wait %ld s", (long)((left + 999) / 1000));
+    else if (_pin_block_until) { _pin_block_until = 0; lv_label_set_text(s_pin_msg, "Enter PIN"); }
+    else if (!lv_label_get_text(s_pin_msg)[0]) lv_label_set_text(s_pin_msg, "Enter PIN");
+    return;
+  }
   if (unread > 0) lv_label_set_text_fmt(s_lock_unread, LV_SYMBOL_ENVELOPE "  %d new message%s", unread, unread == 1 ? "" : "s");
   else lv_label_set_text(s_lock_unread, "");
+}
+
+// ── Screen PIN ────────────────────────────────────────────────────────────────
+
+// Lock card keypad: the PIN unlocks as soon as it's complete (OK checks a
+// shorter entry); five misses pause entry for 30 s.
+void UITask::pinKey(const char* key) {
+  using namespace devview;
+  if (!s_lock || !_pin[0]) return;
+  if (_pin_block_until && (int32_t)(_pin_block_until - millis()) > 0) return;
+  bool ok = pinEdit(_pin_entry, key);
+  size_t n = strlen(_pin_entry);
+  if (!ok && n < strlen(_pin)) {
+    if (n && s_pin_msg) lv_label_set_text(s_pin_msg, "Enter PIN");
+    return;
+  }
+  if (!n) return;
+  if (!strcmp(_pin_entry, _pin)) { _pin_fails = 0; unlockScreen(); return; }
+  _pin_entry[0] = '\0';
+  showDots(_pin_entry);
+  if (++_pin_fails >= PIN_TRIES) {
+    _pin_fails = 0;
+    _pin_block_until = (millis() + PIN_PAUSE_MS) | 1;
+    refreshLock();
+  } else if (s_pin_msg) {
+    lv_label_set_text_fmt(s_pin_msg, "Wrong PIN - %d tr%s left", PIN_TRIES - _pin_fails, PIN_TRIES - _pin_fails == 1 ? "y" : "ies");
+  }
+}
+
+// Settings > Display & power > Screen PIN: a new PIN typed twice; with one
+// set, "Remove" in the header too.
+void UITask::pinSetupPopup() {
+  using namespace devview;
+  _pin_entry[0] = _pin_new[0] = '\0';
+  lv_obj_t* panel = navPopupPanel(_pin[0] ? "Change PIN" : "Set screen PIN", true);
+  lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(panel, 2, 0);
+  if (_pin[0]) {   // next to the close button
+    lv_obj_t* l;
+    headerButton(lv_obj_get_child(panel, 0), LV_SYMBOL_TRASH " Remove", onPinRemove, 44, &l);
+    lv_obj_set_style_text_color(l, lv_color_hex(theme::FAIL), 0);
+  }
+  pinPad(panel, true, 228, 116);
+  lv_label_set_text(s_pin_msg, "New PIN, 4 to 8 digits, then " LV_SYMBOL_OK);
+}
+
+void UITask::pinSetupKey(const char* key) {
+  using namespace devview;
+  if (!s_pin_msg || !pinEdit(_pin_entry, key)) return;
+  size_t n = strlen(_pin_entry);
+  if (n < PIN_MIN) { lv_label_set_text(s_pin_msg, "At least 4 digits"); return; }
+  if (!_pin_new[0]) {   // first entry: ask again
+    strcpy(_pin_new, _pin_entry);
+    _pin_entry[0] = '\0';
+    showDots(_pin_entry);
+    lv_label_set_text(s_pin_msg, "Once more to confirm, then " LV_SYMBOL_OK);
+    return;
+  }
+  if (strcmp(_pin_new, _pin_entry) != 0) {
+    _pin_new[0] = _pin_entry[0] = '\0';
+    showDots(_pin_entry);
+    lv_label_set_text(s_pin_msg, "Didn't match - new PIN again");
+    return;
+  }
+  strcpy(_pin, _pin_new);
+  lvport::savePin(_pin);
+  _pin_new[0] = _pin_entry[0] = '\0';
+  navClosePopup();
+  showToast("PIN set - asked each time the screen wakes", 3000);
+  pinRowRefresh();
+}
+
+void UITask::pinRemove() {
+  _pin[0] = '\0';
+  lvport::savePin("");
+  navClosePopup();
+  showToast("PIN removed");
+  pinRowRefresh();
+}
+
+// Display & power rebuilt for the Screen PIN row, still at its bottom.
+void UITask::pinRowRefresh() {
+  if (_screen != SCR_SETTINGS_NAV) return;
+  buildSchemaSettings();
+  if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_by(_body, 0, -lv_obj_get_scroll_bottom(_body), LV_ANIM_OFF); }
 }
 
 // ── Favourites dial ───────────────────────────────────────────────────────────

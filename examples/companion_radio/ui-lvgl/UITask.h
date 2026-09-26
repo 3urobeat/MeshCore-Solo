@@ -47,6 +47,9 @@ public:
   void showSchemaSettings(int page);
   // Home > Admin: the repeaters / room servers to log in to (AdminScreen.h)
   void showAdminPick();
+  // Settings > System > Firmware update (OtaScreen.h)
+  void showOta();
+  void otaAction();
   void adminPick(int row);
   void pruneContacts();
   void setBrightnessPct(uint8_t pct, bool save);
@@ -67,6 +70,7 @@ public:
   void mapDownloadResume();
   void mapDownloadDiscard();
   void mapDownloadZmax(int delta);
+  void setLiveTiles(bool on);      // Map tools > Live tiles
   // Navigation map (NavMap.h)
   void navTargetsPopup();
   void navClosePopup();
@@ -205,6 +209,11 @@ public:
   void powerPopup(bool restart);
   void unlockScreen();
   bool locked() const;
+  void pinKey(const char* key);        // the lock screen's keypad
+  void pinSetupPopup();                // Settings > Display & power > Screen PIN
+  void pinSetupKey(const char* key);
+  void pinRemove();
+  void pinRowRefresh();
   void showFavourites();
   void showDiag();
   void diagTab(int tab);
@@ -225,7 +234,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -239,6 +248,11 @@ private:
   void buildSchemaSettings();
   void schemaRows(lv_obj_t* body, uint8_t page);
   void buildAdminPick();
+  void buildOta();
+  void refreshOta();
+  void otaTick();
+  void otaLeave();
+  bool otaBusy() const;
   void buildNearby();
   void refreshNearbyList();
   uint32_t nearbySignature() const;
@@ -270,6 +284,7 @@ private:
   bool navCurrentTarget(int32_t& lat, int32_t& lon, char* name, int n, bool& person, bool& set);
   bool exportTrailGpx(char* name_out, size_t n);
   void mapDownloadTick();
+  void mapLiveBegin();
   void refreshDownloadPopup();
   void buildWifi();
   void pollWifiScan();
@@ -346,11 +361,22 @@ private:
   uint32_t _next_trackback_ms = 0;
   uint32_t _next_clock_ms = 0;
   uint8_t  _settings_page = 0;   // settings::Page shown in SCR_SETTINGS_NAV
+  lv_obj_t* _ota_status = nullptr;
+  lv_obj_t* _ota_bar = nullptr;
+  lv_obj_t* _ota_btn = nullptr;
+  lv_obj_t* _ota_btn_lbl = nullptr;
+  uint32_t _map_left_ms = 0;          // when the map was left, for dropping live tiles' WiFi
   bool     _admin_from_pick = false;   // Admin opened from its Home tile (back returns there)
   uint32_t _prune_armed_ms = 0;
   uint16_t _batt_mv = 0;         // smoothed, for the low-battery shutdown
   uint32_t _next_batt_ms = 0;
   lv_obj_t* _prune_lbl = nullptr;
+  // Screen PIN (DeviceScreen.h); stored in NVS (lvport::loadPin)
+  char      _pin[9] = "";          // "" = no PIN
+  char      _pin_entry[9] = "";    // digits typed so far
+  char      _pin_new[9] = "";      // setup: the first entry, waiting for its confirmation
+  uint8_t   _pin_fails = 0;
+  uint32_t  _pin_block_until = 0;  // millis() until which entry is refused after 5 misses
 
   // Open conversation (SCR_THREAD)
   bool     _thread_is_channel = false;

@@ -64,10 +64,21 @@ L1 splits its tools into many small screens because of the joystick and the
 
 ## 5. Security and internet
 
-- [ ] Screen-lock PIN.
-- [ ] Map tiles fetched live while online.
-- [ ] One-button OTA from GitHub Releases (release asset + partition layout
-      check).
+- [x] Screen-lock PIN: 4-8 digits in NVS (`lvport::loadPin`), asked on
+      every wake and after a reboot, 5 misses pause entry for 30 s;
+      Settings > Display & power > SECURITY.
+- [x] Map tiles fetched live while online: the map queues tiles it is
+      missing, `TileDownloader` fetches them one at a time over WiFi (connected
+      on the first miss, dropped 30 s after leaving the map) and saves them to
+      the card; Map > ☰ > Live tiles (NVS, on by default).
+- [x] One-button OTA from GitHub Releases: Settings > System > Firmware
+      update (`OtaScreen.h`). The latest release's `-Wio-Tracker-L2-ota.bin`
+      (app image; `build-solo-firmwares.yml` now publishes `*_solo_lvgl`) is
+      streamed over TLS verified with the framework's CA bundle into the idle
+      slot of `default_16MB.csv` (two 6.25 MB app slots, no layout change),
+      chip id checked, then restart. Arduino 3.x builds only.
+- [ ] Before the first release with L2: make the 3.x env the
+      `*_solo_lvgl` one (stage 2's last item), then test an update end to end.
 
 ## 6. Theme
 
@@ -79,3 +90,13 @@ L1 splits its tools into many small screens because of the joystick and the
 - [ ] Find out whether LVGL on every display variant gives consistency and a
       nicer look more easily. Adopt only if the result is better and every
       feature is kept (L1: 128×64 OLED, nRF52, RAM already 68% used).
+
+## Backlog (found along the way)
+
+- [ ] USB power detection: `WioTrackerL2Board::isExternalPowered()` reads
+      STATUS0 (0x40) bit 7 of the chip at I2C 0x22 and always gets 0 with
+      USB plugged in (0x40 reads 0x01). Needed for a charging indicator and
+      for skipping the low-battery shutdown on the cable. Find the right
+      chip / register (devices on the bus: 0x14, 0x18, 0x21, 0x22, 0x2c,
+      0x34, 0x48, 0x5d). Found 2026-09-26.
+
