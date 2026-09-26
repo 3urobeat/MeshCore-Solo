@@ -194,8 +194,8 @@ void UITask::advertPopup() {
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, theme::GAP, 0);
   sectionTitle(list, "SEND NOW");
-  listRow(list, "Nearby only", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
-  listRow(list, "Everyone", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
+  listRow(list, "Zero hop", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
+  listRow(list, "Flood", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
   schemaRows(list, settings::PG_ADVERT);
 }
 
@@ -203,7 +203,7 @@ void UITask::advertSend(bool flood) {
   navClosePopup();
   bool ok = flood ? the_mesh.advertFlood() : the_mesh.advert();
   if (ok) notify(UIEventType::ack);
-  showToast(!ok ? "Advert failed" : flood ? "Advert sent across the mesh" : "Advert sent to nodes in range");
+  showToast(!ok ? "Advert failed" : flood ? "Flood advert sent" : "Zero-hop advert sent");
 }
 
 // ── Settings > Bluetooth ──────────────────────────────────────────────────────

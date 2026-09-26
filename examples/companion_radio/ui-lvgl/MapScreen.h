@@ -44,7 +44,8 @@ static double latToTileY(double lat, int z) {
 // (MK_NODE), the waypoint index (MK_WAYPOINT) or the live-share slot (MK_LIVE).
 enum : uint8_t { MK_NODE, MK_WAYPOINT, MK_LIVE };
 struct Mark { int32_t lat_e6, lon_e6; int idx; uint8_t kind; lv_obj_t* obj; lv_obj_t* dot; };
-static const int MAX_MARKS = 48;   // >= MAX_NEARBY, and >= waypoints + live shares
+static const int MAX_MARKS = NearbyModel::MAX_NEARBY > WaypointStore::CAPACITY + LiveTrackStore::CAPACITY
+                             ? NearbyModel::MAX_NEARBY : WaypointStore::CAPACITY + LiveTrackStore::CAPACITY;   // Nearby map, or waypoints + live shares
 static Mark* s_marks = psramBuf<Mark>(MAX_MARKS);
 static int  s_mark_count = 0;
 static int  s_drag = 0;   // px moved in the current press: a drag isn't a tap

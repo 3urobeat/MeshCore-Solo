@@ -35,7 +35,22 @@ Decisions already made:
       runtime: 2.0.17 147.8 KB; 3.x 128.2 KB before, 147.9 KB after (static RAM
       109 → 71 KB). Measured with `-D UI_HEAP_REPORT`. History and a larger
       trail come to PSRAM with stage 3.
-- [ ] Full hardware checklist, then make the new env the default.
+- [x] The 3.x env is the default (2026-09-26, after stages 5 and 6 were
+      tested on it): `Wio_Tracker_L2_companion_solo_lvgl` is Arduino 3.3.12
+      and is the one published; 2.0.17 stays as
+      `Wio_Tracker_L2_companion_solo_lvgl_arduino2` (not published, can't
+      self-update).
+- [x] Limits sized for the PSRAM, overridable per board so the nRF52
+      defaults stay (the L1 build is byte-for-byte unchanged): trail 512 →
+      4096 points (`TRAIL_CAPACITY`; the map drops points under 2 px apart
+      when drawing, so a long trail doesn't slow redraws; 8 → 32 trail
+      segments), waypoints 16 → 64, message history 48 → 256 channel and
+      32 → 128 DM entries (`HIST_CH_MAX` / `HIST_DM_MAX`; stage 3 moves it
+      to SD), Nearby 32 → 64; in ui-lvgl: contact list 64 → 256 rows,
+      rooms 16 → 32, conversation 30 → 50 bubbles, pickers 64 → 128, WiFi
+      scan 12 → 20. The sim builds with the same limits.
+      Measured after: internal heap 154.1 KB free (was 147.9), PSRAM
+      5.67 MB free.
 
 ## 3. Data on the SD card
 
@@ -43,8 +58,7 @@ Postponed (2026-09-26): the user may extend this stage first.
 
 - [ ] Message history on SD, kept across reboots (~100 per conversation;
       the newest ones cached in PSRAM).
-- [ ] Trail sized to the device: thousands of points in PSRAM (now 512),
-      saved to SD.
+- [ ] Trail saved to SD (it holds 4096 points in PSRAM since stage 2).
 
 ## 4. UI layout
 
@@ -77,8 +91,9 @@ L1 splits its tools into many small screens because of the joystick and the
       streamed over TLS verified with the framework's CA bundle into the idle
       slot of `default_16MB.csv` (two 6.25 MB app slots, no layout change),
       chip id checked, then restart. Arduino 3.x builds only.
-- [ ] Before the first release with L2: make the 3.x env the
-      `*_solo_lvgl` one (stage 2's last item), then test an update end to end.
+- [x] The 3.x env is the `*_solo_lvgl` one (stage 2).
+- [ ] With the first release that has an L2 asset: test an update end to
+      end.
 
 ## 6. Theme
 
@@ -111,9 +126,58 @@ L1 splits its tools into many small screens because of the joystick and the
 
 ## 7. Research: LVGL for the other displays
 
-- [ ] Find out whether LVGL on every display variant gives consistency and a
+- [x] Find out whether LVGL on every display variant gives consistency and a
       nicer look more easily. Adopt only if the result is better and every
       feature is kept (L1: 128×64 OLED, nRF52, RAM already 68% used).
+
+Findings (2026-09-26). Solo builds, static RAM / flash used:
+
+| Board | MCU | Display | RAM | Flash |
+|---|---|---|---|---|
+| Wio Tracker L1 | nRF52840 | 128×64 OLED | 68% (74 KB free) | 70% (214 KB free) |
+| Wio Tracker L1 e-ink | nRF52840 | e-ink | 70% | 71% |
+| T-Echo Lite | nRF52840 | e-ink | 69% | 64% |
+| GAT562 Mesh Watch13 | nRF52840 | 128×64 OLED | 68% | 92% (55 KB free) |
+| ProMicro, GAT562 30S | nRF52840 | 128×64 OLED | (as L1) | |
+| Heltec V3 / V4 | ESP32-S3 | 128×64 OLED | 56% | 44% of 3.2 MB |
+| Cardputer ADV | ESP32-S3, no PSRAM | 240×135 colour TFT, keyboard | 56% | 43% of 3.2 MB |
+
+What LVGL costs on the L2: the library ~310 KB of code (full config, PNG
+decoder and all widgets; a minimal one is ~120-150 KB), the ui-lvgl screens
+~225 KB, fonts 360 KB (uncompressed, European + Cyrillic, 12-40 px). ui-new
+on the L1 is ~137 KB.
+
+- **128×64 OLED (L1, Heltec, ProMicro, GAT562): to be tried.** Colour and
+  anti-aliasing don't matter there, but the v2 UI goals do: motion (Home
+  carousel slide, loading-dot wave, animated splash, a bottom drawer, radar
+  sweep), soft corners, graphic indicators instead of text, a bigger font
+  to try out, dithering for large elements. LVGL has the animation engine,
+  shapes, TTF fonts at any size and self-laying-out lists for that; rendered
+  in greyscale and converted to 1 bit in the flush, a Bayer threshold there
+  would turn every fade / translucent fill into dithering while 1-bpp text
+  and icons stay crisp. Against it: a rewrite of ui-new's screens (~15.6k
+  lines; `ui-core/` carries over), I2C caps a full frame at ~23 ms either
+  way, and nRF52 memory -- estimated ~20-30 KB RAM (heap + an 8 KB L8
+  buffer) and ~120-150 KB flash for a trimmed LVGL, against 74 KB RAM /
+  214 KB flash free on the L1 (ui-new's drawing code would go) and only
+  55 KB flash on the Watch13. **Next step, after this roadmap:** a spike on
+  the L1 -- Home carousel with the slide and the bottom drawer, a message
+  list with soft bubbles, the dot wave, dithering in the flush -- measured
+  (RAM, flash, fps) and shown in the sim next to ui-new, then decide.
+- **E-ink (L1 e-ink, T-Echo Lite): no.** Slow full refreshes rule out
+  motion; LVGL's small dirty areas fit partial refresh poorly and would need
+  batching. Same RAM limits as above.
+- **Cardputer ADV: the one candidate.** A 240×135 colour screen now shows
+  ui-new's 128×64 picture scaled up; ESP32-S3 with room to spare (flash
+  43%). LVGL would use the real resolution and colour, reuse `Theme.h`,
+  `Anim.h`, the fonts and much of the ui-lvgl screen code. Open points: no
+  PSRAM (the L2's PSRAM buffers -- tiles, lists, keyboard maps -- need
+  smaller internal ones or dropping, no raster map), no touch (keyboard
+  focus navigation, LVGL groups, instead of taps), a 135 px-high layout.
+  Worth a separate pilot if the Cardputer matters; otherwise skip.
+
+So: e-ink stays on ui-new; the OLED boards get an LVGL spike (above) once
+this roadmap is done; the Cardputer follows whatever the spike shows.
 
 ## Backlog (found along the way)
 

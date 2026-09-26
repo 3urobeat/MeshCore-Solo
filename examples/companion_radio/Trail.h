@@ -23,6 +23,12 @@
 // turn still gets a vertex roughly every min-delta of deviation — so CAPACITY
 // covers a much longer route than CAPACITY × min-delta would suggest.
 
+// Boards with PSRAM raise it (the L2: -D TRAIL_CAPACITY=4096, 64 KB, since
+// UiCore is heap-allocated there, in PSRAM); the default stays for the nRF52.
+#ifndef TRAIL_CAPACITY
+#define TRAIL_CAPACITY 512
+#endif
+
 struct TrailPoint {
   int32_t  lat_1e6;
   int32_t  lon_1e6;
@@ -34,7 +40,7 @@ static const uint8_t TRAIL_FLAG_SEG_START = 0x01;
 
 class TrailStore {
 public:
-  static const int CAPACITY = 512;
+  static const int CAPACITY = TRAIL_CAPACITY;
   // _count is serialised as uint16_t in the save header — fail the build loudly
   // if CAPACITY is ever grown past what that can hold, rather than truncating.
   static_assert(CAPACITY <= 0xFFFF, "TrailStore::CAPACITY must fit in the uint16_t save-header count");

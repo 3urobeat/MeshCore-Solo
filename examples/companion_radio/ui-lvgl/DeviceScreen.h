@@ -30,7 +30,7 @@ static const char* const PIN_MAP[] = { "1", "2", "3", "\n", "4", "5", "6", "\n",
                                        LV_SYMBOL_BACKSPACE, "0", LV_SYMBOL_OK, "" };
 
 static int s_fav_slot = -1;               // slot the hold / pick popup is about
-static const int PICK_MAX = 64;
+static const int PICK_MAX = 128;
 static uint8_t (*s_pick_keys)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(PICK_MAX);
 enum : int { PICK_CONTACT = 100 };        // pick codes: channel index, or PICK_CONTACT + row
 

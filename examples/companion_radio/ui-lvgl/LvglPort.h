@@ -22,7 +22,7 @@ namespace lvport {
 
 // Network for map downloads: state of the link, and one HTTP GET at a time.
 enum NetState { NET_OFF, NET_CONNECTING, NET_UP, NET_FAILED };
-static const int WIFI_SCAN_MAX = 12;
+static const int WIFI_SCAN_MAX = 20;
 
 #if defined(SEEED_WIO_TRACKER_L2)
 // LovyanGFX device (NV3031B QSPI panel + GT911 touch) from WioTrackerL2Display.

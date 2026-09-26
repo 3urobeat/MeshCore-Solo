@@ -66,7 +66,7 @@ static void onOpenAdminPick(lv_event_t* e) { (void)e; s_ui->showAdminPick(); }
 static void onAdminPickRow(lv_event_t* e)  { s_ui->adminPick((int)(uintptr_t)lv_event_get_user_data(e)); }
 
 namespace adminview {
-static const int PICK_MAX = 64;
+static const int PICK_MAX = 128;
 static uint8_t (*s_pick)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(PICK_MAX);
 }
 

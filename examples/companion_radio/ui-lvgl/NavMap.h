@@ -21,7 +21,7 @@ enum : uint8_t { WP_NAV, WP_RENAME, WP_SHARE, WP_DELETE };
 // Trail: normalised Web-Mercator coords (0..1) cached when the trail is
 // re-read, so a pan only scales and offsets them. One lv_line per recorded
 // segment (a pause starts a new one); extra segments join the last.
-static const int TRAIL_SEGS = 8;
+static const int TRAIL_SEGS = 32;   // pauses / saves split the trail; beyond this, segments join
 // Stored as float offsets from the first point (s_ox/s_oy): a float holds a
 // small offset exactly enough, but not a whole 0..1 coordinate at street zoom
 // (2^18 * 256 px across -- a float is off by pixels there).
@@ -219,12 +219,23 @@ void UITask::layoutNav() {
   for (int s = 0; s < navmap::TRAIL_SEGS; s++) {
     lv_obj_t* l = navmap::s_trail[s];
     if (s >= navmap::s_segs || navmap::s_seg_len[s] < 2) { lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN); continue; }
-    int f = navmap::s_seg_first[s], len = navmap::s_seg_len[s];
+    // Points closer than 2 px to the last kept one are dropped (the last
+    // point always stays): zoomed out, thousands of points shrink to the few
+    // hundred that show, so a long trail doesn't slow every map redraw.
+    int f = navmap::s_seg_first[s], len = navmap::s_seg_len[s], k = 0;
     for (int i = f; i < f + len; i++) {
-      navmap::s_pts[i].x = (lv_value_precise_t)lround((navmap::s_ox + navmap::s_nx[i]) * scale - mapview::s_left);
-      navmap::s_pts[i].y = (lv_value_precise_t)lround((navmap::s_oy + navmap::s_ny[i]) * scale - mapview::s_top);
+      lv_value_precise_t x = (lv_value_precise_t)lround((navmap::s_ox + navmap::s_nx[i]) * scale - mapview::s_left);
+      lv_value_precise_t y = (lv_value_precise_t)lround((navmap::s_oy + navmap::s_ny[i]) * scale - mapview::s_top);
+      if (k > 0 && i < f + len - 1) {
+        lv_point_precise_t& last = navmap::s_pts[f + k - 1];
+        if (fabsf((float)(x - last.x)) < 2 && fabsf((float)(y - last.y)) < 2) continue;
+      }
+      navmap::s_pts[f + k].x = x;
+      navmap::s_pts[f + k].y = y;
+      k++;
     }
-    lv_line_set_points(l, &navmap::s_pts[f], len);
+    if (k < 2) { lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN); continue; }
+    lv_line_set_points(l, &navmap::s_pts[f], k);
     lv_obj_remove_flag(l, LV_OBJ_FLAG_HIDDEN);
   }
 
@@ -683,7 +694,7 @@ void UITask::navRenameDone(bool ok) {
 // ── Adding waypoints ──────────────────────────────────────────────────────────
 
 void UITask::navAddWaypoint(int32_t lat, int32_t lon) {
-  if (_core->waypoints.full()) { showToast("Waypoints full (16)"); return; }
+  if (_core->waypoints.full()) { showToast(waypointsFull()); return; }
   if (!_core->waypoints.add(lat, lon, rtc_clock.getCurrentTime(), "")) return;
   int i = _core->waypoints.count() - 1;
   char t[48];
@@ -698,7 +709,7 @@ void UITask::navMarkHere() {
   if (!ensureGps() || !_core->course.currentLocation(lat, lon)) return;
   uint16_t secs = NodePrefs::gpsAvgSecs(_prefs ? _prefs->gps_avg_idx : 0);
   if (secs == 0) { navAddWaypoint(lat, lon); return; }
-  if (_core->waypoints.full()) { showToast("Waypoints full (16)"); return; }
+  if (_core->waypoints.full()) { showToast(waypointsFull()); return; }
   navmap::s_avg.start(secs, lat, lon);
   navPollAveraging();
 }
@@ -1115,7 +1126,7 @@ void UITask::navWaypointsPopup() {
 // "50.06142, 19.93721 Name" (decimal degrees; comma or space between them; the
 // name is optional) -> a new waypoint.
 void UITask::navCoordsPopup() {
-  if (_core->waypoints.full()) { showToast("Waypoints full (16)"); return; }
+  if (_core->waypoints.full()) { showToast(waypointsFull()); return; }
   lv_obj_t* panel = navPopupPanel("Add by coordinates", false);
   lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
   _nav_ta = textField(panel);
@@ -1152,7 +1163,7 @@ void UITask::navCoordsDone(bool ok) {
     return;   // keep the field for a fix
   }
   navClosePopup();
-  if (!_core->waypoints.add(lat, lon, rtc_clock.getCurrentTime(), name)) { showToast("Waypoints full (16)"); return; }
+  if (!_core->waypoints.add(lat, lon, rtc_clock.getCurrentTime(), name)) { showToast(waypointsFull()); return; }
   const Waypoint& w = _core->waypoints.at(_core->waypoints.count() - 1);
   char t[40];
   snprintf(t, sizeof(t), "Saved %s", w.label);

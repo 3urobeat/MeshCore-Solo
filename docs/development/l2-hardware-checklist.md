@@ -67,7 +67,7 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
 ## Roadmap stage 2: Arduino-ESP32 3.3.12 / IDF 5.5 (2026-09-26)
-Env `Wio_Tracker_L2_companion_solo_lvgl_v3` (flash with `L2_ENV=Wio_Tracker_L2_companion_solo_lvgl_v3`). Bluetooth runs on NimBLE now, the speaker on the new I2S driver. Internal heap at runtime: 147.9 KB free on 3.x vs 147.8 KB on 2.0.17 (large UI buffers moved to PSRAM; static RAM 109 → 71 KB).
+Env `Wio_Tracker_L2_companion_solo_lvgl` (Arduino 3.x since 2026-09-26; the 2.0.17 build is `_arduino2`). Bluetooth runs on NimBLE now, the speaker on the new I2S driver. Internal heap at runtime: 147.9 KB free on 3.x vs 147.8 KB on 2.0.17 (large UI buffers moved to PSRAM; static RAM 109 → 71 KB).
 - [ ] Boots, screen and touch as before; WAKE and USER buttons
 - [ ] Bluetooth: the app pairs with the PIN (asks for it: the link is encrypted), connects, syncs contacts and messages, sends; reconnects after the app is closed / reopened; the Bluetooth switch still works
 - [ ] Sound: startup chime, message sounds, melody editor, volume; no new knocks
@@ -292,3 +292,12 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] Map download popup: no WiFi button, fits the screen (scrolls if the unfinished-job row is shown); no network saved → toast pointing to Settings > WiFi
 - [ ] Unlock (slider or right PIN): the lock fades away while the screen underneath drifts up into place, no instant jump
 - [ ] Lock slider: knob snaps to the end near it but only unlocks on letting go; let go earlier → it springs back smoothly
+
+## Roadmap stage 2: limits for the PSRAM (2026-09-26)
+- [ ] Boot with `-D UI_HEAP_REPORT`: internal heap free still ~145 KB+ (the bigger rings go to PSRAM)
+- [ ] Long walk / drive with the trail on: well past 512 points, the map stays smooth zoomed out, saving and GPX export work
+- [ ] Waypoints: more than 16 can be added; the full message says (64)
+- [ ] Busy channels: a conversation shows up to 50 bubbles, older ones are kept longer than before
+- [ ] Nearby with many nodes: up to 64 rows; contact list "All" shows beyond 64 contacts
+- [ ] Home tile and screen title read "Nodes" (was "Nearby")
+- [ ] Nodes > advert: "Zero hop" / "Flood" (were "Nearby only" / "Everyone"), toasts "Zero-hop advert sent" / "Flood advert sent"

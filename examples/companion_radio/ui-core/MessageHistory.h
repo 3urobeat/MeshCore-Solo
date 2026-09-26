@@ -80,13 +80,22 @@ struct DmHistEntry {
   uint8_t  path[MAX_HIST_PATH_BYTES];
 };
 
+// Boards with PSRAM raise these (the L2: -D HIST_CH_MAX=256 -D HIST_DM_MAX=128,
+// ~80 KB in PSRAM with UiCore); the defaults are sized for the nRF52's heap.
+#ifndef HIST_CH_MAX
+#define HIST_CH_MAX 48
+#endif
+#ifndef HIST_DM_MAX
+#define HIST_DM_MAX 32
+#endif
+
 class MessageHistory {
 public:
   // Shared ring for all channels combined; each slot carries a full MSG_TEXT_BUF,
   // so this ring dominates RAM — kept modest to leave heap headroom (see
   // DM_HIST_MAX). The DM ring is likewise bounded.
-  static const int CH_HIST_MAX = 48;
-  static const int DM_HIST_MAX = 32;
+  static const int CH_HIST_MAX = HIST_CH_MAX;
+  static const int DM_HIST_MAX = HIST_DM_MAX;
 
   MessageHistory()
     : _hist_head(0), _hist_count(0), _dm_hist_head(0), _dm_hist_count(0) {

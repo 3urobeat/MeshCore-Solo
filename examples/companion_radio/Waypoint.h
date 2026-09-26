@@ -16,9 +16,13 @@ struct Waypoint {
   char     label[WAYPOINT_LABEL_LEN];
 };
 
+#ifndef WAYPOINT_CAPACITY
+#define WAYPOINT_CAPACITY 16   // the L2 raises it (-D WAYPOINT_CAPACITY=64)
+#endif
+
 class WaypointStore {
 public:
-  static const int CAPACITY = 16;
+  static const int CAPACITY = WAYPOINT_CAPACITY;
 
   int  count() const { return _count; }
   bool full()  const { return _count >= CAPACITY; }

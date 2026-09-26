@@ -47,7 +47,10 @@ public:
     bool     fav;
   };
 
-  static const int MAX_NEARBY = 32;
+#ifndef NEARBY_MAX
+#define NEARBY_MAX 32   // the L2 raises it (-D NEARBY_MAX=64)
+#endif
+  static const int MAX_NEARBY = NEARBY_MAX;
 
   static const char* const* filterLabels() {
     static const char* const L[F_COUNT] = { "All", "Fav", "Comp", "Rpt", "Room", "Snsr" };

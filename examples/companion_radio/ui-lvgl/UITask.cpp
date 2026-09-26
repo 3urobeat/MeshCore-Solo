@@ -37,6 +37,12 @@ template <class T> static T* psramBuf(size_t n) {
 #include "../ui-core/KeyboardData.h"
 #include "Keyboard.h"
 
+static const char* waypointsFull() {
+  static char t[24];
+  snprintf(t, sizeof(t), "Waypoints full (%d)", WaypointStore::CAPACITY);
+  return t;
+}
+
 // ui-lvgl skeleton (docs/development/ui-core.md, step 5): status bar, home,
 // conversation list, contact picker, conversation view with compose. Every
 // piece of state it shows comes from the UI Core; this file only draws it.
@@ -837,7 +843,7 @@ namespace home {
 struct App { const char* icon; const char* text; lv_event_cb_t cb; bool unread; };
 static const App APPS[] = {
   { LV_SYMBOL_ENVELOPE, "Messages", onOpenChats,    true  },
-  { UI_SYMBOL_USERS,    "Nearby",   onOpenNearby,   false },
+  { UI_SYMBOL_USERS,    "Nodes",    onOpenNearby,   false },
   { UI_SYMBOL_MAP,      "Map",      onOpenNav,      false },
   { LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, false },
   // Page 2: tools
@@ -1003,7 +1009,7 @@ static void onOpenChannel(lv_event_t* e) {
 
 // DM rows carry a 4-byte prefix; kept in a static table the rows point into.
 static uint8_t s_dm_rows[MessageHistory::DM_HIST_MAX][4];
-static const int CONTACT_ROWS_MAX = 64;
+static const int CONTACT_ROWS_MAX = 256;   // "All" with a full contact table stays usable
 static uint8_t (*s_contact_rows)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(CONTACT_ROWS_MAX);
 
 static void onOpenDMRow(lv_event_t* e) {
@@ -1016,7 +1022,7 @@ static void onNewChat(lv_event_t* e) { (void)e; s_ui->showContacts(); }
 static void onChanRowHold(lv_event_t* e);      // ChannelScreen.h
 static void onChanAdd(lv_event_t* e);
 static void onChanThreadMenu(lv_event_t* e);
-static const int ROOM_ROWS_MAX = 16;
+static const int ROOM_ROWS_MAX = 32;
 static uint8_t (*s_room_rows)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(ROOM_ROWS_MAX);
 static void onDMRowHold(lv_event_t* e);        // ConversationScreen.h
 static void onRoomRow(lv_event_t* e);
@@ -1261,7 +1267,7 @@ void UITask::showNearby() {
 }
 
 void UITask::buildNearby() {
-  lv_obj_t* body = newScreen("Nearby", true);
+  lv_obj_t* body = newScreen("Nodes", true);
   lv_obj_set_style_pad_row(body, 4, 0);
   if (_header) {
     headerButton(_header, LV_SYMBOL_REFRESH, onNearbyScan, 4, NULL);   // scan
@@ -1675,7 +1681,7 @@ void UITask::nodeAction(uint8_t action) {
       openAdmin(e.pub_key);
       break;
     case NODE_WAYPOINT: {
-      if (_core->waypoints.full()) { showToast("Waypoints full (16)"); break; }
+      if (_core->waypoints.full()) { showToast(waypointsFull()); break; }
       char t[48];
       if (_core->waypoints.add(e.lat_e6, e.lon_e6, rtc_clock.getCurrentTime(), e.name[0] ? e.name : "Node")) {
         snprintf(t, sizeof(t), "Saved %s", _core->waypoints.at(_core->waypoints.count() - 1).label);
@@ -1878,7 +1884,7 @@ uint32_t UITask::threadSignature() const {
 // Positions found in the shown messages ([WAY] / [LOC] / plain "lat,lon"),
 // for the Go / Save buttons under such a bubble.
 struct MsgLoc { int32_t lat, lon; char label[WAYPOINT_LABEL_LEN * 2]; };
-static const int THREAD_MAX_SHOWN = 30;
+static const int THREAD_MAX_SHOWN = 50;   // newest bubbles built per conversation
 static MsgLoc* s_msg_locs = psramBuf<MsgLoc>(THREAD_MAX_SHOWN);
 static int    s_msg_loc_n = 0;
 
@@ -2008,7 +2014,7 @@ void UITask::messageLocationAction(int idx, bool save) {
   if (idx < 0 || idx >= s_msg_loc_n) return;
   const MsgLoc& m = s_msg_locs[idx];
   if (save) {
-    if (_core->waypoints.full()) { showToast("Waypoints full (16)"); return; }
+    if (_core->waypoints.full()) { showToast(waypointsFull()); return; }
     if (_core->waypoints.add(m.lat, m.lon, rtc_clock.getCurrentTime(), m.label)) {
       char t[48];
       snprintf(t, sizeof(t), "Saved %s", _core->waypoints.at(_core->waypoints.count() - 1).label);
