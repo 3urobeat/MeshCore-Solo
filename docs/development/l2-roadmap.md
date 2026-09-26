@@ -257,5 +257,6 @@ User list, second batch (2026-09-26):
       default; off: only the top button wakes it).
 - [x] Favourites as their own screen in the menu rather than a tile: a
       Home card left of the main page (six slots, unread badges).
-- [ ] WiFi indicator icon in the status bar.
+- [x] WiFi indicator icon in the status bar: while WiFi is switched on,
+      bright when connected, dim otherwise.
 

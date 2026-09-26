@@ -624,14 +624,16 @@ void UITask::refreshStatusBar() {
   lv_label_set_text_fmt(_status_batt, "%s%s%s", _board->isExternalPowered() ? LV_SYMBOL_CHARGE : "", batt, level);
 
   // Status icons, as the original's status bar (ui-new): Bluetooth (bright
-  // when the app is connected), GPS (green with a fix), the alarm, mute, then
+  // when the app is connected), WiFi (when switched on), GPS (green with a fix), the alarm, mute, then
   // the modes that keep running in the background -- auto-advert, trail, live
   // share, repeater, arrival alert -- in the accent colour. Right to left in
   // that order, next to the battery.
   struct Icon { const char* sym; uint32_t col; };
-  Icon icons[10];
+  Icon icons[11];
   int n = 0;
   if (isSerialEnabled()) icons[n++] = { LV_SYMBOL_BLUETOOTH, hasConnection() ? theme::TEXT : theme::TEXT_MUTED };
+  if (lvport::wifiAllowed())   // WiFi switched on: bright while connected (map tiles, update)
+    icons[n++] = { LV_SYMBOL_WIFI, lvport::netRadio() == lvport::NET_UP ? theme::TEXT : theme::TEXT_MUTED };
   int32_t lat, lon;
   bool fix = _core->course.currentLocation(lat, lon);
   if (_core->gpsEnabled() || fix) icons[n++] = { LV_SYMBOL_GPS, fix ? theme::OK : theme::TEXT_MUTED };
@@ -644,7 +646,7 @@ void UITask::refreshStatusBar() {
   if (_prefs && _prefs->loc_share_enabled) icons[n++] = { UI_SYMBOL_PIN, theme::ACCENT };
   if (_prefs && _prefs->client_repeat) icons[n++] = { LV_SYMBOL_LOOP, theme::ACCENT };
   if (_prefs && _prefs->locator_enabled && _prefs->locator_has_target) icons[n++] = { UI_SYMBOL_FLAG, theme::ACCENT };
-  char sig[48];
+  char sig[sizeof(_status_sig)];
   int o = 0;
   for (int i = 0; i < n && o < (int)sizeof(sig) - 12; i++) o += snprintf(sig + o, sizeof(sig) - o, "%s%lx", icons[i].sym, (unsigned long)icons[i].col);
   sig[o] = '\0';

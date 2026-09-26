@@ -140,14 +140,18 @@ static void saveWifi(const char* ssid, const char* pass) {
 }
 // Settings > WiFi's switch: off keeps the radio off for everything (scan, map
 // download). Kept with the credentials.
+static int8_t s_wifi_allowed = -1;   // read once (the status bar asks every second)
 static bool wifiAllowed() {
-  Preferences p;
-  if (!p.begin("mc_wifi", true)) return true;
-  bool on = p.getBool("on", true);
-  p.end();
-  return on;
+  if (s_wifi_allowed < 0) {
+    Preferences p;
+    bool on = true;
+    if (p.begin("mc_wifi", true)) { on = p.getBool("on", true); p.end(); }
+    s_wifi_allowed = on;
+  }
+  return s_wifi_allowed;
 }
 static void setWifiAllowed(bool on) {
+  s_wifi_allowed = on;
   Preferences p;
   if (!p.begin("mc_wifi", false)) return;
   p.putBool("on", on);
@@ -316,8 +320,9 @@ static void netEnd() {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
 }
-// One line for the download popup: link details and the internal heap (TLS,
-// WiFi and BLE all compete for it).
+// For the status bar: NET_UP once connected, else NET_OFF (radio off, a scan,
+// still connecting).
+static int netRadio() { return WiFi.getMode() != WIFI_OFF && WiFi.status() == WL_CONNECTED ? NET_UP : NET_OFF; }
 // Async scan: scanStart(), then scanResults() returns -1 while running, else
 // the count, filling `names` (strongest first, as the driver reports them).
 static void scanStart() {
@@ -545,9 +550,11 @@ static void setWifiAllowed(bool on) { s_wifi_on = on; }
 static bool s_live_tiles = true;
 static bool liveTiles() { return s_live_tiles; }
 static void setLiveTiles(bool on) { s_live_tiles = on; }
-static void netBegin(const char*, const char*) {}
+static bool s_net_on = false;
+static void netBegin(const char*, const char*) { s_net_on = true; }
 static int  netState() { return NET_UP; }
-static void netEnd() {}
+static void netEnd() { s_net_on = false; }
+static int  netRadio() { return s_net_on ? NET_UP : NET_OFF; }
 static uint32_t s_scan_at = 0;
 static void scanStart() { s_scan_at = millis(); }
 static int scanResults(char names[][33], int max) {   // a pretend scan, for the UI
