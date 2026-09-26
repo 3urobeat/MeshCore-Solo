@@ -235,12 +235,18 @@ Ideas to come back to (2026-09-26):
 
 User list, second batch (2026-09-26):
 
-- [ ] Status bar icons look like different sizes?
-- [ ] Under own messages: a small counter as in the original (L1), not a
+- [x] Status bar icons look like different sizes? Own icon font
+      (fonts/status_icons.py refits FontAwesome to one size); scrollbars
+      everywhere thin and at the edge, clear of the content.
+- [x] Under own messages: a small counter as in the original (L1), not a
       checkmark with "relayed".
-- [ ] Polish the path popup of a sent / received message.
-- [ ] Map download popup runs off the screen; take the WiFi settings out
-      of it (one place: Settings > WiFi).
+- [x] Polish the path popup of a sent / received message (roles on the
+      right, our post's repeaters under us, long paths scroll).
+- [x] Map download popup runs off the screen; take the WiFi settings out
+      of it (one place: Settings > WiFi). Compact: a progress bar, one
+      line of counts, errors on one line, only the network's name.
+- [ ] Mentions: highlight @[nick] in message text (a coloured chip in
+      place of the raw "@[...]" markup), our own name stronger.
 - [ ] Splash: "MeshCore Solo" with the upstream version and ours, all in
       the MeshCore title font.
 - [ ] Emoji, ideally the full range (glyphs could live on the SD card).

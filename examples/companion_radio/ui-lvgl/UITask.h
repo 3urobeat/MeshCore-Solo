@@ -474,6 +474,8 @@ private:
   lv_obj_t* _map_dl_pill = nullptr;     // download progress over the map
   lv_obj_t* _dl_overlay = nullptr;      // download popup
   lv_obj_t* _dl_info = nullptr;
+  lv_obj_t* _dl_bar = nullptr;          // progress while downloading
+  lv_obj_t* _dl_err = nullptr;          // failures, one line
   lv_obj_t* _dl_zoom_lbl = nullptr;
   lv_obj_t* _dl_start_lbl = nullptr;
   lv_obj_t* _dl_job_row = nullptr;      // "Unfinished ... Resume" in the popup

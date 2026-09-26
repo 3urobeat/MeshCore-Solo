@@ -600,14 +600,14 @@ void UITask::mapDownloadPopup() {
   lv_obj_set_style_border_width(panel, 1, 0);
   lv_obj_set_style_radius(panel, theme::RADIUS, 0);
   lv_obj_set_style_pad_all(panel, theme::PAD, 0);
-  lv_obj_set_style_pad_row(panel, 6, 0);
+  lv_obj_set_style_pad_row(panel, 4, 0);
   lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_max_height(panel, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12, 0);   // scrolls past that
 
   lv_obj_t* hdr = lv_obj_create(panel);
   styleSurface(hdr, theme::BG);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(hdr, LV_PCT(100), 28);
+  lv_obj_set_size(hdr, LV_PCT(100), 26);
   lv_obj_align(label(hdr, "Download this area", THEME_FONT_TITLE, theme::TEXT), LV_ALIGN_LEFT_MID, 0, 0);
   headerButton(hdr, LV_SYMBOL_CLOSE, onDlClose, 0, NULL);
 
@@ -640,6 +640,15 @@ void UITask::mapDownloadPopup() {
   lv_label_set_long_mode(_dl_info, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(_dl_info, LV_PCT(100));
   lv_obj_set_style_text_line_space(_dl_info, 2, 0);
+  _dl_bar = lv_bar_create(panel);
+  lv_obj_set_size(_dl_bar, LV_PCT(100), 6);
+  lv_obj_set_style_bg_color(_dl_bar, lv_color_hex(theme::SURFACE_2), 0);
+  lv_obj_set_style_bg_color(_dl_bar, lv_color_hex(theme::ACCENT), LV_PART_INDICATOR);
+  lv_obj_add_flag(_dl_bar, LV_OBJ_FLAG_HIDDEN);
+  _dl_err = label(panel, "", THEME_FONT_SMALL, theme::FAIL);
+  lv_label_set_long_mode(_dl_err, LV_LABEL_LONG_DOT);   // one line, whatever the server said
+  lv_obj_set_width(_dl_err, LV_PCT(100));
+  lv_obj_add_flag(_dl_err, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t* acts = lv_obj_create(panel);
   styleSurface(acts, theme::BG);
@@ -663,7 +672,7 @@ void UITask::mapDownloadPopup() {
 
 void UITask::mapDownloadClose() {
   if (_dl_overlay) lv_obj_delete_async(_dl_overlay);   // may be closing from its own button
-  _dl_overlay = _dl_info = _dl_zoom_lbl = _dl_start_lbl = _dl_job_row = _dl_job_lbl = nullptr;
+  _dl_overlay = _dl_info = _dl_bar = _dl_err = _dl_zoom_lbl = _dl_start_lbl = _dl_job_row = _dl_job_lbl = nullptr;
 }
 
 void UITask::mapDownloadZmax(int delta) {
@@ -674,27 +683,52 @@ void UITask::mapDownloadZmax(int delta) {
   refreshDownloadPopup();
 }
 
+// "a.tile.opentopomap.org" -> "opentopomap.org": the name people know.
+static const char* shortHost(const char* h) {
+  const char* p = h;
+  for (;;) {
+    const char* dot = strchr(p, '.');
+    if (!dot || !strchr(dot + 1, '.')) return p;   // two labels left
+    p = dot + 1;
+  }
+}
+
+static void dlSize(char* out, size_t n, uint64_t bytes) {
+  if (bytes < 1024 * 1024) snprintf(out, n, "%lu KB", (unsigned long)(bytes / 1024));
+  else snprintf(out, n, "%lu MB", (unsigned long)((bytes + 512 * 1024) / (1024 * 1024)));
+}
+
 void UITask::refreshDownloadPopup() {
   if (!_dl_info) return;
   mapview::TileDownloader& dl = mapview::s_dl;
   lv_label_set_text_fmt(_dl_zoom_lbl, "z%d", _dl_zmax);
-  if (dl.active()) {
-    char net[64];
-    lvport::netInfo(net, sizeof(net));
-    if (dl.state() == mapview::TileDownloader::CONNECTING)
-      lv_label_set_text_fmt(_dl_info, "Connecting to WiFi...\nFrom %s\n%s", dl.sourceHost(), net);
-    else if (dl.failed())
-      lv_label_set_text_fmt(_dl_info, "Downloading %lu / %lu tiles  -  %lu failed\nLast error: %s\n%s",
-                            (unsigned long)dl.processed(), (unsigned long)dl.total(),
-                            (unsigned long)dl.failed(), dl.message(), net);
-    else
-      lv_label_set_text_fmt(_dl_info, "Downloading %lu / %lu tiles (%lu new)\nFrom %s  -  you can close this\n%s",
-                            (unsigned long)dl.processed(), (unsigned long)dl.total(),
-                            (unsigned long)dl.downloaded(), dl.sourceHost(), net);
-    lv_label_set_text(_dl_start_lbl, LV_SYMBOL_STOP " Stop");
+  const char* host = shortHost(dl.sourceHost());
+  lv_obj_t* zoom_row = lv_obj_get_parent(_dl_zoom_lbl);
+  if (dl.active()) {   // the range is fixed while it runs: room for the progress instead
+    lv_obj_add_flag(zoom_row, LV_OBJ_FLAG_HIDDEN);
     if (_dl_job_row) lv_obj_add_flag(_dl_job_row, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(_dl_bar, LV_OBJ_FLAG_HIDDEN);
+    uint32_t total = dl.total();
+    lv_bar_set_range(_dl_bar, 0, total > 0 ? (int32_t)total : 1);
+    lv_bar_set_value(_dl_bar, (int32_t)dl.processed(), LV_ANIM_OFF);
+    if (dl.state() == mapview::TileDownloader::CONNECTING)
+      lv_label_set_text_fmt(_dl_info, "Connecting to WiFi...  -  from %s", host);
+    else
+      lv_label_set_text_fmt(_dl_info, "%lu / %lu tiles, %lu new  -  from %s\nYou can close this, it carries on",
+                            (unsigned long)dl.processed(), (unsigned long)total,
+                            (unsigned long)dl.downloaded(), host);
+    if (dl.failed()) {
+      lv_label_set_text_fmt(_dl_err, "%lu failed: %s", (unsigned long)dl.failed(), dl.message());
+      lv_obj_remove_flag(_dl_err, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(_dl_err, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_label_set_text(_dl_start_lbl, LV_SYMBOL_STOP " Stop");
     return;
   }
+  lv_obj_remove_flag(zoom_row, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(_dl_bar, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(_dl_err, LV_OBJ_FLAG_HIDDEN);
   mapview::TileArea job;
   if (_dl_job_row && dl.savedJob(job)) {
     lv_label_set_text_fmt(_dl_job_lbl, "Unfinished: z%d-%d,\n%lu tiles", job.zmin, job.zmax,
@@ -706,20 +740,20 @@ void UITask::refreshDownloadPopup() {
   int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
   mapview::TileArea a = visibleArea(_map_cx, _map_cy, _map_z, w, h, dlZmin(_map_z), _dl_zmax);
   uint32_t n = mapview::countTiles(a);
-  char ssid[33], pass[65];
-  bool have_wifi = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
+  char size[16];
+  dlSize(size, sizeof(size), (uint64_t)n * mapview::AVG_TILE_BYTES);
+  // The network itself is set up in Settings > WiFi only; here just which one.
+  char ssid[33], pass[65], net[64];
+  if (!lvport::wifiAllowed()) snprintf(net, sizeof(net), "WiFi is off - Settings > WiFi");
+  else if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) snprintf(net, sizeof(net), "No WiFi network - Settings > WiFi");
+  else snprintf(net, sizeof(net), "Over WiFi: %s", ssid);
   char last[64] = "";
   bool job_shown = _dl_job_row && !lv_obj_has_flag(_dl_job_row, LV_OBJ_FLAG_HIDDEN);   // it says enough
   if (!job_shown && (dl.state() == mapview::TileDownloader::DONE || dl.state() == mapview::TileDownloader::FAILED ||
                      dl.state() == mapview::TileDownloader::CANCELLED))
     snprintf(last, sizeof(last), "\nLast: %s (%lu new)", dl.message(), (unsigned long)dl.downloaded());
-  char size[16];
-  uint64_t bytes = (uint64_t)n * mapview::AVG_TILE_BYTES;
-  if (bytes < 1024 * 1024) snprintf(size, sizeof(size), "%lu KB", (unsigned long)(bytes / 1024));
-  else snprintf(size, sizeof(size), "%lu MB", (unsigned long)((bytes + 512 * 1024) / (1024 * 1024)));
-  lv_label_set_text_fmt(_dl_info, "z%d-%d: %lu tiles, about %s  -  from %s\nWiFi: %s%s",
-                        a.zmin, a.zmax, (unsigned long)n, size,
-                        dl.sourceHost(), have_wifi ? ssid : "none - Settings > WiFi", last);
+  lv_label_set_text_fmt(_dl_info, "z%d-%d: %lu tiles, about %s  -  %s\n%s%s",
+                        a.zmin, a.zmax, (unsigned long)n, size, host, net, last);
   lv_label_set_text(_dl_start_lbl, n > mapview::TileDownloader::MAX_TILES ? "Too large - zoom in"
                                    : LV_SYMBOL_DOWNLOAD " Download");
 }

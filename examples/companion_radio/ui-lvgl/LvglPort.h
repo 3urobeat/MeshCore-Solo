@@ -303,17 +303,6 @@ static void netEnd() {
 }
 // One line for the download popup: link details and the internal heap (TLS,
 // WiFi and BLE all compete for it).
-static void netInfo(char* out, size_t n) {
-  size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-  size_t big_int = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  if (WiFi.status() == WL_CONNECTED)
-    snprintf(out, n, "%s  %d dBm  heap %uk/%uk", WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
-             (unsigned)(free_int / 1024), (unsigned)(big_int / 1024));
-  else
-    snprintf(out, n, "WiFi status %d  heap %uk/%uk", (int)WiFi.status(),
-             (unsigned)(free_int / 1024), (unsigned)(big_int / 1024));
-}
-
 // Async scan: scanStart(), then scanResults() returns -1 while running, else
 // the count, filling `names` (strongest first, as the driver reports them).
 static void scanStart() {
@@ -541,7 +530,6 @@ static void setLiveTiles(bool on) { s_live_tiles = on; }
 static void netBegin(const char*, const char*) {}
 static int  netState() { return NET_UP; }
 static void netEnd() {}
-static void netInfo(char* out, size_t n) { snprintf(out, n, "browser network"); }
 static uint32_t s_scan_at = 0;
 static void scanStart() { s_scan_at = millis(); }
 static int scanResults(char names[][33], int max) {   // a pretend scan, for the UI
