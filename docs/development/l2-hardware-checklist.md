@@ -277,3 +277,16 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] After "restarting..." the device boots the new version (Settings shows it); contacts, messages, settings, PIN and WiFi kept
 - [ ] Up to date → "Up to date - the latest release is vX"; WiFi off / no network / map download running → toasts instead
 - [ ] Wrong network in the middle (unplug router) → "Download stalled", old firmware still boots
+
+## Roadmap stage 6: motion and look (2026-09-26)
+- [ ] Boot: splash (amber MESHCORE, SOLO, Solo version, "MeshCore x - built date", three dots rising in turn) for ~2.5 s, then fades into Home (or the PIN card); a tap skips it
+- [ ] Changing screens: the new one fades in from the background with its content drifting into place (up going in, down coming back); rebuilding the same screen (settings toggles, a new message) doesn't animate
+- [ ] Selected things look the same everywhere (dim accent + light text): Nearby chips, Clock / Bot / Diagnostics tabs, Repeater segments; primary actions are full accent with dark text (map Download / Resume, Firmware update, WiFi / channel Save, Clock Start, alarm Dismiss, New message)
+- [ ] Settings > Display & power > LOOK > Accent colour: tap a swatch → the page, status icons, chips, names recolour at once; other screens in the new colour; kept after a reboot (splash too)
+- [ ] Home page swipe / dot tap: the tile row slides in from the swipe side
+- [ ] Popups (map tools, Nearby advert, scan, radio frequency, map download): backdrop fades, panel rises; toasts rise in and fade out
+- [ ] Buttons shrink slightly while pressed
+- [ ] Status bar icons evenly spaced, muted shows a speaker with a cross (also next to muted conversations)
+- [ ] Own channel post: "1s ✓ 2" (green, number of repeaters heard relaying it) under the bubble, nothing before an echo; DM: ✓ delivered, ✗ (red) not delivered, "..." sending
+- [ ] Hold a message: quote, time + hops, path diagram sender → repeaters → this device; own post: "Relayed by n repeaters" + names; own DM: Delivered / Not delivered / Sending in words
+- [ ] Map download popup: no WiFi button, fits the screen (scrolls if the unfinished-job row is shown); no network saved → toast pointing to Settings > WiFi

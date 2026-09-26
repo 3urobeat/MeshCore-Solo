@@ -1,14 +1,24 @@
 #pragma once
-// Design tokens for ui-lvgl — the one place colours, spacing and type live.
-// First colour take on the "Amber Trace" direction: amber on near-black.
+// Design tokens for ui-lvgl -- the one place colours, spacing and type live --
+// and the rules every widget follows (install() below).
+//
+// The accent (amber by default; Settings > Display & power > Accent colour)
+// on near-black, soft corners. The accent means one of three things:
+//  - ACCENT fill, dark text: the primary action of a screen or popup
+//    (Download, Install, Save, Go) -- stylePrimary() in UITask.cpp;
+//  - ACCENT_DIM fill, light text: something selected / on (a tab, a chip, a
+//    segment, a mode that is running);
+//  - ACCENT text or icon: a name, a count, a background mode, a value.
+// Everything else is BG / SURFACE / SURFACE_2 with TEXT or TEXT_MUTED.
+#include <src/themes/lv_theme_private.h>   // lv_theme_t's fields, to layer a theme
 
 namespace theme {
   // Colours (0xRRGGBB)
   static const uint32_t BG        = 0x0B0B0D;   // screen background
-  static const uint32_t SURFACE   = 0x17171B;   // cards, rows, bubbles (incoming)
-  static const uint32_t SURFACE_2 = 0x222228;   // pressed / raised
-  static const uint32_t ACCENT    = 0xFFB000;   // amber: focus, badges, own bubbles
-  static const uint32_t ACCENT_DIM= 0x6B4A00;   // own bubble fill
+  static const uint32_t SURFACE   = 0x1A1A1F;   // cards, rows, bubbles (incoming)
+  static const uint32_t SURFACE_2 = 0x27272E;   // pressed / raised
+  static uint32_t ACCENT          = 0xFFB000;   // primary actions, names, badges, modes (setAccent)
+  static uint32_t ACCENT_DIM      = 0x6B4A00;   // selected / on fill, own bubbles (setAccent)
   static const uint32_t TEXT      = 0xF2EEE6;
   static const uint32_t TEXT_MUTED= 0x9A958C;
   static const uint32_t OK        = 0x6FCF6F;   // delivered / relayed
@@ -17,7 +27,8 @@ namespace theme {
   // Spacing (px)
   static const int PAD     = 8;
   static const int GAP     = 6;
-  static const int RADIUS  = 10;
+  static const int RADIUS  = 10;    // cards, rows, buttons (pills use LV_RADIUS_CIRCLE)
+  static const int RADIUS_SM = 6;   // small cells inside those
   static const int STATUS_H = 22;   // top status bar
   static const int ROW_H   = 44;    // list row (touch target)
 
@@ -42,4 +53,62 @@ namespace theme {
   #define UI_SYMBOL_CHART   "\xEF\x82\x80"   // U+F080, diagnostics
   #define UI_SYMBOL_KEY     "\xEF\x82\x84"   // U+F084, admin
   #define UI_SYMBOL_ROUTE   "\xEF\x93\x97"   // U+F4D7, trail
+  #define UI_SYMBOL_MUTE    "\xEF\x9A\xA9"   // U+F6A9, muted (speaker with a cross)
+
+  // Accent choices; the fill is the colour at 42% over the background.
+  struct Accent { const char* name; uint32_t col; };
+  static const Accent ACCENTS[] = {
+    { "Amber", 0xFFB000 }, { "Orange", 0xFF7A2E }, { "Coral", 0xFF6B7A },
+    { "Violet", 0xB18CFF }, { "Cyan", 0x3CC8E8 }, { "Lime", 0xB5E04A },
+  };
+  static const int ACCENT_COUNT = sizeof(ACCENTS) / sizeof(ACCENTS[0]);
+  static int s_accent = 0;
+  static void setAccent(int idx) {
+    if (idx < 0 || idx >= ACCENT_COUNT) idx = 0;
+    s_accent = idx;
+    ACCENT = ACCENTS[idx].col;
+    uint32_t dim = 0;
+    for (int sh = 0; sh <= 16; sh += 8) {
+      uint32_t c = (ACCENT >> sh) & 0xFF, b = (BG >> sh) & 0xFF;
+      dim |= ((c * 42 + b * 58) / 100) << sh;
+    }
+    ACCENT_DIM = dim;
+  }
+
+  // Over LVGL's default theme, for every widget: a checked button is
+  // "selected" (ACCENT_DIM, not the default theme's full accent), buttons
+  // have the card radius and give a little under the finger (the default
+  // theme's transitions animate it both ways).
+  static lv_theme_t s_theme;
+  static lv_style_t s_btn, s_press, s_checked;
+  static void applyTheme(lv_theme_t* th, lv_obj_t* obj) {
+    (void)th;
+    if (lv_obj_check_type(obj, &lv_button_class)) {
+      lv_obj_add_style(obj, &s_btn, 0);
+      lv_obj_add_style(obj, &s_press, LV_STATE_PRESSED);
+      lv_obj_add_style(obj, &s_checked, LV_STATE_CHECKED);
+    }
+  }
+  // (Re)builds the default theme in the current accent with this layer over it.
+  static void install(lv_display_t* disp) {
+    static bool styled = false;
+    if (!styled) {
+      styled = true;
+      lv_style_init(&s_btn);
+      lv_style_set_radius(&s_btn, RADIUS);
+      lv_style_set_shadow_width(&s_btn, 0);
+      lv_style_init(&s_press);
+      lv_style_set_transform_width(&s_press, -2);
+      lv_style_set_transform_height(&s_press, -2);
+      lv_style_init(&s_checked);
+      lv_style_set_text_color(&s_checked, lv_color_hex(TEXT));
+    }
+    lv_style_set_bg_color(&s_checked, lv_color_hex(ACCENT_DIM));
+    lv_theme_t* base = lv_theme_default_init(disp, lv_color_hex(ACCENT), lv_color_hex(ACCENT_DIM), true, THEME_FONT_BODY);
+    s_theme = *base;
+    lv_theme_set_parent(&s_theme, base);
+    lv_theme_set_apply_cb(&s_theme, applyTheme);
+    lv_display_set_theme(disp, &s_theme);
+    lv_obj_report_style_change(&s_checked);
+  }
 }

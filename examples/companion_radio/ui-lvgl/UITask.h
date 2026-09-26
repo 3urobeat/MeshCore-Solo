@@ -89,7 +89,7 @@ public:
   void navCoordsDone(bool ok);
   void shareToMessage(const char* text);
   void messageLocationAction(int idx, bool save);
-  void showWifi(bool from_map);
+  void showWifi();
   void wifiSetAllowed(bool on);
   void wifiScan();
   void wifiPick(int idx);
@@ -214,6 +214,8 @@ public:
   void pinSetupKey(const char* key);
   void pinRemove();
   void pinRowRefresh();
+  void accentRow(lv_obj_t* body);   // Settings > Display & power > Accent colour
+  void setAccent(int idx);
   void showFavourites();
   void showDiag();
   void diagTab(int tab);
@@ -239,6 +241,10 @@ private:
   void buildStatusBar();
   void refreshStatusBar();
   lv_obj_t* newScreen(const char* title, bool with_back);
+  void showSplash();   // Splash.h
+  // The screen being shown: newScreen()'s, already while it slides in (popups
+  // and keyboards go on it, not on the one sliding out).
+  lv_obj_t* screen() const { return _scr ? _scr : lv_screen_active(); }
   void buildHome();
   void refreshHome();
   void homeSwipePoll();
@@ -355,6 +361,12 @@ private:
   UiCore*        _core = nullptr;
 
   Screen   _screen = SCR_HOME;
+  // What newScreen() last loaded, for the slide direction (Anim.h)
+  Screen    _shown_screen = SCR_HOME;
+  char      _shown_title[32] = "";
+  bool      _nav_back = false;       // set by back() around the screen it shows
+  lv_obj_t* _scr = nullptr;          // the screen newScreen() built (active once its slide starts)
+  static int screenDepth(Screen s);
   bool     _asleep = false;
   uint32_t _next_status_ms = 0;
   uint32_t _next_thread_check_ms = 0;
@@ -473,7 +485,6 @@ private:
   char      _share_text[96] = "";     // waiting for a conversation to be picked (shareToMessage)
 
   // WiFi settings (SCR_WIFI)
-  bool      _wifi_from_map = false;
   bool      _wifi_scanning = false;
   lv_obj_t* _wifi_ssid = nullptr;
   lv_obj_t* _wifi_pass = nullptr;

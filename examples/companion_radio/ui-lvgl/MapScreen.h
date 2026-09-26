@@ -149,7 +149,6 @@ static void onDlClose(lv_event_t* e)     { (void)e; s_ui->mapDownloadClose(); }
 static void onDlStart(lv_event_t* e)     { (void)e; s_ui->mapDownloadStart(); }
 static void onDlZoomMinus(lv_event_t* e) { (void)e; s_ui->mapDownloadZmax(-1); }
 static void onDlZoomPlus(lv_event_t* e)  { (void)e; s_ui->mapDownloadZmax(+1); }
-static void onDlWifi(lv_event_t* e)      { (void)e; s_ui->showWifi(true); }
 static void onDlResume(lv_event_t* e)    { (void)e; s_ui->mapDownloadResume(); }
 static void onDlDiscard(lv_event_t* e)   { (void)e; s_ui->mapDownloadDiscard(); }
 static void onNavTools(lv_event_t* e);   // NavMap.h
@@ -580,7 +579,7 @@ void UITask::mapDownloadPopup() {
   if (_dl_overlay) return;
   if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3 > 17 ? 17 : _map_z + 3;
 
-  _dl_overlay = lv_obj_create(lv_screen_active());
+  _dl_overlay = lv_obj_create(screen());
   lv_obj_remove_style_all(_dl_overlay);
   lv_obj_set_size(_dl_overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(_dl_overlay, lv_color_hex(0x000000), 0);
@@ -589,6 +588,7 @@ void UITask::mapDownloadPopup() {
   lv_obj_remove_flag(_dl_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t* panel = lv_obj_create(_dl_overlay);
+  anim::popup(_dl_overlay);
   lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16, LV_SIZE_CONTENT);
   lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
   lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
@@ -598,7 +598,7 @@ void UITask::mapDownloadPopup() {
   lv_obj_set_style_pad_all(panel, theme::PAD, 0);
   lv_obj_set_style_pad_row(panel, 6, 0);
   lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_max_height(panel, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12, 0);   // scrolls past that
 
   lv_obj_t* hdr = lv_obj_create(panel);
   styleSurface(hdr, theme::BG);
@@ -628,8 +628,7 @@ void UITask::mapDownloadPopup() {
   lv_obj_set_width(_dl_job_lbl, 170);
   lv_label_set_long_mode(_dl_job_lbl, LV_LABEL_LONG_WRAP);
   lv_obj_align(_dl_job_lbl, LV_ALIGN_LEFT_MID, theme::PAD, 0);
-  lv_obj_t* res = headerButton(_dl_job_row, LV_SYMBOL_PLAY " Resume", onDlResume, 48, NULL);
-  lv_obj_set_style_bg_color(res, lv_color_hex(theme::ACCENT_DIM), 0);
+  stylePrimary(headerButton(_dl_job_row, LV_SYMBOL_PLAY " Resume", onDlResume, 48, NULL));
   headerButton(_dl_job_row, LV_SYMBOL_TRASH, onDlDiscard, 4, NULL);
   lv_obj_add_flag(_dl_job_row, LV_OBJ_FLAG_HIDDEN);
 
@@ -644,23 +643,16 @@ void UITask::mapDownloadPopup() {
   lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(acts, theme::GAP, 0);
-  lv_obj_t* wifi = lv_button_create(acts);
-  lv_obj_set_height(wifi, 38);
-  lv_obj_set_flex_grow(wifi, 1);
-  lv_obj_set_style_shadow_width(wifi, 0, 0);
-  lv_obj_set_style_radius(wifi, theme::RADIUS, 0);
-  lv_obj_set_style_bg_color(wifi, lv_color_hex(theme::SURFACE), 0);
-  lv_obj_add_event_cb(wifi, onDlWifi, LV_EVENT_CLICKED, NULL);
-  lv_obj_center(label(wifi, LV_SYMBOL_WIFI " WiFi", THEME_FONT_SMALL, theme::TEXT));
   lv_obj_t* go = lv_button_create(acts);
   lv_obj_set_height(go, 38);
-  lv_obj_set_flex_grow(go, 2);
+  lv_obj_set_flex_grow(go, 1);
   lv_obj_set_style_shadow_width(go, 0, 0);
   lv_obj_set_style_radius(go, theme::RADIUS, 0);
   lv_obj_set_style_bg_color(go, lv_color_hex(theme::ACCENT_DIM), 0);
   lv_obj_add_event_cb(go, onDlStart, LV_EVENT_CLICKED, NULL);
   _dl_start_lbl = label(go, "", THEME_FONT_SMALL, theme::TEXT);
   lv_obj_center(_dl_start_lbl);
+  stylePrimary(go);
 
   refreshDownloadPopup();
 }
@@ -723,7 +715,7 @@ void UITask::refreshDownloadPopup() {
   else snprintf(size, sizeof(size), "%lu MB", (unsigned long)((bytes + 512 * 1024) / (1024 * 1024)));
   lv_label_set_text_fmt(_dl_info, "z%d-%d: %lu tiles, about %s  -  from %s\nWiFi: %s%s",
                         a.zmin, a.zmax, (unsigned long)n, size,
-                        dl.sourceHost(), have_wifi ? ssid : "not set - tap WiFi", last);
+                        dl.sourceHost(), have_wifi ? ssid : "none - Settings > WiFi", last);
   lv_label_set_text(_dl_start_lbl, n > mapview::TileDownloader::MAX_TILES ? "Too large - zoom in"
                                    : LV_SYMBOL_DOWNLOAD " Download");
 }
@@ -732,7 +724,7 @@ void UITask::mapDownloadStart() {
   if (mapview::s_dl.active()) { mapDownloadStop(); return; }
   char ssid[33], pass[65];
   if (!lvport::wifiAllowed()) { showToast("WiFi is off - Settings > WiFi"); return; }
-  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showWifi(true); return; }
+  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showToast("Pick a WiFi network first - Settings > WiFi", 3000); return; }
   if (!lvport::mountStorage()) { showToast("No SD card"); return; }
   int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
   mapview::TileArea a = visibleArea(_map_cx, _map_cy, _map_z, w, h, dlZmin(_map_z), _dl_zmax);
@@ -745,7 +737,7 @@ void UITask::mapDownloadResume() {
   if (mapview::s_dl.active() || !mapview::s_dl.savedJob(a)) return;
   char ssid[33], pass[65];
   if (!lvport::wifiAllowed()) { showToast("WiFi is off - Settings > WiFi"); return; }
-  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showWifi(true); return; }
+  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showToast("Pick a WiFi network first - Settings > WiFi", 3000); return; }
   if (!lvport::mountStorage()) { showToast("No SD card"); return; }
   if (!mapview::s_dl.start(a, ssid, pass)) { showToast(mapview::s_dl.message()); return; }
   refreshDownloadPopup();

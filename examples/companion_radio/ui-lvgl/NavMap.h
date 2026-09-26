@@ -440,7 +440,7 @@ void UITask::navToNode(const uint8_t* key, int32_t lat, int32_t lon, const char*
 
 lv_obj_t* UITask::navPopupPanel(const char* title, bool full) {
   navClosePopup();
-  _nav_overlay = lv_obj_create(lv_screen_active());
+  _nav_overlay = lv_obj_create(screen());
   lv_obj_remove_style_all(_nav_overlay);
   lv_obj_set_size(_nav_overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(_nav_overlay, lv_color_hex(0x000000), 0);
@@ -449,6 +449,7 @@ lv_obj_t* UITask::navPopupPanel(const char* title, bool full) {
   lv_obj_remove_flag(_nav_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t* panel = lv_obj_create(_nav_overlay);
+  anim::popup(_nav_overlay);
   int w = lv_display_get_horizontal_resolution(NULL) - 16;
   if (full) {
     lv_obj_set_size(panel, w, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12);

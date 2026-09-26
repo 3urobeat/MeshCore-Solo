@@ -227,6 +227,35 @@ void UITask::conversationAction(uint8_t act) {
 
 // ── Message actions ───────────────────────────────────────────────────────────
 
+// One stop on the path diagram: a dot on a vertical line (the line runs on to
+// the next stop unless `last`), the name beside it.
+static void pathStop(lv_obj_t* parent, const char* name, bool first, bool last, uint32_t col) {
+  lv_obj_t* row = lv_obj_create(parent);
+  lv_obj_remove_style_all(row);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(row, LV_PCT(100), 20);
+  if (!first || !last) {
+    lv_obj_t* line = lv_obj_create(row);
+    lv_obj_remove_style_all(line);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(line, lv_color_hex(theme::SURFACE_2), 0);
+    lv_obj_set_size(line, 2, first || last ? 10 : 20);
+    lv_obj_set_pos(line, 6, first ? 10 : 0);
+  }
+  lv_obj_t* dot = lv_obj_create(row);
+  lv_obj_remove_style_all(dot);
+  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
+  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+  bool end = first || last;
+  lv_obj_set_size(dot, end ? 10 : 8, end ? 10 : 8);
+  lv_obj_align(dot, LV_ALIGN_LEFT_MID, end ? 2 : 3, 0);
+  lv_obj_t* t = label(row, name, end ? THEME_FONT_BODY : THEME_FONT_SMALL, end ? theme::TEXT : theme::TEXT_MUTED);
+  lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(t, 240);
+  lv_obj_align(t, LV_ALIGN_LEFT_MID, 22, 0);
+}
+
 void UITask::messageMenu(int idx) {
   using namespace convview;
   if (idx < 0 || idx >= s_msg_meta_n) return;
@@ -234,34 +263,93 @@ void UITask::messageMenu(int idx) {
   s_msg = idx;
   lv_obj_t* panel = navPopupPanel(m.own ? "My message" : (m.from[0] ? m.from : "Message"), false);
 
-  // The way it came: hops of an incoming message, or the repeaters heard
-  // relaying our own channel post.
   const MessageHistory& h = _core->history;
   uint8_t packed = 0; const uint8_t* path = nullptr; bool relay = false;
+  uint32_t ts = 0; const char* body = "";
+  AckState dm_st = ACK_NONE;
   if (m.pos >= 0) {
-    if (m.channel) { const ChHistEntry& e = h.chAtPos(m.pos); packed = e.path_len; path = e.path; relay = e.relay_seq != 0; }
-    else           { const DmHistEntry& e = h.dmAtPos(m.pos); packed = e.path_len; path = e.path; }
+    if (m.channel) {
+      const ChHistEntry& e = h.chAtPos(m.pos);
+      packed = e.path_len; path = e.path; relay = m.own; ts = e.timestamp;
+      const char* sep = strstr(e.text, ": ");
+      body = sep ? sep + 2 : e.text;
+    } else {
+      const DmHistEntry& e = h.dmAtPos(m.pos);
+      packed = e.path_len; path = e.path; ts = e.timestamp; body = e.text;
+      if (e.outgoing) dm_st = h.dmEffectiveStatus(e);
+      else {
+        ContactInfo tc;   // a room post is filed "Author: text"
+        if (MessageHistory::contactByPrefix(_thread_key, tc) && tc.type == ADV_TYPE_ROOM) {
+          const char* sep = strstr(e.text, ": ");
+          if (sep) body = sep + 2;
+        }
+      }
+    }
+  }
+
+  // The message itself, quoted short, and when.
+  lv_obj_t* q = label(panel, body, THEME_FONT_SMALL, theme::TEXT);
+  lv_label_set_long_mode(q, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(q, LV_PCT(100));
+  lv_obj_set_style_max_height(q, 34, 0);   // two lines
+  lv_obj_set_style_border_side(q, LV_BORDER_SIDE_LEFT, 0);
+  lv_obj_set_style_border_width(q, 2, 0);
+  lv_obj_set_style_border_color(q, lv_color_hex(m.own ? theme::ACCENT : theme::SURFACE_2), 0);
+  lv_obj_set_style_pad_left(q, 8, 0);
+  char when[64], age[16];
+  uint32_t now = rtc_clock.getCurrentTime();
+  geo::fmtAgeShort(age, sizeof(age), now, ts ? ts : now);
+  if (ts > 1000000000UL) {
+    time_t t = (time_t)((int64_t)ts + (int64_t)(_prefs ? _prefs->tz_offset_hours : 0) * 3600);
+    struct tm ti = *gmtime(&t);
+    char clk[12];
+    fmtClock(clk, sizeof(clk), ti, _prefs, true);
+    snprintf(when, sizeof(when), "%s  -  %s ago", clk, age);
+  } else {
+    snprintf(when, sizeof(when), "%s ago", age);
   }
   uint8_t hops = contactctl::hopCount(packed);
-  char text[200];
-  int o = 0;
-  if (hops > 0) {
-    o = snprintf(text, sizeof(text), relay ? "Relayed by: " : "Path (%u hop%s): ", hops, hops == 1 ? "" : "s");
-    for (uint8_t i = 0; i < hops && o < (int)sizeof(text) - 40; i++) {
+  if (!m.own) {   // incoming: how far it came, on the same line
+    size_t o = strlen(when);
+    if (hops > 0) snprintf(when + o, sizeof(when) - o, "  -  %u hop%s", hops, hops == 1 ? "" : "s");
+    else snprintf(when + o, sizeof(when) - o, "  -  direct");
+  }
+  label(panel, when, THEME_FONT_SMALL, theme::TEXT_MUTED);
+
+  if (m.own && !m.channel) {   // a DM we sent: its end-to-end delivery, in words
+    const char* st = "Sent"; uint32_t col = theme::TEXT_MUTED;
+    switch (dm_st) {
+      case ACK_OK:      st = LV_SYMBOL_OK " Delivered"; col = theme::OK; break;
+      case ACK_FAIL:    st = LV_SYMBOL_CLOSE " Not delivered"; col = theme::FAIL; break;
+      case ACK_PENDING: st = "Sending..."; break;
+      default: break;
+    }
+    label(panel, st, THEME_FONT_BODY, col);
+  } else if (relay) {   // our channel post: the repeaters heard passing it on
+    char hd[40];
+    if (hops > 0) snprintf(hd, sizeof(hd), LV_SYMBOL_OK " Relayed by %u repeater%s", hops, hops == 1 ? "" : "s");
+    else snprintf(hd, sizeof(hd), "No repeater heard relaying it yet");
+    label(panel, hd, THEME_FONT_BODY, hops > 0 ? theme::OK : theme::TEXT_MUTED);
+    for (uint8_t i = 0; i < hops; i++) {
+      char nm[33], line[40];
+      contactctl::hopName(packed, path, i, nm, sizeof(nm));
+      snprintf(line, sizeof(line), UI_SYMBOL_RADIO "  %s", nm);
+      label(panel, line, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    }
+  } else {   // incoming: sender, each hop, then us
+    lv_obj_t* diag = lv_obj_create(panel);
+    lv_obj_remove_style_all(diag);
+    lv_obj_remove_flag(diag, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(diag, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(diag, LV_FLEX_FLOW_COLUMN);
+    pathStop(diag, m.from[0] ? m.from : "Sender", true, false, theme::ACCENT);
+    for (uint8_t i = 0; i < hops; i++) {
       char nm[33];
       contactctl::hopName(packed, path, i, nm, sizeof(nm));
-      o += snprintf(text + o, sizeof(text) - o, "%s%s", i ? (relay ? ", " : " > ") : "", nm);
+      pathStop(diag, nm, false, false, theme::TEXT_MUTED);
     }
-  } else if (!m.own) {
-    snprintf(text, sizeof(text), "Heard directly (no repeaters)");
-  } else if (m.channel) {
-    snprintf(text, sizeof(text), "No repeater heard relaying it yet");
-  } else {
-    snprintf(text, sizeof(text), "Delivery is shown under the message");   // no path kept for our own DMs
+    pathStop(diag, the_mesh.getNodeName(), false, true, theme::OK);
   }
-  lv_obj_t* t = label(panel, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
 
   bool can_reply = !m.own && m.from[0] && _compose_ta;
   if (!can_reply && m.loc < 0) return;

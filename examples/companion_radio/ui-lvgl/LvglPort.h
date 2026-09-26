@@ -29,14 +29,21 @@ static const int WIFI_SCAN_MAX = 12;
 
 static lgfx::LGFX_Device* s_gfx = nullptr;
 static bool s_swallow = false;   // ignore the touch that woke the display until it lifts
+static uint32_t s_flush_us = 0;  // UI_PERF_TEST: time spent in flushCb
 
 static void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
+#ifdef UI_PERF_TEST
+  uint32_t t = micros();
+#endif
   int w = area->x2 - area->x1 + 1;
   int h = area->y2 - area->y1 + 1;
   s_gfx->startWrite();
   s_gfx->setAddrWindow(area->x1, area->y1, w, h);
   s_gfx->pushPixels((uint16_t*)px_map, (uint32_t)w * h, true /* LVGL RGB565 is little-endian */);
   s_gfx->endWrite();
+#ifdef UI_PERF_TEST
+  s_flush_us += micros() - t;
+#endif
   lv_display_flush_ready(disp);
 }
 
@@ -65,8 +72,11 @@ static bool begin() {
   lv_display_t* disp = lv_display_create(s_gfx->width(), s_gfx->height());
   lv_display_set_flush_cb(disp, flushCb);
 
-  // Two 40-line partial buffers (25 KB each), PSRAM first.
-  const uint32_t buf_sz = (uint32_t)s_gfx->width() * 40 * 2;
+  // Two half-screen buffers (75 KB each) in PSRAM: a frame renders in two
+  // passes instead of six (every pass walks the whole tree and lays text out
+  // again) -- measured ~8% faster than 40 lines; internal RAM / DMA / -O2
+  // made no difference (UI_PERF_TEST).
+  const uint32_t buf_sz = (uint32_t)s_gfx->width() * 120 * 2;
   uint8_t* buf1 = (uint8_t*)heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
   uint8_t* buf2 = (uint8_t*)heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
   if (!buf1) { buf1 = (uint8_t*)heap_caps_malloc(buf_sz, MALLOC_CAP_8BIT); buf2 = nullptr; }
@@ -165,6 +175,21 @@ static void savePin(const char* pin) {
   Preferences p;
   if (!p.begin("mc_lock", false)) return;
   p.putString("pin", pin);
+  p.end();
+}
+
+// Accent colour (Settings > Display & power): an index into theme::ACCENTS.
+static int loadAccent() {
+  Preferences p;
+  if (!p.begin("mc_ui", true)) return 0;
+  int v = p.getUChar("accent", 0);
+  p.end();
+  return v;
+}
+static void saveAccent(int idx) {
+  Preferences p;
+  if (!p.begin("mc_ui", false)) return;
+  p.putUChar("accent", (uint8_t)idx);
   p.end();
 }
 
@@ -398,6 +423,9 @@ static void saveWifi(const char* ssid, const char* pass) {
 static char s_pin[9] = "";   // the screen PIN, for the session
 static void loadPin(char* out, size_t n) { snprintf(out, n, "%s", s_pin); }
 static void savePin(const char* pin) { snprintf(s_pin, sizeof(s_pin), "%s", pin); }
+static int s_accent = 0;
+static int loadAccent() { return s_accent; }
+static void saveAccent(int idx) { s_accent = idx; }
 static bool s_wifi_on = true;
 static bool wifiAllowed() { return s_wifi_on; }
 static void setWifiAllowed(bool on) { s_wifi_on = on; }

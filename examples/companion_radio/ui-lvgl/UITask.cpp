@@ -32,6 +32,7 @@ template <class T> static T* psramBuf(size_t n) {
 #include "../ui-core/SoundNotifier.h"
 #include "../ui-core/MessageText.h"
 #include "Theme.h"
+#include "Anim.h"
 #include "LvglPort.h"
 #include "../ui-core/KeyboardData.h"
 #include "Keyboard.h"
@@ -93,7 +94,7 @@ static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, i
   lv_obj_set_style_text_color(m, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
   lv_obj_set_style_text_font(m, THEME_FONT_SMALL, LV_PART_ITEMS);
   lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(m, 8, LV_PART_ITEMS);
+  lv_obj_set_style_radius(m, theme::RADIUS_SM, LV_PART_ITEMS);
   return m;
 }
 
@@ -115,6 +116,14 @@ static lv_obj_t* textField(lv_obj_t* parent, const char* placeholder = NULL) {
   return ta;
 }
 
+// The primary action of a screen or popup: full amber, dark text (Theme.h);
+// call after its label is made.
+static void stylePrimary(lv_obj_t* b) {
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT), 0);
+  for (uint32_t i = 0; i < lv_obj_get_child_count(b); i++)
+    lv_obj_set_style_text_color(lv_obj_get_child(b, i), lv_color_hex(theme::BG), 0);
+}
+
 // Unread badge: amber pill with a count, on the right edge of `parent`.
 static void badge(lv_obj_t* parent, int n, bool overflow) {
   if (n <= 0) return;
@@ -124,7 +133,7 @@ static void badge(lv_obj_t* parent, int n, bool overflow) {
   lv_obj_set_size(b, LV_SIZE_CONTENT, 20);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT), 0);
   lv_obj_set_style_border_width(b, 0, 0);
-  lv_obj_set_style_radius(b, 10, 0);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_pad_hor(b, 7, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
   lv_obj_align(b, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
@@ -201,15 +210,15 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
     Serial.println("ui-lvgl: no memory for display buffers");
     return;
   }
-  lv_theme_t* th = lv_theme_default_init(lv_display_get_default(), lv_color_hex(theme::ACCENT),
-                                         lv_color_hex(theme::ACCENT_DIM), true, THEME_FONT_BODY);
-  lv_display_set_theme(lv_display_get_default(), th);
+  theme::setAccent(lvport::loadAccent());
+  theme::install(lv_display_get_default());
 
   buildStatusBar();
   applyDisplayPrefs();   // a slider percentage overrides the level main.cpp set
   showHome();
   lvport::loadPin(_pin, sizeof(_pin));
   if (_pin[0]) lockScreen();   // a reboot doesn't get round the PIN
+  showSplash();                // over both; fades out by itself
 }
 
 MyMesh::Listener* UITask::meshListener() { return _core; }
@@ -277,6 +286,52 @@ void UITask::loop() {
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), esp_get_idf_version());
+  }
+#endif
+#if defined(UI_PERF_TEST) && defined(ESP32)
+  // -D UI_PERF_TEST: walks through screens by itself and prints how long each
+  // display refresh took during the transition that followed (render+flush).
+  {
+    static uint32_t next = 15000, sum_us = 0, max_us = 0, frames = 0, t0 = 0;
+    static int step = 0;
+    static const char* name = "";
+    static bool hooked = false;
+    if (!hooked) {
+      hooked = true;
+      lv_display_add_event_cb(lv_display_get_default(), [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_REFR_START) t0 = micros();
+        else { uint32_t d = micros() - t0; sum_us += d; if (d > max_us) max_us = d; frames++; }
+      }, LV_EVENT_REFR_START, NULL);
+      lv_display_add_event_cb(lv_display_get_default(), [](lv_event_t* e) {
+        uint32_t d = micros() - t0; sum_us += d; if (d > max_us) max_us = d; frames++; (void)e;
+      }, LV_EVENT_REFR_READY, NULL);
+    }
+    if (millis() >= next) {
+      if (*name) Serial.printf("PERF %-10s frames %2lu avg %5.1f ms max %5.1f ms\n", name, (unsigned long)frames,
+                               frames ? sum_us / 1000.0f / frames : 0.0f, max_us / 1000.0f);
+      if (*name) Serial.printf("PERF   flush %5.1f ms per frame\n", frames ? lvport::s_flush_us / 1000.0f / frames : 0.0f);
+      sum_us = max_us = frames = 0;
+      lvport::s_flush_us = 0;
+      lv_display_trigger_activity(NULL);   // no sleeping mid-test
+      next = millis() + 1200;
+      if (step == 0) unlockScreen();   // a PIN lock would be drawn over everything
+      if (step % 8 == 0 && step > 0) {   // a static full-screen redraw of Home, for the baseline
+        uint32_t fl0 = lvport::s_flush_us, t = micros();
+        for (int i = 0; i < 10; i++) { lv_obj_invalidate(lv_screen_active()); lv_refr_now(NULL); }
+        Serial.printf("PERF full redraw (Home) %5.1f ms, flush %5.1f ms\n", (micros() - t) / 10000.0f,
+                      (lvport::s_flush_us - fl0) / 10000.0f);
+      }
+      switch (step++ % 8) {
+        case 0: name = "settings"; showSettings(); break;
+        case 1: name = "back-home"; back(); break;
+        case 2: name = "messages"; showChats(); break;
+        case 3: name = "back-home"; back(); break;
+        case 4: name = "nearby"; showNearby(); break;
+        case 5: name = "back-home"; back(); break;
+        case 6: name = "page-2"; setHomePage(1); break;
+        case 7: name = "page-1"; setHomePage(0); break;
+      }
+    }
   }
 #endif
 #ifdef PIN_BUZZER
@@ -484,7 +539,7 @@ void UITask::buildStatusBar() {
   lv_obj_set_size(_status_icons, 200, LV_PCT(100));   // fixed: packed to its right edge
   lv_obj_set_flex_flow(_status_icons, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(_status_icons, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(_status_icons, 7, 0);
+  lv_obj_set_style_pad_column(_status_icons, 3, 0);
 
   _toast = lv_obj_create(lv_layer_top());
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
@@ -544,7 +599,7 @@ void UITask::refreshStatusBar() {
   if (_core->gpsEnabled() || fix) icons[n++] = { LV_SYMBOL_GPS, fix ? theme::OK : theme::TEXT_MUTED };
   if (_prefs && _prefs->alarm_on) icons[n++] = { LV_SYMBOL_BELL, theme::TEXT_MUTED };
 #ifdef PIN_BUZZER
-  if (_buzzer.isQuiet()) icons[n++] = { LV_SYMBOL_MUTE, theme::TEXT_MUTED };
+  if (_buzzer.isQuiet()) icons[n++] = { UI_SYMBOL_MUTE, theme::TEXT_MUTED };
 #endif
   if (_prefs && _prefs->advert_auto_interval_sec > 0) icons[n++] = { UI_SYMBOL_RADIO, theme::ACCENT };
   if (_core->trail.isActive()) icons[n++] = { UI_SYMBOL_ROUTE, theme::ACCENT };
@@ -558,7 +613,11 @@ void UITask::refreshStatusBar() {
   if (strcmp(sig, _status_sig) != 0) {   // rebuilt only when something changed
     strcpy(_status_sig, sig);
     lv_obj_clean(_status_icons);
-    for (int i = n - 1; i >= 0; i--) label(_status_icons, icons[i].sym, THEME_FONT_SMALL, icons[i].col);
+    for (int i = n - 1; i >= 0; i--) {   // one cell each: glyphs vary in width, the rhythm doesn't
+      lv_obj_t* l = label(_status_icons, icons[i].sym, THEME_FONT_SMALL, icons[i].col);
+      lv_obj_set_width(l, 16);
+      lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    }
   }
   lv_obj_align_to(_status_icons, _status_batt, LV_ALIGN_OUT_LEFT_MID, -8, 0);
 }
@@ -581,14 +640,18 @@ bool UITask::ensureGps() {
 
 // One persistent timer, paused between toasts: hides the toast when it fires.
 static void toastTimerCb(lv_timer_t* t) {
-  lv_obj_add_flag((lv_obj_t*)lv_timer_get_user_data(t), LV_OBJ_FLAG_HIDDEN);
+  anim::fadeHide((lv_obj_t*)lv_timer_get_user_data(t));
   lv_timer_pause(t);
 }
 
 void UITask::showToast(const char* text, uint32_t ms) {
   if (!_toast) return;
   lv_label_set_text(lv_obj_get_child(_toast, 0), text);
+  bool shown = !lv_obj_has_flag(_toast, LV_OBJ_FLAG_HIDDEN);
+  lv_anim_delete(_toast, NULL);   // a fade-out in progress
+  lv_obj_set_style_opa(_toast, LV_OPA_COVER, 0);
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_HIDDEN);
+  if (!shown) anim::rise(_toast, 12);   // a replaced text just changes
   if (!_toast_timer) _toast_timer = lv_timer_create(toastTimerCb, ms, _toast);
   lv_timer_set_period(_toast_timer, ms);
   lv_timer_reset(_toast_timer);
@@ -618,7 +681,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _wifi_scanning = false;
   _ota_status = _ota_bar = _ota_btn = _ota_btn_lbl = nullptr;
   for (lv_obj_t*& t : _map_tiles) t = nullptr;
-  lv_obj_t* prev = lv_screen_active();
+  lv_obj_t* prev = _scr;
   lv_obj_t* scr = lv_obj_create(NULL);
   styleSurface(scr, theme::BG);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -655,12 +718,35 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   lv_obj_set_style_pad_all(body, theme::PAD, 0);
   lv_obj_set_style_pad_row(body, theme::GAP, 0);
   _body = body;
+  // The new screen emerges from the middle (Anim.h); a screen rebuilt in
+  // place (same screen, same title) swaps without motion.
+  bool same = _screen == _shown_screen && strncmp(title ? title : "", _shown_title, sizeof(_shown_title) - 1) == 0;
+  bool backward = _nav_back || screenDepth(_screen) < screenDepth(_shown_screen);
+  _nav_back = false;
+  _shown_screen = _screen;
+  snprintf(_shown_title, sizeof(_shown_title), "%s", title ? title : "");
+  _scr = scr;
   lv_screen_load(scr);
-  if (prev && prev != scr) lv_obj_delete_async(prev);
+  if (prev) lv_obj_delete_async(prev);   // this usually runs from one of its own widgets
+  if (prev && !same && !_asleep) anim::screenIn(scr, body, backward);
   return body;
 }
 
+// How deep a screen sits below Home, for the slide direction.
+int UITask::screenDepth(Screen s) {
+  switch (s) {
+    case SCR_HOME: return 0;
+    case SCR_CHATS: case SCR_NEARBY: case SCR_MAP: case SCR_SETTINGS: case SCR_FAVS:
+    case SCR_COMPASS: case SCR_CLOCK: case SCR_BOT: case SCR_REPEATER: case SCR_ADMIN_PICK:
+    case SCR_DIAG: return 1;
+    case SCR_THREAD: case SCR_CONTACTS: case SCR_CHANNEL_EDIT: case SCR_NODE:
+    case SCR_SETTINGS_NAV: case SCR_ADMIN: return 2;
+    default: return 3;   // pages under a settings page
+  }
+}
+
 void UITask::back() {
+  _nav_back = true;   // the screen shown from here slides back
   switch (_screen) {
     case SCR_THREAD:   if (_nav_overlay) navClosePopup(); else showChats(); break;
     case SCR_CONTACTS: showChats(); break;
@@ -721,9 +807,10 @@ void UITask::back() {
       else if (!_map_nav) showNearby();   // the Nodes map opens from Nearby
       else showHome();
       break;
-    case SCR_WIFI:     if (_wifi_from_map) showMap(); else showSettings(); break;
+    case SCR_WIFI:     showSettings(); break;
     default:           break;
   }
+  _nav_back = false;   // only closed a popup
 }
 
 // ── Home ──────────────────────────────────────────────────────────────────────
@@ -868,6 +955,7 @@ void UITask::homeSwipePoll() {
 void UITask::setHomePage(int page) {
   if (_screen != SCR_HOME || !home::s_row) return;   // s_row went with an older screen
   if (page < 0 || page >= home::PAGES) return;
+  int from = home::s_page;
   home::s_page = page;
   lv_obj_clean(home::s_row);
   _home_unread = nullptr;
@@ -884,6 +972,7 @@ void UITask::setHomePage(int page) {
   }
   for (int i = 0; home::s_dots && i < (int)lv_obj_get_child_count(home::s_dots); i++)
     lv_obj_set_style_bg_color(lv_obj_get_child(home::s_dots, i), lv_color_hex(i == page ? theme::ACCENT : theme::SURFACE_2), 0);
+  if (page != from) anim::slideIn(home::s_row, page > from ? 48 : -48);
   refreshHome();
 }
 
@@ -979,7 +1068,7 @@ static void sectionWithFilter(lv_obj_t* parent, const char* text, bool fav_only,
   lv_obj_set_size(b, LV_SIZE_CONTENT, 24);
   lv_obj_set_style_pad_hor(b, 10, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
-  lv_obj_set_style_radius(b, 12, 0);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(fav_only ? theme::ACCENT_DIM : theme::SURFACE), 0);
   lv_obj_align(b, LV_ALIGN_RIGHT_MID, -2, 0);
@@ -1015,7 +1104,7 @@ void UITask::buildChats() {
       ch_rows++;
       char title[48], sub[64] = "";
       snprintf(title, sizeof(title), "%s%s%s", fav ? UI_SYMBOL_STAR " " : "", ch.name,
-               chanctl::notif(_prefs, i) == chanctl::NOTIF_MUTED ? "  " LV_SYMBOL_MUTE : "");
+               chanctl::notif(_prefs, i) == chanctl::NOTIF_MUTED ? "  " UI_SYMBOL_MUTE : "");
       int n = _core->history.histCountForChannel(i);
       if (n > 0) {
         const ChHistEntry& e = _core->history.chAtPos(_core->history.histEntryForChannel(i, 0));
@@ -1052,7 +1141,7 @@ void UITask::buildChats() {
     char name[48];
     contactName(e.prefix, name, sizeof(name));
     if (known && contactctl::favourite(c)) { char t[48]; snprintf(t, sizeof(t), UI_SYMBOL_STAR " %s", name); strcpy(name, t); }
-    if (known && contactctl::notif(_prefs, c.id.pub_key) == contactctl::NOTIF_MUTED) strncat(name, "  " LV_SYMBOL_MUTE, sizeof(name) - strlen(name) - 1);
+    if (known && contactctl::notif(_prefs, c.id.pub_key) == contactctl::NOTIF_MUTED) strncat(name, "  " UI_SYMBOL_MUTE, sizeof(name) - strlen(name) - 1);
     char sub[64];
     snprintf(sub, sizeof(sub), "%s%s", e.outgoing ? "Me: " : "", e.text);
     lv_obj_t* row = listRow(body, name, sub, onOpenDMRow, (void*)(uintptr_t)rows);
@@ -1101,6 +1190,7 @@ void UITask::buildChats() {
   lv_obj_set_style_shadow_width(add, 0, 0);
   lv_obj_add_event_cb(add, onNewChat, LV_EVENT_CLICKED, NULL);
   lv_obj_center(label(add, LV_SYMBOL_PLUS "  New message", THEME_FONT_BODY, theme::TEXT));
+  stylePrimary(add);
 }
 
 // ── Contact picker (start a DM) ───────────────────────────────────────────────
@@ -1192,12 +1282,12 @@ void UITask::buildNearby() {
     lv_obj_set_height(c, 26);
     lv_obj_set_flex_grow(c, 1);
     lv_obj_set_style_pad_all(c, 0, 0);
-    lv_obj_set_style_radius(c, 13, 0);
+    lv_obj_set_style_radius(c, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_shadow_width(c, 0, 0);
     bool on = f == _nearby->filter();
-    lv_obj_set_style_bg_color(c, lv_color_hex(on ? theme::ACCENT : theme::SURFACE), 0);
+    lv_obj_set_style_bg_color(c, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);   // selected (Theme.h)
     lv_obj_add_event_cb(c, onNearbyChip, LV_EVENT_CLICKED, (void*)(uintptr_t)f);
-    lv_obj_center(label(c, NearbyModel::filterLabel(f), THEME_FONT_SMALL, on ? theme::BG : theme::TEXT));
+    lv_obj_center(label(c, NearbyModel::filterLabel(f), THEME_FONT_SMALL, theme::TEXT));
   }
 
   _nearby_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
@@ -1238,7 +1328,7 @@ void UITask::startNearbyScan() {
 // Dimmed full-screen overlay (swallows taps) holding a panel with the results.
 // A child of the current screen, so it goes away with it.
 void UITask::showScanPopup() {
-  _scan_overlay = lv_obj_create(lv_screen_active());
+  _scan_overlay = lv_obj_create(screen());
   lv_obj_remove_style_all(_scan_overlay);
   lv_obj_set_size(_scan_overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(_scan_overlay, lv_color_hex(0x000000), 0);
@@ -1247,6 +1337,7 @@ void UITask::showScanPopup() {
   lv_obj_remove_flag(_scan_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t* panel = lv_obj_create(_scan_overlay);
+  anim::popup(_scan_overlay);
   lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16,
                   lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12);
   lv_obj_set_pos(panel, 8, theme::STATUS_H + 6);
@@ -1757,7 +1848,7 @@ void UITask::buildThread() {
   if (_compose_ta && _share_text[0]) {   // shareToMessage(): the text waits in the field
     lv_textarea_set_text(_compose_ta, _share_text);
     _share_text[0] = '\0';
-    lv_obj_update_layout(lv_screen_active());
+    lv_obj_update_layout(screen());
     setKeyboardVisible(true);
   }
 }
@@ -1814,7 +1905,7 @@ static void msgLocButton(lv_obj_t* parent, const char* text, int idx, bool save,
   lv_obj_set_size(b, LV_SIZE_CONTENT, 28);
   lv_obj_set_style_pad_hor(b, 10, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
-  lv_obj_set_style_radius(b, 14, 0);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(accent ? theme::ACCENT : theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onMsgLoc, LV_EVENT_CLICKED, (void*)(uintptr_t)((idx << 1) | (save ? 1 : 0)));
@@ -1891,12 +1982,15 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
     msgLocButton(acts, UI_SYMBOL_FLAG " Save", loc_idx, true, false);
   }
 
-  if (!meta_in_header) {
-    lv_obj_t* m = label(b, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    if (status) {
-      lv_label_set_text_fmt(m, "%s  %s", meta, status);
-      lv_obj_set_style_text_color(m, lv_color_hex(status_col), 0);
-    }
+  if (!meta_in_header) {   // the age, then the delivery mark in its colour (as L1: ✓ 3)
+    lv_obj_t* line = lv_obj_create(b);
+    lv_obj_remove_style_all(line);
+    lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(line, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(line, 6, 0);
+    label(line, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    if (status && status[0]) label(line, status, THEME_FONT_SMALL, status_col);
   }
 }
 
@@ -1955,9 +2049,16 @@ void UITask::refreshThread() {
         body = sep + 2;
       }
       bool own = strcmp(from, "Me") == 0;
+      // Own posts: a check once a repeater echoed it, with how many distinct
+      // repeaters did (markChannelRelayed); nothing before -- no echo is normal.
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
-      if (own && e.relay_status == ACK_OK)      { st = LV_SYMBOL_OK " relayed"; col = theme::OK; }
-      else if (own && e.relay_status == ACK_PENDING) st = "sent";
+      char relays[16];
+      if (own && e.relay_status == ACK_OK) {
+        int nrel = e.path_len & 63;
+        if (nrel > 0) snprintf(relays, sizeof(relays), LV_SYMBOL_OK " %d", nrel);
+        else snprintf(relays, sizeof(relays), LV_SYMBOL_OK);
+        st = relays; col = theme::OK;
+      } else if (own) st = "";
       int loc = own ? -1 : noteMsgLocation(body, from);
       bubble(_thread_list, own ? NULL : from, body, own, e.timestamp, st, col,
              loc, noteMsgMeta(pos, true, own, loc, own ? "" : from));
@@ -1973,10 +2074,10 @@ void UITask::refreshThread() {
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
       if (e.outgoing) {
         switch (h.dmEffectiveStatus(e)) {
-          case ACK_OK:      st = LV_SYMBOL_OK " delivered"; col = theme::OK; break;
-          case ACK_FAIL:    st = LV_SYMBOL_CLOSE " not delivered"; col = theme::FAIL; break;
-          case ACK_PENDING: st = "sending..."; break;
-          default:          st = "sent"; break;
+          case ACK_OK:      st = LV_SYMBOL_OK; col = theme::OK; break;
+          case ACK_FAIL:    st = LV_SYMBOL_CLOSE; col = theme::FAIL; break;
+          case ACK_PENDING: st = "..."; break;
+          default:          st = ""; break;
         }
       }
       // A room post is filed "Author: text": shown under its author.
@@ -2169,6 +2270,8 @@ void UITask::buildSchemaSettings() {
     sectionTitle(body, "SECURITY");
     listRow(body, LV_SYMBOL_EYE_CLOSE "  Screen PIN", _pin[0] ? "On  -  asked when the screen wakes" : "Off",
             onPinSetup, NULL);
+    sectionTitle(body, "LOOK");
+    accentRow(body);   // DeviceScreen.h
   }
   if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
   if (_settings_page == settings::PG_MESSAGES) {
@@ -2357,3 +2460,4 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "SoundScreen.h"
 #include "QuickScreen.h"
 #include "OtaScreen.h"
+#include "Splash.h"

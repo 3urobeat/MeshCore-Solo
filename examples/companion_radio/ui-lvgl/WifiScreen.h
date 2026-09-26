@@ -28,8 +28,7 @@ static lv_obj_t* wifiField(lv_obj_t* parent, const char* placeholder, bool passw
   return ta;
 }
 
-void UITask::showWifi(bool from_map) {
-  _wifi_from_map = from_map;
+void UITask::showWifi() {
   _screen = SCR_WIFI;
   buildWifi();
 }
@@ -75,6 +74,7 @@ void UITask::buildWifi() {
   lv_obj_set_style_bg_color(save, lv_color_hex(theme::ACCENT_DIM), 0);
   lv_obj_add_event_cb(save, onWifiSave, LV_EVENT_CLICKED, NULL);
   lv_obj_center(label(save, LV_SYMBOL_OK " Save", THEME_FONT_BODY, theme::TEXT));
+  stylePrimary(save);
   _wifi_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
   char ssid[33], pass[65];
@@ -84,7 +84,7 @@ void UITask::buildWifi() {
 
   // Keyboard over the bottom of the screen; the body shrinks above it while
   // it is up, so the field being edited stays visible.
-  _wifi_kb = kb::create(lv_screen_active(), _prefs);
+  _wifi_kb = kb::create(screen(), _prefs);
   lv_obj_set_size(_wifi_kb, LV_PCT(100), 124);
   lv_obj_align(_wifi_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_add_event_cb(_wifi_kb, onWifiKb, LV_EVENT_READY, NULL);
@@ -102,7 +102,7 @@ void UITask::wifiEdit(lv_obj_t* ta) {
     lv_obj_remove_flag(_wifi_kb, LV_OBJ_FLAG_HIDDEN);
     if (_body) lv_obj_set_height(_body, lv_obj_get_height(_body) - lv_obj_get_height(_wifi_kb));
   }
-  lv_obj_update_layout(lv_screen_active());
+  lv_obj_update_layout(screen());
   lv_obj_scroll_to_view(ta, LV_ANIM_OFF);
 }
 
@@ -129,7 +129,7 @@ static void wifiRow(lv_obj_t* body) {
   lv_obj_t* row = lv_obj_get_parent(sw);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(row, [](lv_event_t* e) {
-    if (lv_event_get_target(e) == lv_event_get_current_target(e)) s_ui->showWifi(false);   // not the switch
+    if (lv_event_get_target(e) == lv_event_get_current_target(e)) s_ui->showWifi();   // not the switch
   }, LV_EVENT_CLICKED, NULL);
 }
 
@@ -168,7 +168,7 @@ void UITask::pollWifiScan() {
     lv_obj_set_style_pad_hor(b, 10, 0);
     lv_obj_set_style_pad_ver(b, 0, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_radius(b, 15, 0);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
     lv_obj_add_event_cb(b, onWifiPick, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
     lv_obj_center(label(b, s_wifi_names[i], THEME_FONT_SMALL, theme::TEXT));
@@ -192,6 +192,5 @@ void UITask::wifiSave() {
   lvport::saveWifi(ssid, pass);
   wifiKeyboardHide();
   showToast("WiFi saved");
-  if (_wifi_from_map) { showMap(); mapDownloadPopup(); }
-  else lv_label_set_text(_wifi_status, "Saved.");
+  lv_label_set_text(_wifi_status, "Saved.");
 }

@@ -202,6 +202,7 @@ void UITask::buildClock() {
   lv_obj_add_event_cb(go, onClockAct, LV_EVENT_CLICKED, (void*)(uintptr_t)ACT_START_STOP);
   s_go_lbl = label(go, "", THEME_FONT_BODY, theme::TEXT);
   lv_obj_center(s_go_lbl);
+  stylePrimary(go);
   if (s_tab == TAB_STOPWATCH) {
     lv_obj_t* rs = lv_button_create(acts);
     lv_obj_set_size(rs, 100, 40);
@@ -292,6 +293,7 @@ void UITask::showRing(const char* text) {
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT_DIM), 0);
     lv_obj_add_event_cb(b, onRingDismiss, LV_EVENT_CLICKED, NULL);
     lv_obj_center(label(b, "Dismiss", THEME_FONT_LARGE, theme::TEXT));
+    stylePrimary(b);
   }
   lv_label_set_text(s_ring_lbl, text);
   lv_obj_remove_flag(s_ring, LV_OBJ_FLAG_HIDDEN);

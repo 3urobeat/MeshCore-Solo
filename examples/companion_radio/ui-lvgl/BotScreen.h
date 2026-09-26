@@ -44,7 +44,7 @@ static void botChip(const char* ph, void* parent) {
   lv_obj_set_height(b, 26);
   lv_obj_set_style_pad_hor(b, 7, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
-  lv_obj_set_style_radius(b, 13, 0);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onBotPlaceholder, LV_EVENT_CLICKED, NULL);

@@ -82,8 +82,32 @@ L1 splits its tools into many small screens because of the joystick and the
 
 ## 6. Theme
 
-- [ ] Develop the current look into a consistent, recognisable style
-      (colours, corners, type, icons, states), after the layout of stage 4.
+- [x] A consistent style, written down in `Theme.h`: accent fill = the
+      primary action (Download, Install, Save, Go), dim accent fill =
+      selected / on (tabs, chips, segments -- also the default theme's
+      CHECKED), accent text = names, counts, modes; one card radius for
+      buttons and rows, pills for chips, `RADIUS_SM` inside; slightly lighter
+      surfaces. Accent colour selectable (Settings > Display & power > LOOK:
+      amber, orange, coral, violet, cyan, lime; NVS `mc_ui`).
+- [x] Light motion (`Anim.h`): a new screen emerges from the middle (a
+      background-coloured cover fades while the content drifts 6 px), Home
+      pages slide after a swipe, popups and toasts rise and fade in, buttons
+      shrink a little while pressed.
+- [x] Frame time measured on the device (`-D UI_PERF_TEST`: walks screens by
+      itself, prints render + flush per refresh): ~48 → ~33 ms per transition
+      frame with uncompressed fonts and two 120-line buffers. Internal-RAM /
+      DMA buffers, `-O2`, hot code in IRAM, two draw threads, system malloc:
+      no gain. The rest is LVGL's software rendering at 320x240.
+- [x] Status bar icons in equal cells; muted is a speaker with a cross.
+- [x] Under an own message: the age and a small mark as in L1 (✓ n repeaters
+      for channel posts; ✓ / ✗ / ... for DMs) instead of the words.
+- [x] The path window of a message: quote, time and hops, a path diagram
+      (sender → repeaters → this device), repeaters that relayed an own post,
+      an own DM's delivery in words.
+- [x] Tile download popup fits the screen; its WiFi button went (WiFi is set
+      up in one place, Settings).
+- [x] Splash screen (`Splash.h`): MeshCore wordmark, SOLO, the Solo and the
+      upstream version, build date, loading dots.
 
 ## 7. Research: LVGL for the other displays
 
@@ -99,4 +123,14 @@ L1 splits its tools into many small screens because of the joystick and the
       for skipping the low-battery shutdown on the cable. Find the right
       chip / register (devices on the bus: 0x14, 0x18, 0x21, 0x22, 0x2c,
       0x34, 0x48, 0x5d). Found 2026-09-26.
+
+Ideas to come back to (2026-09-26):
+
+- [ ] Speaker click: would keeping the amplifier on at minimum volume
+      remove it?
+- [ ] Import routes from the SD card (optional extra).
+- [ ] Battery life without losing features, above all CPU sleep.
+- [ ] Live tiles: don't keep them, or give them a bounded cache on the card
+      so they never fill it.
+- [ ] Vector maps and other tile sources (to think through).
 

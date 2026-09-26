@@ -33,7 +33,7 @@
                                 LV_FONT_DECLARE(ui_font_16) LV_FONT_DECLARE(ui_font_20) \
                                 LV_FONT_DECLARE(ui_font_40)
 #define LV_FONT_DEFAULT         &ui_font_14
-#define LV_USE_FONT_COMPRESSED  1      // generated fonts are RLE-compressed (without this every glyph draws as a box)
+#define LV_USE_FONT_COMPRESSED  0      // fonts are generated uncompressed: no per-glyph decompression on every draw
 
 // PNG decoder for raster map tiles (map/TileProvider.h calls lodepng directly).
 #define LV_USE_LODEPNG          1

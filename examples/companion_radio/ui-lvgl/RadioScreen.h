@@ -170,13 +170,14 @@ void UITask::radioFreqPopup(bool repeater) {
   using namespace radioview;
   if (s_overlay) return;
   s_freq_rpt = repeater;
-  s_overlay = lv_obj_create(lv_screen_active());
+  s_overlay = lv_obj_create(screen());
   lv_obj_remove_style_all(s_overlay);
   lv_obj_set_size(s_overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(s_overlay, lv_color_hex(0x000000), 0);
   lv_obj_set_style_bg_opa(s_overlay, LV_OPA_60, 0);
   lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_t* panel = lv_obj_create(s_overlay);
+  anim::popup(s_overlay);
   lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16, LV_SIZE_CONTENT);
   lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);
   lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);

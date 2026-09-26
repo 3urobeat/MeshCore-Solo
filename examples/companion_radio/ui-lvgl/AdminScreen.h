@@ -141,7 +141,7 @@ void UITask::buildAdmin() {
     lv_obj_remove_event_cb(s_pw, onWifiField);
     lv_textarea_set_max_length(s_pw, 15);
     lv_obj_add_state(s_pw, LV_STATE_FOCUSED);
-    s_kb = kb::create(lv_screen_active(), _prefs);
+    s_kb = kb::create(screen(), _prefs);
     lv_obj_set_size(s_kb, LV_PCT(100), 124);
     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_kb, s_pw);

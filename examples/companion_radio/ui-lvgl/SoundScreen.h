@@ -97,7 +97,7 @@ static void rebuildStrip() {
     lv_obj_t* c = lv_button_create(s_strip);
     lv_obj_set_size(c, 38, 44);
     lv_obj_set_style_pad_all(c, 0, 0);
-    lv_obj_set_style_radius(c, 6, 0);
+    lv_obj_set_style_radius(c, theme::RADIUS_SM, 0);
     lv_obj_set_style_shadow_width(c, 0, 0);
     lv_obj_set_style_border_color(c, lv_color_hex(theme::ACCENT), 0);
     lv_obj_add_event_cb(c, onMelNote, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
@@ -142,7 +142,7 @@ static lv_obj_t* smallButton(lv_obj_t* parent, const char* text, uint8_t act) {
   lv_obj_t* b = lv_button_create(parent);
   lv_obj_set_size(b, 40, 32);
   lv_obj_set_style_pad_all(b, 0, 0);
-  lv_obj_set_style_radius(b, 8, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS_SM, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onMelAction, LV_EVENT_CLICKED, (void*)(uintptr_t)act);

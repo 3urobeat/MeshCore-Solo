@@ -230,6 +230,7 @@ void UITask::buildChannelEdit() {
   lv_obj_set_style_bg_color(save, lv_color_hex(theme::ACCENT_DIM), 0);
   lv_obj_add_event_cb(save, onChanSave, LV_EVENT_CLICKED, NULL);
   lv_obj_center(label(save, LV_SYMBOL_OK " Save", THEME_FONT_BODY, theme::TEXT));
+  stylePrimary(save);
   s_status = label(body, "", THEME_FONT_SMALL, theme::FAIL);
   lv_label_set_long_mode(s_status, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(s_status, LV_PCT(100));
@@ -244,7 +245,7 @@ void UITask::buildChannelEdit() {
     lv_label_set_text_fmt(s_hint, "Key: %s", hex);
   }
 
-  s_kb = kb::create(lv_screen_active(), _prefs);
+  s_kb = kb::create(screen(), _prefs);
   lv_obj_set_size(s_kb, LV_PCT(100), 124);
   lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_add_event_cb(s_kb, onChanKb, LV_EVENT_READY, NULL);
@@ -303,7 +304,7 @@ void UITask::channelEditField(lv_obj_t* ta) {
     lv_obj_remove_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
     if (_body) lv_obj_set_height(_body, lv_obj_get_height(_body) - lv_obj_get_height(s_kb));
   }
-  lv_obj_update_layout(lv_screen_active());
+  lv_obj_update_layout(screen());
   lv_obj_scroll_to_view(ta, LV_ANIM_OFF);
 }
 

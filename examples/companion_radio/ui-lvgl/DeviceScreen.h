@@ -220,7 +220,7 @@ void UITask::lockScreen() {
   lv_obj_set_style_anim_duration(s_lock_slider, 0, 0);   // no lag behind the finger
   lv_obj_set_style_bg_color(s_lock_slider, lv_color_hex(theme::SURFACE), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(s_lock_slider, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_radius(s_lock_slider, 22, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_lock_slider, LV_RADIUS_CIRCLE, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(s_lock_slider, LV_OPA_TRANSP, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(s_lock_slider, lv_color_hex(theme::ACCENT), LV_PART_KNOB);
   lv_obj_set_style_pad_all(s_lock_slider, 2, LV_PART_KNOB);
@@ -386,6 +386,51 @@ void UITask::pinRowRefresh() {
   if (_screen != SCR_SETTINGS_NAV) return;
   buildSchemaSettings();
   if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_by(_body, 0, -lv_obj_get_scroll_bottom(_body), LV_ANIM_OFF); }
+}
+
+// ── Accent colour ─────────────────────────────────────────────────────────────
+
+static void onAccent(lv_event_t* e) { s_ui->setAccent((int)(uintptr_t)lv_event_get_user_data(e)); }
+
+// A row of colour swatches; the current one ringed.
+void UITask::accentRow(lv_obj_t* body) {
+  lv_obj_t* card = lv_obj_create(body);
+  styleSurface(card, theme::SURFACE);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_radius(card, theme::RADIUS, 0);
+  lv_obj_set_style_pad_all(card, theme::PAD, 0);
+  lv_obj_set_style_pad_row(card, 8, 0);
+  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+  label(card, "Accent colour", THEME_FONT_BODY, theme::TEXT);
+  lv_obj_t* row = lv_obj_create(card);
+  lv_obj_remove_style_all(row);
+  lv_obj_set_size(row, LV_PCT(100), 36);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  for (int i = 0; i < theme::ACCENT_COUNT; i++) {
+    lv_obj_t* sw = lv_button_create(row);
+    lv_obj_set_size(sw, 32, 32);
+    lv_obj_set_style_radius(sw, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(sw, lv_color_hex(theme::ACCENTS[i].col), 0);
+    bool cur = i == theme::s_accent;
+    lv_obj_set_style_border_width(sw, cur ? 3 : 0, 0);
+    lv_obj_set_style_border_color(sw, lv_color_hex(theme::TEXT), 0);
+    lv_obj_add_event_cb(sw, onAccent, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+    if (cur) lv_obj_center(label(sw, LV_SYMBOL_OK, THEME_FONT_SMALL, theme::BG));
+  }
+}
+
+// Recolours everything: the theme, the status bar and toast, then this page.
+void UITask::setAccent(int idx) {
+  if (idx == theme::s_accent) return;
+  theme::setAccent(idx);
+  lvport::saveAccent(theme::s_accent);
+  theme::install(lv_display_get_default());
+  if (_toast) lv_obj_set_style_border_color(_toast, lv_color_hex(theme::ACCENT), 0);
+  _status_sig[0] = '\0';   // icons in the accent rebuilt
+  refreshStatusBar();
+  pinRowRefresh();   // the page, kept at its bottom where this row is
 }
 
 // ── Favourites dial ───────────────────────────────────────────────────────────
