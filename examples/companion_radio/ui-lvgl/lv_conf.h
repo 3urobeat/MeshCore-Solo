@@ -31,7 +31,8 @@
 #define LV_FONT_MONTSERRAT_14   0
 #define LV_FONT_CUSTOM_DECLARE  LV_FONT_DECLARE(ui_font_12) LV_FONT_DECLARE(ui_font_14) \
                                 LV_FONT_DECLARE(ui_font_16) LV_FONT_DECLARE(ui_font_20) \
-                                LV_FONT_DECLARE(ui_font_40)
+                                LV_FONT_DECLARE(ui_font_40) \
+                                LV_FONT_DECLARE(ui_icons_14)
 #define LV_FONT_DEFAULT         &ui_font_14
 #define LV_USE_FONT_COMPRESSED  0      // fonts are generated uncompressed: no per-glyph decompression on every draw
 

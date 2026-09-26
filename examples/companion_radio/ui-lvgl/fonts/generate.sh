@@ -45,4 +45,13 @@ for s in 12 14 16 20; do gen "$s" Medium "$TEXT" "ui_font_$s"; done
 # Clock: digits, colon, dash, dot, space only.
 $CONV --bpp 4 --size 40 --no-compress --font "$CACHE/NotoSans-SemiBold.ttf" -r "0x20,0x2D-0x2E,0x30-0x3A" \
   --format lvgl --lv-include lvgl.h --lv-font-name ui_font_40 -o "$HERE/ui_font_40.c"
-echo "done: $(ls "$HERE"/ui_font_*.c | wc -l) fonts"
+# Status bar icons: FontAwesome refitted to one size (status_icons.py, needs
+# python3 with fonttools). Line metrics forced to ui_font_12's and text falls
+# back to it, so "<battery> 85%" is one label.
+ICONS="0xF024,0xF079,0xF0E7,0xF0F3,0xF124,0xF1EB,0xF240-0xF244,0xF293,0xF3C5,0xF4D7,0xF519,0xF6A9"
+python3 "$HERE/status_icons.py" "$CACHE/fa.woff" "$CACHE/ui-icons.ttf"
+$CONV --bpp 4 --size 14 --no-compress --font "$CACHE/ui-icons.ttf" -r "$ICONS" \
+  --format lvgl --lv-include lvgl.h --lv-font-name ui_icons_14 -o "$HERE/ui_icons_14.c"
+sed -i.bak -e 's/\.line_height = [0-9]*,/.line_height = 18,/' -e 's/\.base_line = [0-9]*,/.base_line = 4,/' \
+  -e 's/\.fallback = NULL,/.fallback = \&ui_font_12,/' "$HERE/ui_icons_14.c" && rm "$HERE/ui_icons_14.c.bak"
+echo "done:$(ls "$HERE"/ui_font_*.c | wc -l) fonts"

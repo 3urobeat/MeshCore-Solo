@@ -39,6 +39,9 @@ namespace theme {
   #define THEME_FONT_TITLE  (&ui_font_16)
   #define THEME_FONT_LARGE  (&ui_font_20)
   #define THEME_FONT_CLOCK  (&ui_font_40)
+  // Status bar icons, refitted to one size (fonts/status_icons.py); any other
+  // character falls back to ui_font_12.
+  #define THEME_FONT_ICONS  (&ui_icons_14)
 
   // Extra FontAwesome glyphs baked into ui_font_12..20 beyond LVGL's LV_SYMBOL_*.
   #define UI_SYMBOL_STAR    "\xEF\x80\x85"   // U+F005, favourite
@@ -78,11 +81,14 @@ namespace theme {
   // Over LVGL's default theme, for every widget: a checked button is
   // "selected" (ACCENT_DIM, not the default theme's full accent), buttons
   // have the card radius and give a little under the finger (the default
-  // theme's transitions animate it both ways).
+  // theme's transitions animate it both ways). Scrollbars are thin and hug
+  // the edge, inside the padding every panel and list has, instead of the
+  // default's 5 px bar 7 px in, which ran over right-aligned text.
   static lv_theme_t s_theme;
-  static lv_style_t s_btn, s_press, s_checked;
+  static lv_style_t s_btn, s_press, s_checked, s_sbar;
   static void applyTheme(lv_theme_t* th, lv_obj_t* obj) {
     (void)th;
+    lv_obj_add_style(obj, &s_sbar, LV_PART_SCROLLBAR);
     if (lv_obj_check_type(obj, &lv_button_class)) {
       lv_obj_add_style(obj, &s_btn, 0);
       lv_obj_add_style(obj, &s_press, LV_STATE_PRESSED);
@@ -102,6 +108,12 @@ namespace theme {
       lv_style_set_transform_height(&s_press, -2);
       lv_style_init(&s_checked);
       lv_style_set_text_color(&s_checked, lv_color_hex(TEXT));
+      lv_style_init(&s_sbar);
+      lv_style_set_width(&s_sbar, 3);
+      lv_style_set_pad_right(&s_sbar, 2);    // vertical bar: 2 px off the edge
+      lv_style_set_pad_bottom(&s_sbar, 2);   // horizontal bar likewise
+      lv_style_set_pad_top(&s_sbar, RADIUS / 2);
+      lv_style_set_pad_left(&s_sbar, RADIUS / 2);
     }
     lv_style_set_bg_color(&s_checked, lv_color_hex(ACCENT_DIM));
     lv_theme_t* base = lv_theme_default_init(disp, lv_color_hex(ACCENT), lv_color_hex(ACCENT_DIM), true, THEME_FONT_BODY);

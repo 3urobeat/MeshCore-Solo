@@ -228,32 +228,47 @@ void UITask::conversationAction(uint8_t act) {
 // ── Message actions ───────────────────────────────────────────────────────────
 
 // One stop on the path diagram: a dot on a vertical line (the line runs on to
-// the next stop unless `last`), the name beside it.
-static void pathStop(lv_obj_t* parent, const char* name, bool first, bool last, uint32_t col) {
+// the next stop unless `last`), the name beside it, what it is on the right.
+static void pathStop(lv_obj_t* parent, const char* name, const char* role, bool first, bool last,
+                     uint32_t col, bool end) {
   lv_obj_t* row = lv_obj_create(parent);
   lv_obj_remove_style_all(row);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(row, LV_PCT(100), 20);
+  lv_obj_set_size(row, LV_PCT(100), 22);
   if (!first || !last) {
     lv_obj_t* line = lv_obj_create(row);
     lv_obj_remove_style_all(line);
-    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(line, lv_color_hex(theme::SURFACE_2), 0);
-    lv_obj_set_size(line, 2, first || last ? 10 : 20);
-    lv_obj_set_pos(line, 6, first ? 10 : 0);
+    lv_obj_set_style_bg_color(line, lv_color_hex(theme::TEXT_MUTED), 0);
+    lv_obj_set_style_bg_opa(line, LV_OPA_50, 0);
+    lv_obj_set_size(line, 2, first || last ? 11 : 22);
+    lv_obj_set_pos(line, 6, first ? 11 : 0);
   }
   lv_obj_t* dot = lv_obj_create(row);
   lv_obj_remove_style_all(dot);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(end ? col : theme::SURFACE), 0);
+  lv_obj_set_style_border_color(dot, lv_color_hex(col), 0);
+  lv_obj_set_style_border_width(dot, end ? 0 : 2, 0);
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  bool end = first || last;
   lv_obj_set_size(dot, end ? 10 : 8, end ? 10 : 8);
   lv_obj_align(dot, LV_ALIGN_LEFT_MID, end ? 2 : 3, 0);
-  lv_obj_t* t = label(row, name, end ? THEME_FONT_BODY : THEME_FONT_SMALL, end ? theme::TEXT : theme::TEXT_MUTED);
+  lv_obj_t* t = label(row, name, end ? THEME_FONT_BODY : THEME_FONT_SMALL, theme::TEXT);
   lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(t, 240);
+  lv_obj_set_width(t, 190);
   lv_obj_align(t, LV_ALIGN_LEFT_MID, 22, 0);
+  if (role && role[0]) lv_obj_align(label(row, role, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_RIGHT_MID, 0, 0);
+}
+
+// The stops of a path, in a box that scrolls once there are many (up to 64 hops).
+static lv_obj_t* pathDiagram(lv_obj_t* panel) {
+  lv_obj_t* diag = lv_obj_create(panel);
+  lv_obj_remove_style_all(diag);
+  lv_obj_set_size(diag, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_max_height(diag, 5 * 22, 0);
+  lv_obj_set_style_pad_right(diag, 6, 0);   // the roles clear this box's own scrollbar
+  lv_obj_set_flex_flow(diag, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(diag, LV_DIR_VER);
+  return diag;
 }
 
 void UITask::messageMenu(int idx) {
@@ -330,29 +345,29 @@ void UITask::messageMenu(int idx) {
     }
     label(panel, st, THEME_FONT_BODY, col);
   } else if (relay) {   // our channel post: the repeaters heard passing it on
-    char hd[40];
-    if (hops > 0) snprintf(hd, sizeof(hd), LV_SYMBOL_OK " Relayed by %u repeater%s", hops, hops == 1 ? "" : "s");
-    else snprintf(hd, sizeof(hd), "No repeater heard relaying it yet");
+    char hd[48];
+    if (hops > 0) snprintf(hd, sizeof(hd), "Heard %u repeater%s pass it on", hops, hops == 1 ? "" : "s");
+    else snprintf(hd, sizeof(hd), "No repeater heard passing it on yet");
     label(panel, hd, THEME_FONT_BODY, hops > 0 ? theme::OK : theme::TEXT_MUTED);
-    for (uint8_t i = 0; i < hops; i++) {
-      char nm[33], line[40];
-      contactctl::hopName(packed, path, i, nm, sizeof(nm));
-      snprintf(line, sizeof(line), UI_SYMBOL_RADIO "  %s", nm);
-      label(panel, line, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    if (hops > 0) {   // each one an echo of ours: a fan out from us, not a chain
+      lv_obj_t* diag = pathDiagram(panel);
+      pathStop(diag, the_mesh.getNodeName(), "you", true, false, theme::ACCENT, true);
+      for (uint8_t i = 0; i < hops; i++) {
+        char nm[33];
+        contactctl::hopName(packed, path, i, nm, sizeof(nm));
+        pathStop(diag, nm, UI_SYMBOL_RADIO, false, i == hops - 1, theme::OK, false);
+      }
     }
   } else {   // incoming: sender, each hop, then us
-    lv_obj_t* diag = lv_obj_create(panel);
-    lv_obj_remove_style_all(diag);
-    lv_obj_remove_flag(diag, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(diag, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(diag, LV_FLEX_FLOW_COLUMN);
-    pathStop(diag, m.from[0] ? m.from : "Sender", true, false, theme::ACCENT);
+    lv_obj_t* diag = pathDiagram(panel);
+    pathStop(diag, m.from[0] ? m.from : "Sender", "sender", true, false, theme::ACCENT, true);
     for (uint8_t i = 0; i < hops; i++) {
-      char nm[33];
+      char nm[33], role[12];
       contactctl::hopName(packed, path, i, nm, sizeof(nm));
-      pathStop(diag, nm, false, false, theme::TEXT_MUTED);
+      snprintf(role, sizeof(role), "hop %u", (unsigned)(i + 1));
+      pathStop(diag, nm, role, false, false, theme::TEXT_MUTED, false);
     }
-    pathStop(diag, the_mesh.getNodeName(), false, true, theme::OK);
+    pathStop(diag, the_mesh.getNodeName(), "you", false, true, theme::OK, true);
   }
 
   bool can_reply = !m.own && m.from[0] && _compose_ta;

@@ -567,7 +567,7 @@ void UITask::buildStatusBar() {
 
   _status_time = label(bar, "--:--", THEME_FONT_SMALL, theme::TEXT);
   lv_obj_align(_status_time, LV_ALIGN_LEFT_MID, 0, 0);
-  _status_batt = label(bar, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  _status_batt = label(bar, "", THEME_FONT_ICONS, theme::TEXT_MUTED);
   lv_obj_align(_status_batt, LV_ALIGN_RIGHT_MID, 0, 0);
   _status_icons = lv_obj_create(bar);
   lv_obj_remove_style_all(_status_icons);
@@ -575,7 +575,7 @@ void UITask::buildStatusBar() {
   lv_obj_set_size(_status_icons, 200, LV_PCT(100));   // fixed: packed to its right edge
   lv_obj_set_flex_flow(_status_icons, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(_status_icons, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(_status_icons, 3, 0);
+  lv_obj_set_style_pad_column(_status_icons, 2, 0);
 
   _toast = lv_obj_create(lv_layer_top());
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
@@ -619,7 +619,7 @@ void UITask::refreshStatusBar() {
     case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
     default: break;
   }
-  lv_label_set_text_fmt(_status_batt, "%s%s%s", _board->isExternalPowered() ? LV_SYMBOL_CHARGE " " : "", batt, level);
+  lv_label_set_text_fmt(_status_batt, "%s%s%s", _board->isExternalPowered() ? LV_SYMBOL_CHARGE : "", batt, level);
 
   // Status icons, as the original's status bar (ui-new): Bluetooth (bright
   // when the app is connected), GPS (green with a fix), the alarm, mute, then
@@ -649,13 +649,10 @@ void UITask::refreshStatusBar() {
   if (strcmp(sig, _status_sig) != 0) {   // rebuilt only when something changed
     strcpy(_status_sig, sig);
     lv_obj_clean(_status_icons);
-    for (int i = n - 1; i >= 0; i--) {   // one cell each: glyphs vary in width, the rhythm doesn't
-      lv_obj_t* l = label(_status_icons, icons[i].sym, THEME_FONT_SMALL, icons[i].col);
-      lv_obj_set_width(l, 16);
-      lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-    }
+    for (int i = n - 1; i >= 0; i--)   // the icon font gives each the same size and cell
+      label(_status_icons, icons[i].sym, THEME_FONT_ICONS, icons[i].col);
   }
-  lv_obj_align_to(_status_icons, _status_batt, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+  lv_obj_align_to(_status_icons, _status_batt, LV_ALIGN_OUT_LEFT_MID, -5, 0);
 }
 
 void UITask::setGps(bool on) {
@@ -1964,7 +1961,8 @@ static void msgLocButton(lv_obj_t* parent, const char* text, int idx, bool save,
 // One message bubble. Own messages right-aligned in amber, others left.
 // loc_idx >= 0: the text carries a position (s_msg_locs[loc_idx]).
 static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
-                   uint32_t ts, const char* status, uint32_t status_col, int loc_idx = -1, int meta_idx = -1) {
+                   uint32_t ts, const char* status, uint32_t status_col, int loc_idx = -1, int meta_idx = -1,
+                   int relays = 0) {
   // Full-width row that pushes the bubble to its side.
   lv_obj_t* row = lv_obj_create(list);
   styleSurface(row, theme::BG);
@@ -2031,15 +2029,31 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
     msgLocButton(acts, UI_SYMBOL_FLAG " Save", loc_idx, true, false);
   }
 
-  if (!meta_in_header) {   // the age, then the delivery mark in its colour (as L1: ✓ 3)
+  if (!meta_in_header) {   // the age, then the delivery mark in its colour (as L1)
     lv_obj_t* line = lv_obj_create(b);
     lv_obj_remove_style_all(line);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(line, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(line, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(line, 6, 0);
     label(line, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    if (status && status[0]) label(line, status, THEME_FONT_SMALL, status_col);
+    if (relays > 0) {   // as L1: the count alone says it got out, no check beside it
+      lv_obj_t* c = lv_obj_create(line);
+      lv_obj_remove_style_all(c);
+      lv_obj_remove_flag(c, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_set_size(c, LV_SIZE_CONTENT, 15);
+      lv_obj_set_style_min_width(c, 15, 0);
+      lv_obj_set_style_pad_hor(c, 4, 0);
+      lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(c, lv_color_hex(theme::OK), 0);
+      lv_obj_set_style_radius(c, LV_RADIUS_CIRCLE, 0);
+      lv_obj_t* n = label(c, "", THEME_FONT_SMALL, theme::BG);
+      lv_label_set_text_fmt(n, "%d", relays);
+      lv_obj_center(n);
+    } else if (status && status[0]) {
+      label(line, status, THEME_FONT_SMALL, status_col);
+    }
   }
 }
 
@@ -2161,19 +2175,18 @@ void UITask::refreshThread() {
         body = sep + 2;
       }
       bool own = strcmp(from, "Me") == 0;
-      // Own posts: a check once a repeater echoed it, with how many distinct
-      // repeaters did (markChannelRelayed); nothing before -- no echo is normal.
+      // Own posts: once a repeater echoed it, how many distinct repeaters did
+      // (markChannelRelayed), or a check if that's unknown; nothing before --
+      // no echo is normal.
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
-      char relays[16];
+      int nrel = 0;
       if (own && e.relay_status == ACK_OK) {
-        int nrel = e.path_len & 63;
-        if (nrel > 0) snprintf(relays, sizeof(relays), LV_SYMBOL_OK " %d", nrel);
-        else snprintf(relays, sizeof(relays), LV_SYMBOL_OK);
-        st = relays; col = theme::OK;
+        nrel = e.path_len & 63;
+        st = LV_SYMBOL_OK; col = theme::OK;
       } else if (own) st = "";
       int loc = own ? -1 : noteMsgLocation(body, from);
       bubble(_thread_list, own ? NULL : from, body, own, e.timestamp, st, col,
-             loc, noteMsgMeta(i, true, own, loc, own ? "" : from));
+             loc, noteMsgMeta(i, true, own, loc, own ? "" : from), nrel);
     }
   } else {
     ContactInfo tc;
