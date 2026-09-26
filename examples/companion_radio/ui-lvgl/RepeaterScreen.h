@@ -11,7 +11,8 @@
 namespace rptview {
 
 enum : uint8_t { RP_ON, RP_NETWORK, RP_PRESET, RP_SF, RP_BW, RP_CR, RP_HOPS, RP_YIELD, RP_SNR };
-static char s_opts[768];
+static const int OPTS_LEN = 768;
+static char* s_opts = psramBuf<char>(OPTS_LEN);   // dropdown options (LVGL copies them)
 static lv_obj_t* s_scopes_sub = nullptr;   // "Extra scopes" row's count, updated from the popup
 
 }  // namespace rptview
@@ -77,10 +78,10 @@ void UITask::buildRepeater() {
   lv_obj_align(seg, LV_ALIGN_RIGHT_MID, -4, 0);
   lv_obj_add_event_cb(seg, onRptNetwork, LV_EVENT_VALUE_CHANGED, NULL);
   if (p->repeater_use_profile) {
-    int o = snprintf(s_opts, sizeof(s_opts), "Custom");
+    int o = snprintf(s_opts, OPTS_LEN, "Custom");
     const char* name; float f, b; uint8_t sf, cr;
-    for (int i = 0; radioctl::presetAt(p, i, name, f, b, sf, cr) && o < (int)sizeof(s_opts) - 24; i++)
-      o += snprintf(s_opts + o, sizeof(s_opts) - o, "\n%s", name);
+    for (int i = 0; radioctl::presetAt(p, i, name, f, b, sf, cr) && o < OPTS_LEN - 24; i++)
+      o += snprintf(s_opts + o, OPTS_LEN - o, "\n%s", name);
     lv_obj_t* dd = rowDropdown(settingRow(body, "Preset", nullptr), s_opts, rptctl::currentPreset(p) + 1, 200,
                                onRptDropdown, RP_PRESET);
     lv_dropdown_set_dir(dd, LV_DIR_BOTTOM);
@@ -98,15 +99,15 @@ void UITask::buildRepeater() {
     lv_obj_center(label(fb, fs, THEME_FONT_BODY, theme::TEXT));
 
     o = 0;
-    for (int v = 5; v <= 12; v++) o += snprintf(s_opts + o, sizeof(s_opts) - o, v > 5 ? "\n%d" : "%d", v);
+    for (int v = 5; v <= 12; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n%d" : "%d", v);
     rowDropdown(settingRow(body, "Spreading factor", nullptr), s_opts,
                 p->repeater_sf >= 5 && p->repeater_sf <= 12 ? p->repeater_sf - 5 : 0, 90, onRptDropdown, RP_SF);
     o = 0;
     for (int i = 0; i < LORA_BW_OPT_COUNT; i++)
-      o += snprintf(s_opts + o, sizeof(s_opts) - o, "%s%g kHz", i ? "\n" : "", (double)LORA_BW_OPTS[i]);
+      o += snprintf(s_opts + o, OPTS_LEN - o, "%s%g kHz", i ? "\n" : "", (double)LORA_BW_OPTS[i]);
     rowDropdown(settingRow(body, "Bandwidth", nullptr), s_opts, nearestBwIndex(p->repeater_bw), 130, onRptDropdown, RP_BW);
     o = 0;
-    for (int v = 5; v <= 8; v++) o += snprintf(s_opts + o, sizeof(s_opts) - o, v > 5 ? "\n4/%d" : "4/%d", v);
+    for (int v = 5; v <= 8; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n4/%d" : "4/%d", v);
     rowDropdown(settingRow(body, "Coding rate", nullptr), s_opts,
                 p->repeater_cr >= 5 && p->repeater_cr <= 8 ? p->repeater_cr - 5 : 0, 90, onRptDropdown, RP_CR);
   }
@@ -117,21 +118,21 @@ void UITask::buildRepeater() {
   int o = 0;
   for (int i = 0; i <= rptctl::MAX_HOPS; i++) {
     rptctl::fmtHops(v, sizeof(v), (uint8_t)i);
-    o += snprintf(s_opts + o, sizeof(s_opts) - o, "%s%s", i ? "\n" : "", v);
+    o += snprintf(s_opts + o, OPTS_LEN - o, "%s%s", i ? "\n" : "", v);
   }
   rowDropdown(settingRow(body, "Max hops", "Hop limit for floods"), s_opts, p->repeat_max_hops, 90,
               onRptDropdown, RP_HOPS);
   o = 0;
   for (int i = 0; i <= rptctl::MAX_YIELD; i++) {
     rptctl::fmtYield(v, sizeof(v), (uint8_t)i);
-    o += snprintf(s_opts + o, sizeof(s_opts) - o, "%s%s", i ? "\n" : "", v);
+    o += snprintf(s_opts + o, OPTS_LEN - o, "%s%s", i ? "\n" : "", v);
   }
   rowDropdown(settingRow(body, "Yield", "Let fixed repeaters go first"), s_opts, p->repeat_delay_boost, 90,
               onRptDropdown, RP_YIELD);
   o = 0;
   for (int i = 0; i < rptctl::snrChoiceCount(); i++) {
     rptctl::fmtSnr(v, sizeof(v), rptctl::snrFromChoice(i));
-    o += snprintf(s_opts + o, sizeof(s_opts) - o, "%s%s", i ? "\n" : "", v);
+    o += snprintf(s_opts + o, OPTS_LEN - o, "%s%s", i ? "\n" : "", v);
   }
   rowDropdown(settingRow(body, "Min SNR", "Ignore weaker packets"), s_opts, rptctl::snrToChoice(p->repeat_min_snr), 100,
               onRptDropdown, RP_SNR);

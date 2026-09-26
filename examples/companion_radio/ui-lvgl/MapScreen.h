@@ -23,7 +23,7 @@ namespace mapview {
 
 static RasterTileProvider s_raster("/sdcard/maps");
 static TileProvider*      s_provider = &s_raster;   // the one place to swap in a vector renderer
-static TileCache          s_cache;
+static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();   // decoded tiles, in PSRAM
 static TileDownloader     s_dl("/sdcard/maps");
 static const uint32_t     AVG_TILE_BYTES = 22 * 1024;   // OpenTopoMap-ish, for the size estimate
 
@@ -45,7 +45,7 @@ static double latToTileY(double lat, int z) {
 enum : uint8_t { MK_NODE, MK_WAYPOINT, MK_LIVE };
 struct Mark { int32_t lat_e6, lon_e6; int idx; uint8_t kind; lv_obj_t* obj; lv_obj_t* dot; };
 static const int MAX_MARKS = 48;   // >= MAX_NEARBY, and >= waypoints + live shares
-static Mark s_marks[MAX_MARKS];
+static Mark* s_marks = psramBuf<Mark>(MAX_MARKS);
 static int  s_mark_count = 0;
 static int  s_drag = 0;   // px moved in the current press: a drag isn't a tap
 static bool s_available = false;   // provider has data; checked when the map opens, not per frame

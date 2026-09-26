@@ -356,9 +356,13 @@ void genericBuzzer::setVolume(uint8_t level) {
 // too) are driven from the caller's thread, which owns the bus.
 // ---------------------------------------------------------------------------
 
-#include <driver/i2s.h>
 #include <esp_heap_caps.h>
 #include "ES8311.h"
+#if ESP_IDF_VERSION_MAJOR >= 5
+  #include <driver/i2s_std.h>   // Arduino-ESP32 3.x (the legacy driver goes in IDF 6)
+#else
+  #include <driver/i2s.h>
+#endif
 
 #ifndef AUDIO_AMP_SETTLE_MS
   // Silence after amp power-up, so the first note isn't clipped. Seeed's
@@ -367,7 +371,6 @@ void genericBuzzer::setVolume(uint8_t level) {
 #endif
 
 static const int      SAMPLE_RATE   = 16000;
-static const i2s_port_t I2S_PORT    = I2S_NUM_0;
 static const uint32_t AMP_LINGER_MS = 3000;   // amp stays on between close sounds (no settle wait each time)
 static const uint32_t CLK_SETTLE_MS = 30;     // codec clocked this long before the amp comes on
 // Note edges follow a raised cosine (a linear 3 ms ramp still ticked): the
@@ -395,22 +398,51 @@ static int16_t peakFor(uint8_t level) {
   return PEAK[level < 5 ? level : 4];
 }
 
-bool genericBuzzer::_i2sBegin() {
-  // i2s_driver_install() crashes in IDF's cleanup when its DMA allocation
-  // fails (PR #3381 saw a boot loop): don't try without clear headroom.
-  if (heap_caps_get_free_size(MALLOC_CAP_DMA) < 32000) return false;
-  for (int i = 0; i < 256; i++) s_sine[i] = (int16_t)(32767.0f * sinf(i * 2.0f * (float)M_PI / 256.0f));
-  for (int i = 0; i <= 64; i++) s_ease[i] = (int16_t)(32767.0f * 0.5f * (1.0f - cosf(i * (float)M_PI / 64.0f)));
-
+// ── The I2S channel: 16 kHz, 16-bit stereo, 6 DMA buffers of CHUNK frames,
+// MCLK = 256 fs; an underrun plays silence, not the last buffer again. ──────
+static const uint32_t WAIT_FOREVER = 0xFFFFFFFF;
+#if ESP_IDF_VERSION_MAJOR >= 5
+static i2s_chan_handle_t s_tx = nullptr;
+static bool i2sInstall() {
+  i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  cc.dma_desc_num = 6;   // 48 ms queued: short, since the task keeps it topped up
+  cc.dma_frame_num = CHUNK;
+  cc.auto_clear_after_cb = true;
+  if (i2s_new_channel(&cc, &s_tx, nullptr) != ESP_OK) return false;
+  i2s_std_config_t sc = {};
+  sc.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE);
+  sc.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  sc.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+  sc.gpio_cfg.mclk = (gpio_num_t)PIN_I2S_MCLK;
+  sc.gpio_cfg.bclk = (gpio_num_t)PIN_I2S_BCK;
+  sc.gpio_cfg.ws = (gpio_num_t)PIN_I2S_WS;
+  sc.gpio_cfg.dout = (gpio_num_t)PIN_I2S_DOUT;
+  sc.gpio_cfg.din = I2S_GPIO_UNUSED;
+  if (i2s_channel_init_std_mode(s_tx, &sc) != ESP_OK || i2s_channel_enable(s_tx) != ESP_OK) {
+    i2s_del_channel(s_tx); s_tx = nullptr;
+    return false;
+  }
+  return true;
+}
+static void i2sUninstall() { i2s_channel_disable(s_tx); i2s_del_channel(s_tx); s_tx = nullptr; }
+static void i2sWrite(const void* src, size_t n, uint32_t ms) {
+  size_t w;
+  i2s_channel_write(s_tx, src, n, &w, ms);
+}
+static void i2sStop()    { i2s_channel_disable(s_tx); }   // clocks off
+static void i2sRestart() { i2s_channel_enable(s_tx); }    // auto-clear left the buffers silent
+#else
+static const i2s_port_t I2S_PORT = I2S_NUM_0;
+static bool i2sInstall() {
   i2s_config_t cfg = {};
   cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
   cfg.sample_rate = SAMPLE_RATE;
   cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
   cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
   cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
-  cfg.dma_buf_count = 6;   // 48 ms queued: short, since the task keeps it topped up
+  cfg.dma_buf_count = 6;
   cfg.dma_buf_len = CHUNK;
-  cfg.tx_desc_auto_clear = true;   // an underrun plays silence, not the last buffer again
+  cfg.tx_desc_auto_clear = true;
   cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
   i2s_pin_config_t pins = {};
   pins.mck_io_num = PIN_I2S_MCLK;
@@ -421,10 +453,29 @@ bool genericBuzzer::_i2sBegin() {
   if (i2s_driver_install(I2S_PORT, &cfg, 0, nullptr) != ESP_OK) return false;
   if (i2s_set_pin(I2S_PORT, &pins) != ESP_OK) { i2s_driver_uninstall(I2S_PORT); return false; }
   i2s_zero_dma_buffer(I2S_PORT);
+  return true;
+}
+static void i2sUninstall() { i2s_driver_uninstall(I2S_PORT); }
+static void i2sWrite(const void* src, size_t n, uint32_t ms) {
+  size_t w;
+  i2s_write(I2S_PORT, src, n, &w, ms == WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(ms));
+}
+static void i2sStop()    { i2s_stop(I2S_PORT); }
+static void i2sRestart() { i2s_zero_dma_buffer(I2S_PORT); i2s_start(I2S_PORT); }
+#endif
+
+bool genericBuzzer::_i2sBegin() {
+  // i2s_driver_install() crashes in IDF's cleanup when its DMA allocation
+  // fails (PR #3381 saw a boot loop): don't try without clear headroom.
+  if (heap_caps_get_free_size(MALLOC_CAP_DMA) < 32000) return false;
+  for (int i = 0; i < 256; i++) s_sine[i] = (int16_t)(32767.0f * sinf(i * 2.0f * (float)M_PI / 256.0f));
+  for (int i = 0; i <= 64; i++) s_ease[i] = (int16_t)(32767.0f * 0.5f * (1.0f - cosf(i * (float)M_PI / 64.0f)));
+
+  if (!i2sInstall()) return false;
 
   // MCLK is running now, so the codec's clock tree comes up with it.
   if (!es8311::begin(Wire, BUZZER_CODEC_ES8311)) {
-    i2s_driver_uninstall(I2S_PORT);
+    i2sUninstall();
     return false;
   }
   _clk_on_ms = millis();
@@ -445,7 +496,6 @@ void genericBuzzer::_taskLoop() {
   static const int16_t zeros[CHUNK * 2] = {0};
   static char mel[MEL_MAX];
   uint32_t done_req = 0;
-  size_t w;
   for (;;) {
     // Between sounds, while the codec is clocked, keep the DMA queue full of
     // silence: a sound starting into a queue that had run dry could be played
@@ -455,13 +505,13 @@ void genericBuzzer::_taskLoop() {
     uint32_t idle_since = millis();
     while (_req == done_req) {
       if (!_clk_running) { ulTaskNotifyTake(pdTRUE, portMAX_DELAY); idle_since = millis(); continue; }
-      i2s_write(I2S_PORT, zeros, sizeof(zeros), &w, pdMS_TO_TICKS(50));
+      i2sWrite(zeros, sizeof(zeros), 50);
       if (millis() - idle_since < AMP_LINGER_MS + 500) continue;
       bool stop = false;
       portENTER_CRITICAL(&s_mux);
       if (!_amp_on && !_amp_pending && _req == done_req) { _clk_running = false; stop = true; }
       portEXIT_CRITICAL(&s_mux);
-      if (stop) i2s_stop(I2S_PORT); else idle_since = millis();
+      if (stop) i2sStop(); else idle_since = millis();
     }
     ulTaskNotifyTake(pdTRUE, 0);   // its request is being taken now
     for (;;) {
@@ -475,8 +525,7 @@ void genericBuzzer::_taskLoop() {
       _note_idx = -1;
       if (stop || !mel[0]) { _task_playing = false; break; }
       if (!_clk_running) {
-        i2s_zero_dma_buffer(I2S_PORT);
-        i2s_start(I2S_PORT);
+        i2sRestart();
         portENTER_CRITICAL(&s_mux);
         _clk_on_ms = millis();
         _clk_running = true;   // loop() powers the amp once the codec settles
@@ -487,7 +536,7 @@ void genericBuzzer::_taskLoop() {
       memset(buf, 0, sizeof(buf));
       for (uint32_t n = (uint32_t)settle * SAMPLE_RATE / 1000; n > 0 && !cut; ) {
         uint32_t k = n < CHUNK ? n : CHUNK;
-        i2s_write(I2S_PORT, buf, k * 4, &w, portMAX_DELAY);
+        i2sWrite(buf, k * 4, WAIT_FOREVER);
         n -= k;
         cut = _req != req;
       }
@@ -517,7 +566,7 @@ void genericBuzzer::_taskLoop() {
             }
             buf[j * 2] = buf[j * 2 + 1] = s;
           }
-          i2s_write(I2S_PORT, buf, k * 4, &w, portMAX_DELAY);
+          i2sWrite(buf, k * 4, WAIT_FOREVER);
           cut = _req != req;
         }
         if (cut && freq && g) {   // fade out from where the note was cut
@@ -528,14 +577,14 @@ void genericBuzzer::_taskLoop() {
               buf[m * 2] = buf[m * 2 + 1] = (int16_t)((int32_t)s_sine[phase >> 24] * gj / 32767);
               phase += step;
             }
-            i2s_write(I2S_PORT, buf, k * 4, &w, portMAX_DELAY);
+            i2sWrite(buf, k * 4, WAIT_FOREVER);
           }
         }
       }
       _note_idx = -1;
       if (cut) continue;   // a newer request: take it at once
       // Let the DMA queue play out before reporting the melody done.
-      for (int i = 0; i < 6; i++) i2s_write(I2S_PORT, zeros, sizeof(zeros), &w, portMAX_DELAY);
+      for (int i = 0; i < 6; i++) i2sWrite(zeros, sizeof(zeros), WAIT_FOREVER);
       if (_req == req) _task_playing = false;
     }
   }

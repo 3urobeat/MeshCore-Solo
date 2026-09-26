@@ -5,6 +5,16 @@
 #if defined(ESP32)
   #include <esp_heap_caps.h>
 #endif
+#include <new>
+
+// A zeroed buffer of `n` T in PSRAM when the board has it: internal RAM is what
+// BLE, WiFi and TLS need. Allocated once (at startup or first use), never freed.
+template <class T> static T* psramBuf(size_t n) {
+#if defined(ESP32)
+  if (void* p = heap_caps_calloc(n, sizeof(T), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) return (T*)p;
+#endif
+  return (T*)calloc(n, sizeof(T));
+}
 
 #include "../ui-core/UiCore.h"   // shared UI Core (header-only, this TU)
 #include "../ui-core/NearbyModel.h"
@@ -254,6 +264,19 @@ void UITask::loop() {
 
   _core->loop();
   drainCoreEvents();
+#if defined(UI_HEAP_REPORT) && defined(ESP32)
+  // -D UI_HEAP_REPORT: internal / PSRAM heap once, 20 s after boot (the
+  // framework comparison in docs/development/l2-roadmap.md).
+  static bool heap_done = false;
+  if (!heap_done && millis() > 20000) {
+    heap_done = true;
+    Serial.printf("HEAP internal free %u largest %u min %u | psram free %u | idf %s\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), esp_get_idf_version());
+  }
+#endif
 #ifdef PIN_BUZZER
   _buzzer.loop();
   if (soundctl::autoTick(_prefs, _buzzer, isClientConnected()) && !_asleep) refreshStatusBar();
@@ -853,7 +876,8 @@ static void onOpenChannel(lv_event_t* e) {
 
 // DM rows carry a 4-byte prefix; kept in a static table the rows point into.
 static uint8_t s_dm_rows[MessageHistory::DM_HIST_MAX][4];
-static uint8_t s_contact_rows[64][PUB_KEY_SIZE];
+static const int CONTACT_ROWS_MAX = 64;
+static uint8_t (*s_contact_rows)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(CONTACT_ROWS_MAX);
 
 static void onOpenDMRow(lv_event_t* e) {
   s_ui->openDM(s_dm_rows[(uintptr_t)lv_event_get_user_data(e)]);
@@ -865,7 +889,8 @@ static void onNewChat(lv_event_t* e) { (void)e; s_ui->showContacts(); }
 static void onChanRowHold(lv_event_t* e);      // ChannelScreen.h
 static void onChanAdd(lv_event_t* e);
 static void onChanThreadMenu(lv_event_t* e);
-static uint8_t s_room_rows[16][PUB_KEY_SIZE];
+static const int ROOM_ROWS_MAX = 16;
+static uint8_t (*s_room_rows)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(ROOM_ROWS_MAX);
 static void onDMRowHold(lv_event_t* e);        // ConversationScreen.h
 static void onRoomRow(lv_event_t* e);
 static void onRoomRowHold(lv_event_t* e);
@@ -1007,7 +1032,7 @@ void UITask::buildChats() {
   else snprintf(rt, sizeof(rt), "ROOMS");
   sectionWithFilter(body, rt, room_fav_only, CF_ROOMS);
   int nrooms = 0, total = the_mesh.getNumContacts();
-  const int MAX_ROOMS = (int)(sizeof(s_room_rows) / sizeof(s_room_rows[0]));
+  const int MAX_ROOMS = ROOM_ROWS_MAX;
   for (int pass = fav_first ? 0 : 1; pass < 2; pass++) {
     for (int i = 0; i < total && nrooms < MAX_ROOMS; i++) {
       ContactInfo c;
@@ -1055,7 +1080,7 @@ void UITask::buildContacts() {
   int rows = 0;
   // +MAX_ANON_CONTACTS: getContactByIdx() takes the raw table index (see
   // MessageHistory::contactByPrefix()).
-  for (int i = 0; i < total && rows < (int)(sizeof(s_contact_rows) / sizeof(s_contact_rows[0])); i++) {
+  for (int i = 0; i < total && rows < CONTACT_ROWS_MAX; i++) {
     ContactInfo c;
     if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c)) continue;
     if (c.type != ADV_TYPE_CHAT) continue;
@@ -1723,12 +1748,12 @@ uint32_t UITask::threadSignature() const {
 // for the Go / Save buttons under such a bubble.
 struct MsgLoc { int32_t lat, lon; char label[WAYPOINT_LABEL_LEN * 2]; };
 static const int THREAD_MAX_SHOWN = 30;
-static MsgLoc s_msg_locs[THREAD_MAX_SHOWN];
+static MsgLoc* s_msg_locs = psramBuf<MsgLoc>(THREAD_MAX_SHOWN);
 static int    s_msg_loc_n = 0;
 
 // What a held bubble is about: its history ring entry, sender, position slot.
 struct MsgMeta { int pos; bool channel; bool own; int loc; char from[32]; };
-static MsgMeta s_msg_meta[THREAD_MAX_SHOWN];
+static MsgMeta* s_msg_meta = psramBuf<MsgMeta>(THREAD_MAX_SHOWN);
 static int     s_msg_meta_n = 0;
 
 static int noteMsgMeta(int pos, bool channel, bool own, int loc, const char* from) {

@@ -20,7 +20,8 @@ static const int TX_MAX = 22;
 static lv_obj_t* s_overlay = nullptr;   // frequency entry
 static lv_obj_t* s_ta = nullptr;
 static bool s_freq_rpt = false;         // the entry is for the repeater profile (RepeaterScreen.h)
-static char s_opts[1024];
+static const int OPTS_LEN = 1024;
+static char* s_opts = psramBuf<char>(OPTS_LEN);   // dropdown options (LVGL copies them)
 
 // Label + optional hint on the left of a settings row; the control goes on the right.
 static lv_obj_t* settingRow(lv_obj_t* parent, const char* text, const char* hint) {
@@ -83,10 +84,10 @@ void UITask::buildRadio() {
   NodePrefs* p = _prefs;
 
   // Preset: "Custom" first (current params match none), then the list.
-  int o = snprintf(s_opts, sizeof(s_opts), "Custom");
+  int o = snprintf(s_opts, OPTS_LEN, "Custom");
   const char* name; float f, b; uint8_t sf, cr;
-  for (int i = 0; radioctl::presetAt(p, i, name, f, b, sf, cr) && o < (int)sizeof(s_opts) - 24; i++)
-    o += snprintf(s_opts + o, sizeof(s_opts) - o, "\n%s", name);
+  for (int i = 0; radioctl::presetAt(p, i, name, f, b, sf, cr) && o < OPTS_LEN - 24; i++)
+    o += snprintf(s_opts + o, OPTS_LEN - o, "\n%s", name);
   lv_obj_t* row = settingRow(body, "Preset", nullptr);
   lv_obj_t* dd = rowDropdown(row, s_opts, radioctl::currentPreset(p) + 1, 200, onRadioDropdown, R_PRESET);
   lv_dropdown_set_dir(dd, LV_DIR_BOTTOM);
@@ -105,21 +106,21 @@ void UITask::buildRadio() {
   lv_obj_center(label(fb, fs, THEME_FONT_BODY, theme::TEXT));
 
   o = 0;
-  for (int v = 5; v <= 12; v++) o += snprintf(s_opts + o, sizeof(s_opts) - o, v > 5 ? "\n%d" : "%d", v);
+  for (int v = 5; v <= 12; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n%d" : "%d", v);
   rowDropdown(settingRow(body, "Spreading factor", "Higher = longer range"), s_opts,
               p->sf >= 5 && p->sf <= 12 ? p->sf - 5 : 0, 90, onRadioDropdown, R_SF);
   o = 0;
   for (int i = 0; i < LORA_BW_OPT_COUNT; i++)
-    o += snprintf(s_opts + o, sizeof(s_opts) - o, "%s%g kHz", i ? "\n" : "", (double)LORA_BW_OPTS[i]);
+    o += snprintf(s_opts + o, OPTS_LEN - o, "%s%g kHz", i ? "\n" : "", (double)LORA_BW_OPTS[i]);
   rowDropdown(settingRow(body, "Bandwidth", nullptr), s_opts, nearestBwIndex(p->bw), 130, onRadioDropdown, R_BW);
   o = 0;
-  for (int v = 5; v <= 8; v++) o += snprintf(s_opts + o, sizeof(s_opts) - o, v > 5 ? "\n4/%d" : "4/%d", v);
+  for (int v = 5; v <= 8; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n4/%d" : "4/%d", v);
   rowDropdown(settingRow(body, "Coding rate", nullptr), s_opts, p->cr >= 5 && p->cr <= 8 ? p->cr - 5 : 0, 90,
               onRadioDropdown, R_CR);
 
   sectionTitle(body, "TRANSMIT");
   o = 0;
-  for (int v = TX_MIN; v <= TX_MAX; v++) o += snprintf(s_opts + o, sizeof(s_opts) - o, v > TX_MIN ? "\n%d dBm" : "%d dBm", v);
+  for (int v = TX_MIN; v <= TX_MAX; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > TX_MIN ? "\n%d dBm" : "%d dBm", v);
   int tx = p->tx_power_dbm < TX_MIN ? TX_MIN : p->tx_power_dbm > TX_MAX ? TX_MAX : p->tx_power_dbm;
   rowDropdown(settingRow(body, "TX power", p->tx_apc ? "Ceiling for auto power" : nullptr), s_opts, tx - TX_MIN, 110,
               onRadioDropdown, R_TX);

@@ -25,9 +25,10 @@ static const int TRAIL_SEGS = 8;
 // Stored as float offsets from the first point (s_ox/s_oy): a float holds a
 // small offset exactly enough, but not a whole 0..1 coordinate at street zoom
 // (2^18 * 256 px across -- a float is off by pixels there).
-static float s_nx[TrailStore::CAPACITY], s_ny[TrailStore::CAPACITY];
+static float* s_nx = nullptr;   // TrailStore::CAPACITY each, in PSRAM (first trail drawn)
+static float* s_ny = nullptr;
 static double s_ox = 0, s_oy = 0;
-static lv_point_precise_t s_pts[TrailStore::CAPACITY];
+static lv_point_precise_t* s_pts = nullptr;
 static int s_seg_first[TRAIL_SEGS], s_seg_len[TRAIL_SEGS], s_segs = 0;
 static lv_obj_t* s_trail[TRAIL_SEGS];
 static lv_obj_t* s_target_line = nullptr;
@@ -191,6 +192,12 @@ void UITask::rebuildNavMarkers() {
   TrailStore& ts = _core->trail.store();
   navmap::s_segs = 0;
   int n = ts.count();
+  if (!navmap::s_pts) {
+    navmap::s_nx = psramBuf<float>(TrailStore::CAPACITY);
+    navmap::s_ny = psramBuf<float>(TrailStore::CAPACITY);
+    navmap::s_pts = psramBuf<lv_point_precise_t>(TrailStore::CAPACITY);
+  }
+  if (!navmap::s_nx || !navmap::s_ny || !navmap::s_pts) n = 0;
   for (int i = 0; i < n; i++) {
     const TrailPoint& p = ts.at(i);
     if (i == 0) { navmap::s_ox = navmap::normX(p.lon_1e6); navmap::s_oy = navmap::normY(p.lat_1e6); }

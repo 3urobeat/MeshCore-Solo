@@ -71,8 +71,8 @@ static const char* const* const ROWS[L_COUNT] = { LAT, LAT_UP, CYR, CYR_UP, GRK,
 // Full lv_keyboard maps: the rows above + a bottom row assembled in
 // buildMaps() (globe only when a second script is enabled).
 static const int MAX_KEYS = 40;
-static const char* s_maps[L_COUNT][MAX_KEYS + 8];
-static lv_buttonmatrix_ctrl_t s_ctrl[L_COUNT][MAX_KEYS];
+static const char* (*s_maps)[MAX_KEYS + 8] = psramBuf<const char*[MAX_KEYS + 8]>(L_COUNT);   // in PSRAM
+static lv_buttonmatrix_ctrl_t (*s_ctrl)[MAX_KEYS] = psramBuf<lv_buttonmatrix_ctrl_t[MAX_KEYS]>(L_COUNT);
 static uint8_t   s_layout = L_LAT;
 static uint8_t   s_script = 0;          // current script (NodePrefs KB_ALPHABET_*)
 static NodePrefs* s_prefs = nullptr;

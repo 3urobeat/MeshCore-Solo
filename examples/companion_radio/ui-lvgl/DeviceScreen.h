@@ -21,7 +21,8 @@ static lv_obj_t* s_lock_unread = nullptr;
 static lv_obj_t* s_lock_slider = nullptr;
 
 static int s_fav_slot = -1;               // slot the hold / pick popup is about
-static uint8_t s_pick_keys[64][PUB_KEY_SIZE];
+static const int PICK_MAX = 64;
+static uint8_t (*s_pick_keys)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(PICK_MAX);
 enum : int { PICK_CONTACT = 100 };        // pick codes: channel index, or PICK_CONTACT + row
 
 // "Pin" from an options popup: what gets pinned.
@@ -313,7 +314,7 @@ void UITask::favPickPopup(int slot) {
   }
   sectionTitle(list, "CONTACTS AND ROOMS");
   int rows = 0, total = the_mesh.getNumContacts();
-  const int MAX_ROWS = (int)(sizeof(s_pick_keys) / sizeof(s_pick_keys[0]));
+  const int MAX_ROWS = PICK_MAX;
   for (int pass = 0; pass < 2; pass++) {
     for (int i = 0; i < total && rows < MAX_ROWS; i++) {
       ContactInfo c;

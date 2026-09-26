@@ -28,9 +28,15 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   BLEDevice::setSecurityCallbacks(this);
   BLEDevice::setMTU(MAX_FRAME_SIZE);
 
+#if defined(CONFIG_NIMBLE_ENABLED)
+  BLESecurity::setPassKey(true, pin_code);   // static PIN, shown by this device
+  BLESecurity::setCapability(ESP_IO_CAP_OUT);
+  BLESecurity::setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
+#else
   BLESecurity  sec;
   sec.setStaticPIN(pin_code);
   sec.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
+#endif
 
   //BLEDevice::setPower(ESP_PWR_LVL_N8);
 
@@ -42,12 +48,22 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   pService = pServer->createService(SERVICE_UUID);
 
   // Create a BLE Characteristic
+#if defined(CONFIG_NIMBLE_ENABLED)
+  // NimBLE takes the encryption / MITM requirement as properties (its
+  // setAccessPermissions() is a no-op) and adds the 2902 descriptor itself.
+  pTxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY |
+      BLECharacteristic::PROPERTY_READ_ENC | BLECharacteristic::PROPERTY_READ_AUTHEN);
+  BLECharacteristic * pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX,
+      BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_ENC | BLECharacteristic::PROPERTY_WRITE_AUTHEN);
+#else
   pTxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pTxCharacteristic->setAccessPermissions(ESP_GATT_PERM_READ_ENC_MITM);
   pTxCharacteristic->addDescriptor(new BLE2902());
 
   BLECharacteristic * pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, BLECharacteristic::PROPERTY_WRITE);
   pRxCharacteristic->setAccessPermissions(ESP_GATT_PERM_WRITE_ENC_MITM);
+#endif
   pRxCharacteristic->setCallbacks(this);
 
   pServer->getAdvertising()->addServiceUUID(SERVICE_UUID);
@@ -74,8 +90,19 @@ bool SerialBLEInterface::onSecurityRequest() {
   return true;  // allow
 }
 
+#if defined(CONFIG_NIMBLE_ENABLED)
+void SerialBLEInterface::onAuthenticationComplete(ble_gap_conn_desc* desc, int status) {
+  (void)desc;
+  authDone(status == 0);
+}
+#else
 void SerialBLEInterface::onAuthenticationComplete(esp_ble_auth_cmpl_t cmpl) {
-  if (cmpl.success) {
+  authDone(cmpl.success);
+}
+#endif
+
+void SerialBLEInterface::authDone(bool ok) {
+  if (ok) {
     BLE_DEBUG_PRINTLN(" - SecurityCallback - Authentication Success");
     deviceConnected = true;
   } else {
@@ -92,6 +119,16 @@ void SerialBLEInterface::onAuthenticationComplete(esp_ble_auth_cmpl_t cmpl) {
 void SerialBLEInterface::onConnect(BLEServer* pServer) {
 }
 
+#if defined(CONFIG_NIMBLE_ENABLED)
+void SerialBLEInterface::onConnect(BLEServer* pServer, ble_gap_conn_desc* desc) {
+  BLE_DEBUG_PRINTLN("onConnect(), conn_handle=%d", desc->conn_handle);
+  last_conn_id = desc->conn_handle;
+}
+
+void SerialBLEInterface::onMtuChanged(BLEServer* pServer, ble_gap_conn_desc* desc, uint16_t mtu) {
+  BLE_DEBUG_PRINTLN("onMtuChanged(), mtu=%d", mtu);
+}
+#else
 void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
   BLE_DEBUG_PRINTLN("onConnect(), conn_id=%d, mtu=%d", param->connect.conn_id, pServer->getPeerMTU(param->connect.conn_id));
   last_conn_id = param->connect.conn_id;
@@ -100,6 +137,7 @@ void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
   BLE_DEBUG_PRINTLN("onMtuChanged(), mtu=%d", pServer->getPeerMTU(param->mtu.conn_id));
 }
+#endif
 
 void SerialBLEInterface::onDisconnect(BLEServer* pServer) {
   BLE_DEBUG_PRINTLN("onDisconnect()");
@@ -111,7 +149,11 @@ void SerialBLEInterface::onDisconnect(BLEServer* pServer) {
 
 // -------- BLECharacteristicCallbacks methods
 
+#if defined(CONFIG_NIMBLE_ENABLED)
+void SerialBLEInterface::onWrite(BLECharacteristic* pCharacteristic, ble_gap_conn_desc* desc) {
+#else
 void SerialBLEInterface::onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
+#endif
   uint8_t* rxValue = pCharacteristic->getData();
   int len = pCharacteristic->getLength();
 
