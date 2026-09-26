@@ -477,7 +477,7 @@ void UITask::favGrid(lv_obj_t* grid) {
     if (used) {
       int unread = chan ? _core->history.chUnread(_prefs->favourite_contacts[s][0])
                         : (c.type == ADV_TYPE_CHAT ? _core->dmUnread(c.id.pub_key) : 0);
-      badge(b, unread, false);
+      tileBadge(b, unread);
     }
   }
   lv_obj_t* hint = label(grid, "Tap to open. Hold to change or remove.", THEME_FONT_SMALL, theme::TEXT_MUTED);

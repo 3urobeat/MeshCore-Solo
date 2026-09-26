@@ -655,6 +655,13 @@ static void badge(lv_obj_t* parent, int n, bool overflow) {
   lv_obj_center(l);
 }
 
+// The same on a Home tile: in its top-right corner, clear of the icon.
+static void tileBadge(lv_obj_t* tile, int n) {
+  if (n <= 0) return;
+  badge(tile, n, false);
+  lv_obj_align(lv_obj_get_child(tile, -1), LV_ALIGN_TOP_RIGHT, -2, 2);
+}
+
 // Local time (NodePrefs::tz_offset_hours); false before the clock is set.
 static bool localTime(const NodePrefs* p, struct tm& out) {
   uint32_t now = rtc_clock.getCurrentTime();
@@ -1095,6 +1102,8 @@ void UITask::buildStatusBar() {
   lv_obj_align(_status_time, LV_ALIGN_LEFT_MID, 0, 0);
   _status_batt = label(bar, "", THEME_FONT_ICONS, theme::TEXT_MUTED);
   lv_obj_align(_status_batt, LV_ALIGN_RIGHT_MID, 0, 0);
+  _status_chg = label(bar, LV_SYMBOL_CHARGE, THEME_FONT_ICONS, theme::OK);
+  lv_obj_add_flag(_status_chg, LV_OBJ_FLAG_HIDDEN);
   _status_icons = lv_obj_create(bar);
   lv_obj_remove_style_all(_status_icons);
   lv_obj_remove_flag(_status_icons, LV_OBJ_FLAG_CLICKABLE);
@@ -1146,19 +1155,25 @@ void UITask::refreshStatusBar() {
     case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
     default: break;
   }
-  lv_label_set_text_fmt(_status_batt, "%s%s%s", _board->isExternalPowered() ? LV_SYMBOL_CHARGE : "", batt, level);
+  lv_label_set_text_fmt(_status_batt, "%s%s", batt, level);
+  lv_obj_t* left_of = _status_batt;   // the icons pack up to this
+  if (_board->isExternalPowered()) {
+    lv_obj_remove_flag(_status_chg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align_to(_status_chg, _status_batt, LV_ALIGN_OUT_LEFT_MID, -2, 0);
+    left_of = _status_chg;
+  } else lv_obj_add_flag(_status_chg, LV_OBJ_FLAG_HIDDEN);
 
-  // Status icons, as the original's status bar (ui-new): Bluetooth (bright
-  // when the app is connected), WiFi (when switched on), GPS (green with a fix), the alarm, mute, then
+  // Status icons, as the original's status bar (ui-new): Bluetooth (accent
+  // when the app is connected), WiFi (when switched on, accent connected), GPS (green with a fix), the alarm, mute, then
   // the modes that keep running in the background -- auto-advert, trail, live
   // share, repeater, arrival alert -- in the accent colour. Right to left in
   // that order, next to the battery.
   struct Icon { const char* sym; uint32_t col; };
   Icon icons[11];
   int n = 0;
-  if (isSerialEnabled()) icons[n++] = { LV_SYMBOL_BLUETOOTH, hasConnection() ? theme::TEXT : theme::TEXT_MUTED };
-  if (lvport::wifiAllowed())   // WiFi switched on: bright while connected (map tiles, update)
-    icons[n++] = { LV_SYMBOL_WIFI, lvport::netRadio() == lvport::NET_UP ? theme::TEXT : theme::TEXT_MUTED };
+  if (isSerialEnabled()) icons[n++] = { LV_SYMBOL_BLUETOOTH, hasConnection() ? theme::ACCENT : theme::TEXT_MUTED };
+  if (lvport::wifiAllowed())   // WiFi switched on: accent while connected (map tiles, update)
+    icons[n++] = { LV_SYMBOL_WIFI, lvport::netRadio() == lvport::NET_UP ? theme::ACCENT : theme::TEXT_MUTED };
   int32_t lat, lon;
   bool fix = _core->course.currentLocation(lat, lon);
   if (_core->gpsEnabled() || fix) icons[n++] = { LV_SYMBOL_GPS, fix ? theme::OK : theme::TEXT_MUTED };
@@ -1181,7 +1196,7 @@ void UITask::refreshStatusBar() {
     for (int i = n - 1; i >= 0; i--)   // the icon font gives each the same size and cell
       label(_status_icons, icons[i].sym, THEME_FONT_ICONS, icons[i].col);
   }
-  lv_obj_align_to(_status_icons, _status_batt, LV_ALIGN_OUT_LEFT_MID, -5, 0);
+  lv_obj_align_to(_status_icons, left_of, LV_ALIGN_OUT_LEFT_MID, -5, 0);
 }
 
 void UITask::setGps(bool on) {
@@ -1256,7 +1271,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
     lv_obj_t* hdr = lv_obj_create(scr);
     styleSurface(hdr, theme::BG);
     lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(hdr, LV_PCT(100), 32);
+    lv_obj_set_size(hdr, LV_PCT(100), 38);
     lv_obj_set_pos(hdr, 0, top);
     _header = hdr;
     if (with_back) {
@@ -1272,7 +1287,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
     lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
     lv_obj_set_width(t, 230);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, with_back ? 52 : theme::PAD, 0);
-    top += 32;
+    top += 38;
   }
 
   lv_obj_t* body = lv_obj_create(scr);

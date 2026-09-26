@@ -442,6 +442,7 @@ private:
   lv_obj_t* _status_time = nullptr;
   lv_obj_t* _status_icons = nullptr;   // a row of icon labels, rebuilt with the state
   lv_obj_t* _status_batt = nullptr;
+  lv_obj_t* _status_chg = nullptr;    // the charging bolt, green, left of the battery
   char      _status_sig[128] = "";      // what the icon row shows, to skip unchanged rebuilds
   lv_obj_t* _toast = nullptr;
   lv_timer_t* _toast_timer = nullptr;

@@ -128,7 +128,7 @@ static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, 
   lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_width(n, w - 10);
   lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -8);
-  badge(b, badge_n, false);
+  tileBadge(b, badge_n);
   return b;
 }
 
@@ -412,7 +412,12 @@ void UITask::homeMapFit() {
   bool me = _core->course.currentLocation(lat, lon);
   int live = 0;
   bool target = false;
+  bool last = false;   // no fix: the saved / app-set position, hollow
   if (me) s_pts[s_npts++] = { lat, lon, dot(14, theme::ACCENT, theme::BG) };
+  else if (_sensors && (_sensors->node_lat != 0 || _sensors->node_lon != 0)) {
+    last = true;
+    s_pts[s_npts++] = { (int32_t)lround(_sensors->node_lat * 1e6), (int32_t)lround(_sensors->node_lon * 1e6), dot(14, theme::BG, theme::ACCENT) };
+  }
   if (_core->locator.activeTargetPos(lat, lon)) {
     target = true;
     s_pts[s_npts++] = { lat, lon, dot(12, theme::BG, theme::ACCENT) };
@@ -429,15 +434,21 @@ void UITask::homeMapFit() {
   lv_obj_move_foreground(s_caption);
 
   char cap[48];
-  int o = snprintf(cap, sizeof(cap), "%s", me ? "You" : "No position yet");
+  int o = snprintf(cap, sizeof(cap), "%s", me ? "You" : last ? "Last position" : "No position yet");
   if (live) o += snprintf(cap + o, sizeof(cap) - o, "  " LV_SYMBOL_GPS " %d sharing", live);
   if (target) snprintf(cap + o, sizeof(cap) - o, "  " UI_SYMBOL_FLAG " target");
   lv_label_set_text(s_caption, cap);
 
-  if (s_npts == 0) {   // nothing to show: the default view
-    s_z = mapview::DEFAULT_Z;
-    s_cx = mapview::lonToTileX(mapview::DEFAULT_LON, s_z);
-    s_cy = mapview::latToTileY(mapview::DEFAULT_LAT, s_z);
+  if (s_npts == 0) {   // nothing to show: where the map was left, else the default view
+    if (_map_z) {
+      s_z = _map_z;
+      s_cx = _map_cx;
+      s_cy = _map_cy;
+    } else {
+      s_z = mapview::DEFAULT_Z;
+      s_cx = mapview::lonToTileX(mapview::DEFAULT_LON, s_z);
+      s_cy = mapview::latToTileY(mapview::DEFAULT_LAT, s_z);
+    }
     return;
   }
   // Bounds in world units (tiles at z 0), then the deepest zoom they fit at.
@@ -465,6 +476,7 @@ void UITask::homeMapLayout() {
   int tx0 = (int)floor(left / mapview::TILE_PX), ty0 = (int)floor(top / mapview::TILE_PX);
   int n = 1 << s_z;
   s_pending = false;
+  int shown = 0;
   for (int j = 0; j < ROWS; j++) {
     for (int i = 0; i < COLS; i++) {
       lv_obj_t* cell = s_cells[j * COLS + i];
@@ -492,6 +504,7 @@ void UITask::homeMapLayout() {
       lv_obj_set_pos(img, -(wx & m) * mapview::TILE_PX, -(ty & m) * mapview::TILE_PX);
       lv_obj_set_pos(cell, px, py);
       lv_obj_remove_flag(cell, LV_OBJ_FLAG_HIDDEN);
+      shown++;
     }
   }
   for (int i = 0; i < s_npts; i++) {
@@ -500,7 +513,8 @@ void UITask::homeMapLayout() {
     int d = lv_obj_get_width(s_pts[i].obj);
     lv_obj_set_pos(s_pts[i].obj, (int)lround(x) - d / 2, (int)lround(y) - d / 2);
   }
-  const char* hint = !mapview::s_available ? "No map on the SD card" : nullptr;
+  const char* hint = !mapview::s_available ? "No map on the SD card"
+                   : !shown && !s_pending ? "No map tiles for this area" : nullptr;
   if (hint) { lv_label_set_text(s_hint, hint); lv_obj_remove_flag(s_hint, LV_OBJ_FLAG_HIDDEN); }
   else lv_obj_add_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
 }
