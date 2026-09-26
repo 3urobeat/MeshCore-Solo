@@ -226,7 +226,15 @@ Ideas to come back to (2026-09-26):
 - [ ] Speaker click: would keeping the amplifier on at minimum volume
       remove it?
 - [ ] Import routes from the SD card (optional extra).
-- [ ] Battery life without losing features, above all CPU sleep.
+- [x] Battery life without losing features (2026-09-27): the UI loop sleeps
+      until something is due (none while packets are queued; 1-2 ms with a
+      melody / the app connected; up to 10 ms awake, 20 ms dark); screen off:
+      CPU at 80 MHz, touch controller asleep unless it wakes the screen,
+      backlight driver in standby. GPS off really cuts the L76K's rail (and
+      its UART). Battery divider powered only for a reading (measured: settles
+      at once). Also fixed: WiFi left on after a scan cut short, live tiles'
+      WiFi kept with the screen off on the map, a battery ADC read every
+      second. Not measured yet: the current before / after.
 - [x] Live tiles: bounded cache on the card (2026-09-26) -- they go to
       /sdcard/maps-live, apart from downloaded maps; an index keeps their
       order and the oldest are deleted past the limit (Settings > Storage >

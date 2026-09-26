@@ -33,6 +33,7 @@ class WioTrackerL2Backlight : public lgfx::v1::ILight {
   static constexpr uint8_t REG_LED0_PWM = 0x18;
 
   uint8_t _brightness = 153;  // 60%
+  bool _standby = false;      // chip disabled (the screen is off)
 
   void writeReg(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(LP5814_I2C_ADDR);
@@ -41,13 +42,7 @@ class WioTrackerL2Backlight : public lgfx::v1::ILight {
     Wire.endTransmission();
   }
 
-public:
-  bool init(uint8_t brightness) override {
-    Wire.beginTransmission(LP5814_I2C_ADDR);
-    if (Wire.endTransmission() != 0) {
-      return false;  // LP5814 not found
-    }
-
+  void configure() {
     writeReg(REG_DEVICE_CONFIG0, 0x01);  // chip enable
     writeReg(REG_MAX_CURRENT, 0x01);     // 51 mA max current
     writeReg(REG_ENABLE_CONTROL, 0x00);  // outputs off while configuring
@@ -59,12 +54,28 @@ public:
     writeReg(REG_ENABLE_CONTROL, 0x0F);  // enable all 4 channels
     writeReg(REG_UPDATE, 0x55);          // latch (LP5814 requires 0x55)
     delay(5);
+  }
 
+public:
+  bool init(uint8_t brightness) override {
+    Wire.beginTransmission(LP5814_I2C_ADDR);
+    if (Wire.endTransmission() != 0) {
+      return false;  // LP5814 not found
+    }
+    configure();
     setBrightness(brightness);
     return true;
   }
 
+  // 0 (LovyanGFX's sleep()) puts the chip in standby; the next level brings it
+  // back, set up again.
   void setBrightness(uint8_t brightness) override {
+    if (brightness == 0) {
+      writeReg(REG_DEVICE_CONFIG0, 0x00);   // chip disable: standby
+      _standby = true;
+      return;
+    }
+    if (_standby) { configure(); _standby = false; }
     for (uint8_t i = 0; i < 4; i++) {
       writeReg(REG_LED0_PWM + i, brightness);
     }

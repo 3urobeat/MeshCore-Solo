@@ -174,6 +174,9 @@ void UITask::showOta() {
   buildOta();
 }
 
+// Something else holds the WiFi: a scan leaves it up.
+bool UITask::wifiInUse() const { return mapview::s_dl.active() || otaBusy() || ota::s_state == ota::CONNECTING; }
+
 bool UITask::otaBusy() const { return ota::s_state == ota::CHECKING || ota::s_state == ota::INSTALLING || ota::s_state == ota::DONE; }
 
 void UITask::buildOta() {

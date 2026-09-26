@@ -165,13 +165,7 @@ void UITask::buildAdmin() {
   lv_obj_add_event_cb(s_status, onAdminCancelWait, LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
 
-  s_list = lv_obj_create(body);
-  styleSurface(s_list, theme::BG);
-  lv_obj_set_width(s_list, LV_PCT(100));
-  lv_obj_set_flex_grow(s_list, 1);
-  lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(s_list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(s_list, LV_SCROLLBAR_MODE_ACTIVE);
+  s_list = scrollList(body);
   for (int i = 0; i < admin::rowCount(s_tab); i++) {
     const admin::Field& f = admin::field(s_tab, i);
     const char* hint = f.isCustom() ? "Any CLI command" : f.isAction() ? nullptr

@@ -117,7 +117,7 @@ void UITask::refreshDiag() {
   int n = allRows(rows, _core->gpsEnabled());
   if (n != s_rows) { buildDiag(); return; }
   for (int i = 0; i < n; i++)
-    if (strcmp(lv_label_get_text(s_vals[i]), rows[i].value) != 0) lv_label_set_text(s_vals[i], rows[i].value);
+    lv_label_set_text(s_vals[i], rows[i].value);   // unchanged text isn't redrawn (UITask.cpp)
 }
 
 void UITask::diagResetPopup() {

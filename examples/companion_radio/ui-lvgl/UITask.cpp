@@ -13,10 +13,14 @@
 // this UI (all of it is this one file and the headers it includes) goes through
 // these, which swap each pair for the codepoint fonts/ui_emoji.c keeps the
 // flag's image under. Display only: what's stored and sent stays as it was.
+// A label given the text it already shows is left alone: the status bar, the
+// clocks and the live values are set every refresh, and each set is a redraw.
 extern "C" char* ui_emoji_flags(const char* s);
 static void ui_label_set_text(lv_obj_t* o, const char* t) {
   char* f = t ? ui_emoji_flags(t) : nullptr;   // t == NULL: LVGL's "redraw the current text"
-  lv_label_set_text(o, f ? f : t);
+  const char* s = f ? f : t;
+  const char* cur = lv_label_get_text(o);
+  if (!s || !cur || strcmp(cur, s) != 0) lv_label_set_text(o, s);
   lv_free(f);
 }
 static void ui_label_set_text_fmt(lv_obj_t* o, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
@@ -121,6 +125,59 @@ static lv_obj_t* label(lv_obj_t* parent, const char* text, const lv_font_t* font
   return l;
 }
 
+// A list filling the rest of a flex column, scrolling on its own (the
+// scrollbar only while it moves).
+static lv_obj_t* scrollList(lv_obj_t* parent) {
+  lv_obj_t* l = lv_obj_create(parent);
+  styleSurface(l, theme::BG);
+  lv_obj_set_width(l, LV_PCT(100));
+  lv_obj_set_flex_grow(l, 1);
+  lv_obj_set_flex_flow(l, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(l, theme::GAP, 0);
+  lv_obj_set_scrollbar_mode(l, LV_SCROLLBAR_MODE_ACTIVE);
+  return l;
+}
+
+// The dimmed full-screen layer under a popup; it swallows taps on what's below.
+static lv_obj_t* dimOverlay(lv_obj_t* parent) {
+  lv_obj_t* o = lv_obj_create(parent);
+  lv_obj_remove_style_all(o);
+  lv_obj_set_size(o, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(o, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(o, LV_OPA_60, 0);
+  lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+  return o;
+}
+
+// A settings row: the label left (a muted hint under it, cut at `hint_w`),
+// room on the right for a switch / dropdown / slider.
+static lv_obj_t* settingRow(lv_obj_t* parent, const char* text, const char* hint, int hint_w = 150) {
+  lv_obj_t* row = lv_obj_create(parent);
+  styleSurface(row, theme::SURFACE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
+  lv_obj_set_style_radius(row, theme::RADIUS, 0);
+  lv_obj_align(label(row, text, THEME_FONT_BODY, theme::TEXT), LV_ALIGN_TOP_LEFT, theme::PAD, hint ? 5 : 13);
+  if (hint) {
+    lv_obj_t* h = label(row, hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(h, hint_w, 15);   // fixed height: cut, don't wrap onto the label
+    lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
+  }
+  return row;
+}
+
+// A bare flex row / column sized to its content, taps passing through.
+static lv_obj_t* flexBox(lv_obj_t* parent, lv_flex_flow_t flow) {
+  lv_obj_t* b = lv_obj_create(parent);
+  lv_obj_remove_style_all(b);
+  lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(b, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(b, flow);
+  return b;
+}
+
 // A one-of-N choice: a row (or grid, with "\n" in the map) of checkable
 // buttons, `sel` checked (-1: none). `item` is the unchecked button colour —
 // SURFACE on a SURFACE_2 panel, SURFACE_2 on the page.
@@ -171,7 +228,6 @@ static void stylePrimary(lv_obj_t* b) {
     lv_obj_set_style_text_color(lv_obj_get_child(b, i), lv_color_hex(theme::BG), 0);
 }
 
-// Unread badge: amber pill with a count, on the right edge of `parent`.
 // "@[nick]" -> "@nick" in place, for one-line text (previews, quotes) where
 // the bubble's highlight doesn't reach.
 static void plainMentions(char* t) {
@@ -189,6 +245,7 @@ static void plainMentions(char* t) {
   *w = '\0';
 }
 
+// Unread badge: amber pill with a count, on the right edge of `parent`.
 static void badge(lv_obj_t* parent, int n, bool overflow) {
   if (n <= 0) return;
   lv_obj_t* b = lv_obj_create(parent);
@@ -357,7 +414,11 @@ void UITask::loop() {
   else if (btn_click) { if (!_asleep && !locked()) back(); }   // the side button doesn't wake: pockets
 
   if (_asleep) {
-    if (lvport::touched()) { lvport::swallowTouch(); if (_tap_wake) wake(); }   // off: the top (WAKE) button only
+    // Tap to wake (off: the top button only). An I2C read on the touch panel.
+    if (_tap_wake && (int32_t)(millis() - _next_touch_poll_ms) >= 0) {
+      _next_touch_poll_ms = millis() + 50;
+      if (lvport::touched()) { lvport::swallowTouch(); wake(); }
+    }
   } else {
     uint32_t aoff = autoOffMillis();
     if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging() && !otaBusy()) sleep();
@@ -438,6 +499,7 @@ void UITask::loop() {
     navPollTrackBack();
   }
 
+  uint32_t lv_next = 0;
   if (!_asleep) {
     if ((int32_t)(millis() - _next_status_ms) >= 0) {
       _next_status_ms = millis() + 1000;
@@ -479,8 +541,22 @@ void UITask::loop() {
       uint32_t sig = threadSignature();
       if (_thread_dirty || sig != _thread_sig) refreshThread();
     }
-    lv_timer_handler();
+    lv_next = lv_timer_handler();
   }
+  lvport::idle(idleMillis(lv_next));
+}
+
+// How long loop() may sleep: nothing is due before then. Not at all while the
+// mesh has packets queued; briefly while a melody plays (its notes are timed
+// here) or the app is connected (its frames are read one a pass).
+uint32_t UITask::idleMillis(uint32_t lv_next) {
+  if (the_mesh.hasPendingWork()) return 0;
+#ifdef PIN_BUZZER
+  if (_buzzer.isPlaying()) return 1;
+#endif
+  if (isClientConnected()) return 2;
+  if (_asleep) return 20;   // the buttons and tap to wake are polled every 50 ms
+  return lv_next < 10 ? lv_next : 10;   // LVGL's next timer: a refresh, an animation, input
 }
 
 void UITask::shutdown(bool restart) {
@@ -532,6 +608,7 @@ void UITask::sleep() {
   if (_asleep) return;
   _asleep = true;
   if (_display) _display->turnOff();
+  lvport::powerSave(true, _tap_wake);
   if ((_prefs && _prefs->auto_lock) || _pin[0]) lockScreen();   // Lock screen, or a screen PIN
 }
 
@@ -539,6 +616,7 @@ void UITask::wake() {
   lv_display_trigger_activity(NULL);
   if (!_asleep) return;
   _asleep = false;
+  lvport::powerSave(false, _tap_wake);
   if (_display) _display->turnOn();
   refreshStatusBar();
   if (_screen == SCR_HOME) refreshHome();
@@ -664,8 +742,9 @@ void UITask::refreshStatusBar() {
     lv_label_set_text(_status_time, "--:--");
   }
 
-  // Battery: the icon, then % or volts per Settings > Battery display.
-  uint16_t mv = getBattMilliVolts();
+  // Battery: the icon, then % or volts per Settings > Battery display. The
+  // smoothed reading (checkLowBattery): an ADC read blocks the loop for 10 ms.
+  uint16_t mv = _batt_mv ? _batt_mv : getBattMilliVolts();
   int pct = battery::percent(mv, _prefs ? _prefs->low_batt_mv : 0);
   const char* batt = pct > 80 ? LV_SYMBOL_BATTERY_FULL : pct > 55 ? LV_SYMBOL_BATTERY_3
                    : pct > 30 ? LV_SYMBOL_BATTERY_2 : pct > 10 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
@@ -769,6 +848,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _nav_overlay = _nav_ta = _nav_kb = _nav_del_lbl = _nav_rec = _nav_avg_pill = nullptr;
   _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
   _wifi_ssid = _wifi_pass = _wifi_kb = _wifi_list = _wifi_status = nullptr;
+  if (_wifi_scanning && !wifiInUse()) lvport::netEnd();   // left mid-scan: the radio goes off
   _wifi_scanning = false;
   _ota_status = _ota_bar = _ota_btn = _ota_btn_lbl = nullptr;
   for (lv_obj_t*& t : _map_tiles) t = nullptr;
@@ -1071,7 +1151,7 @@ void UITask::setHomePage(int page) {
   else lv_obj_remove_flag(home::s_top, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_flex_flow(home::s_row, favs ? LV_FLEX_FLOW_ROW_WRAP : LV_FLEX_FLOW_ROW);
   if (favs) {
-    home::s_fav_sig = homeUnreadTotal();
+    home::s_fav_sig = unreadTotal();
     favGrid(home::s_row);   // DeviceScreen.h
   }
   int first = (page - home::MAIN) * home::PER_PAGE;
@@ -1092,7 +1172,7 @@ void UITask::setHomePage(int page) {
   refreshHome();
 }
 
-int UITask::homeUnreadTotal() {
+int UITask::unreadTotal() {
   return _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
 }
 
@@ -1109,12 +1189,12 @@ void UITask::refreshHome() {
     lv_label_set_text(_home_clock, "--:--");
     lv_label_set_text(_home_date, "time not synced");
   }
-  if (home::s_page == home::FAVS && home::s_row && homeUnreadTotal() != home::s_fav_sig) {
+  if (home::s_page == home::FAVS && home::s_row && unreadTotal() != home::s_fav_sig) {
     setHomePage(home::FAVS);   // new messages: the favourites' badges redrawn
     return;
   }
   if (!_home_unread) return;
-  int unread = homeUnreadTotal();
+  int unread = unreadTotal();
   if (unread > 0) lv_label_set_text_fmt(_home_unread, "%d", unread);
   else lv_label_set_text(_home_unread, "");
 }
@@ -1210,7 +1290,7 @@ static lv_obj_t* headerButton(lv_obj_t* hdr, const char* text, lv_event_cb_t cb,
 
 void UITask::buildChats() {
   lv_obj_t* body = newScreen("Messages", true);
-  if (_header && _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread() > 0)
+  if (_header && unreadTotal() > 0)
     headerButton(_header, LV_SYMBOL_OK " Read all", onMarkAllRead, 4, NULL);
 
   // Channels: favourites first (unless turned off), hold a row for its options
@@ -1299,6 +1379,7 @@ void UITask::buildChats() {
       if (_core->history.dmHistCountForContact(c.id.pub_key) > 0) {
         const DmHistEntry& e = _core->history.dmAtPos(_core->history.dmHistEntryForContact(c.id.pub_key, 0));
         snprintf(sub, sizeof(sub), "%s%s", e.outgoing ? "Me: " : "", e.text);
+        plainMentions(sub);
       } else {
         snprintf(sub, sizeof(sub), "%s", _core->rooms.isLoggedIn(c.id.pub_key) ? "Logged in" : "Tap to log in");
       }
@@ -1418,13 +1499,7 @@ void UITask::buildNearby() {
 
   _nearby_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
-  _nearby_list = lv_obj_create(body);
-  styleSurface(_nearby_list, theme::BG);
-  lv_obj_set_width(_nearby_list, LV_PCT(100));
-  lv_obj_set_flex_grow(_nearby_list, 1);
-  lv_obj_set_flex_flow(_nearby_list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(_nearby_list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(_nearby_list, LV_SCROLLBAR_MODE_ACTIVE);
+  _nearby_list = scrollList(body);
 
   _nearby_sig = 0;
   refreshNearbyList();
@@ -1454,13 +1529,7 @@ void UITask::startNearbyScan() {
 // Dimmed full-screen overlay (swallows taps) holding a panel with the results.
 // A child of the current screen, so it goes away with it.
 void UITask::showScanPopup() {
-  _scan_overlay = lv_obj_create(screen());
-  lv_obj_remove_style_all(_scan_overlay);
-  lv_obj_set_size(_scan_overlay, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(_scan_overlay, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_bg_opa(_scan_overlay, LV_OPA_60, 0);
-  lv_obj_add_flag(_scan_overlay, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(_scan_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  _scan_overlay = dimOverlay(screen());
 
   lv_obj_t* panel = lv_obj_create(_scan_overlay);
   anim::popup(_scan_overlay);
@@ -1485,13 +1554,7 @@ void UITask::showScanPopup() {
   headerButton(hdr, LV_SYMBOL_REFRESH " Again", onNearbyScan, 44, NULL);
 
   _scan_status = label(panel, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  _scan_list = lv_obj_create(panel);
-  styleSurface(_scan_list, theme::BG);
-  lv_obj_set_width(_scan_list, LV_PCT(100));
-  lv_obj_set_flex_grow(_scan_list, 1);
-  lv_obj_set_flex_flow(_scan_list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(_scan_list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(_scan_list, LV_SCROLLBAR_MODE_ACTIVE);
+  _scan_list = scrollList(panel);
 
   _scan_sig = 0;
   refreshScanPopup();
@@ -1805,7 +1868,6 @@ void UITask::nodeAction(uint8_t action) {
       char t[48];
       if (_core->waypoints.add(e.lat_e6, e.lon_e6, rtc_clock.getCurrentTime(), e.name[0] ? e.name : "Node")) {
         snprintf(t, sizeof(t), "Saved %s", _core->waypoints.at(_core->waypoints.count() - 1).label);
-        the_mesh.savePrefs();
         showToast(t);
       }
       break;
@@ -1931,14 +1993,8 @@ void UITask::buildThread() {
     headerButton(_header, LV_SYMBOL_SETTINGS, _thread_is_channel ? onChanThreadMenu : onConvThreadMenu, 4, NULL);
   }
 
-  _thread_list = lv_obj_create(body);
-  styleSurface(_thread_list, theme::BG);
-  lv_obj_set_width(_thread_list, LV_PCT(100));
-  lv_obj_set_flex_grow(_thread_list, 1);
-  lv_obj_set_flex_flow(_thread_list, LV_FLEX_FLOW_COLUMN);
+  _thread_list = scrollList(body);
   lv_obj_set_style_pad_all(_thread_list, theme::PAD, 0);
-  lv_obj_set_style_pad_row(_thread_list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(_thread_list, LV_SCROLLBAR_MODE_ACTIVE);   // only while scrolling
 
   _compose_ta = nullptr;
   _keyboard = nullptr;
@@ -1990,7 +2046,7 @@ uint32_t UITask::threadSignature() const {
     sig = n;
     for (int j = 0; j < n && j < 8; j++) {
       const ChHistEntry& e = h.chAtPos(h.histEntryForChannel(_thread_channel, j));
-      sig = sig * 31 + e.timestamp + e.relay_status;
+      sig = sig * 31 + e.timestamp + e.relay_status + e.path_len;   // path_len: repeaters heard
     }
   } else {
     int n = h.dmHistCountForContact(_thread_key);
@@ -2140,13 +2196,7 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   // the bubble two lines tall -- matters with the keyboard up.
   bool meta_in_header = from && from[0] && !status;
   if (from && from[0]) {
-    lv_obj_t* hdr = lv_obj_create(b);
-    styleSurface(hdr, theme::BG);
-    lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
-    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(hdr, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_t* hdr = flexBox(b, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(hdr, 8, 0);
     label(hdr, from, THEME_FONT_SMALL, theme::ACCENT);   // names are <= 31 chars: fits the bubble
     if (meta_in_header) label(hdr, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
@@ -2159,13 +2209,7 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   }
 
   if (loc_idx >= 0) {   // position: navigate there / keep it as a waypoint
-    lv_obj_t* acts = lv_obj_create(b);
-    styleSurface(acts, theme::BG);
-    lv_obj_set_style_bg_opa(acts, LV_OPA_TRANSP, 0);
-    lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(acts, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(acts, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
+    lv_obj_t* acts = flexBox(b, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(acts, 6, 0);
     lv_obj_set_style_pad_top(acts, 2, 0);
     msgLocButton(acts, UI_SYMBOL_COMPASS " Go", loc_idx, false, true);
@@ -2173,11 +2217,7 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
   }
 
   if (!meta_in_header) {   // the age, then the delivery mark in its colour (as L1)
-    lv_obj_t* line = lv_obj_create(b);
-    lv_obj_remove_style_all(line);
-    lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(line, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+    lv_obj_t* line = flexBox(b, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(line, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(line, 6, 0);
     label(line, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
@@ -2399,13 +2439,7 @@ static void onKeyboardAlphabet(lv_event_t* e) {
 
 // One settings row: label left, dropdown right.
 static lv_obj_t* dropdownRow(lv_obj_t* parent, const char* text, const char* options, int sel) {
-  lv_obj_t* row = lv_obj_create(parent);
-  styleSurface(row, theme::SURFACE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
-  lv_obj_set_style_radius(row, theme::RADIUS, 0);
-  lv_obj_t* l = label(row, text, THEME_FONT_BODY, theme::TEXT);
-  lv_obj_align(l, LV_ALIGN_LEFT_MID, theme::PAD, 0);
+  lv_obj_t* row = settingRow(parent, text, NULL);
   lv_obj_t* dd = lv_dropdown_create(row);
   lv_dropdown_set_options_static(dd, options);
   lv_dropdown_set_selected(dd, sel);
@@ -2428,19 +2462,7 @@ static void onGpsSwitch(lv_event_t* e) {
 
 // pref == nullptr: the caller wires the switch itself.
 static lv_obj_t* switchRow(lv_obj_t* parent, const char* text, const char* sub, uint8_t* pref) {
-  lv_obj_t* row = lv_obj_create(parent);
-  styleSurface(row, theme::SURFACE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
-  lv_obj_set_style_radius(row, theme::RADIUS, 0);
-  lv_obj_t* l = label(row, text, THEME_FONT_BODY, theme::TEXT);
-  lv_obj_align(l, LV_ALIGN_TOP_LEFT, theme::PAD, sub ? 5 : 13);
-  if (sub) {
-    lv_obj_t* h = label(row, sub, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
-    lv_obj_set_size(h, 236, 15);   // clear of the switch
-    lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
-  }
+  lv_obj_t* row = settingRow(parent, text, sub, 236);   // the hint clear of the switch
   lv_obj_t* sw = lv_switch_create(row);
   lv_obj_set_size(sw, 46, 24);
   lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
@@ -2574,7 +2596,7 @@ void UITask::schemaRows(lv_obj_t* body, uint8_t page) {
     }
     uint8_t v = settings::get(*_prefs, st);
     if (st.offset == offsetof(NodePrefs, buzzer_volume)) {   // a five-step slider, heard on release
-      lv_obj_t* row = radioview::settingRow(body, st.label, NULL);
+      lv_obj_t* row = settingRow(body, st.label, NULL);
       lv_obj_t* sl = lv_slider_create(row);
       lv_slider_set_range(sl, 0, 4);
       lv_slider_set_value(sl, v, LV_ANIM_OFF);
@@ -2585,12 +2607,7 @@ void UITask::schemaRows(lv_obj_t* body, uint8_t page) {
       continue;
     }
     if (st.offset == offsetof(NodePrefs, display_brightness)) {   // a slider here instead of five steps
-      lv_obj_t* row = lv_obj_create(body);
-      styleSurface(row, theme::SURFACE);
-      lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-      lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
-      lv_obj_set_style_radius(row, theme::RADIUS, 0);
-      lv_obj_align(label(row, st.label, THEME_FONT_BODY, theme::TEXT), LV_ALIGN_LEFT_MID, theme::PAD, 0);
+      lv_obj_t* row = settingRow(body, st.label, NULL);
       lv_obj_t* sl = lv_slider_create(row);
       lv_slider_set_range(sl, 5, 100);
       uint8_t pct = _prefs->display_brightness_pct ? _prefs->display_brightness_pct
@@ -2617,19 +2634,7 @@ void UITask::schemaRows(lv_obj_t* body, uint8_t page) {
       o += strlen(opts + o);
     }
     opts[o] = '\0';
-    lv_obj_t* row = lv_obj_create(body);
-    styleSurface(row, theme::SURFACE);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
-    lv_obj_set_style_radius(row, theme::RADIUS, 0);
-    lv_obj_t* l = label(row, st.label, THEME_FONT_BODY, theme::TEXT);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, theme::PAD, st.hint ? 5 : 13);
-    if (st.hint) {
-      lv_obj_t* h = label(row, st.hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
-      lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
-      lv_obj_set_size(h, 176, 15);   // fixed height: cut, don't wrap onto the label
-      lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
-    }
+    lv_obj_t* row = settingRow(body, st.label, st.hint, 176);
     lv_obj_t* dd = lv_dropdown_create(row);
     lv_dropdown_set_options(dd, opts);
     lv_dropdown_set_selected(dd, v);

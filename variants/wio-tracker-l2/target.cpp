@@ -10,7 +10,7 @@ WRAPPER_CLASS radio_driver(radio, board);
 
 ESP32RTCClock fallback_clock;
 AutoDiscoverRTCClock rtc_clock(fallback_clock);
-MicroNMEALocationProvider gps(Serial1, &rtc_clock);
+L2GpsProvider gps(Serial1, &rtc_clock);
 EnvironmentSensorManager sensors(gps);
 
 #ifdef DISPLAY_CLASS
@@ -21,6 +21,28 @@ EnvironmentSensorManager sensors(gps);
 #ifdef BUZZER_I2S
 void buzzerAmpPower(bool on) { board.setSpeakerAmp(on); }
 #endif
+
+void L2GpsProvider::begin() {
+  board.setGnssPower(true);   // with the power-up reset
+  if (_uart_off) {            // back from stop(): the UART again
+    Serial1.setRxBufferSize(1024);
+    Serial1.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_TX, PIN_GPS_RX);
+    _uart_off = false;
+  }
+  MicroNMEALocationProvider::begin();
+}
+
+void L2GpsProvider::stop() {
+  MicroNMEALocationProvider::stop();
+  // The UART's TX idling high would feed the unpowered module through its pin.
+  Serial1.end();
+  pinMode(PIN_GPS_RX, INPUT);   // PIN_GPS_RX: the module's RX, our TX
+  _uart_off = true;
+  board.setGnssPower(false);
+}
+
+void L2GpsProvider::reset() { board.gnssReset(); }
+bool L2GpsProvider::isEnabled() { return board.gnssPowered(); }
 
 bool radio_init() {
   MESH_DEBUG_PRINTLN("radio_init: rtc + sx1262 init");

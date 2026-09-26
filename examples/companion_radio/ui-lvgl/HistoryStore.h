@@ -245,8 +245,7 @@ private:
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE* o = fopen(tmp, "wb");
     if (o) {
-      Hdr nh = { MAGIC, VERSION, (uint16_t)sizeof(E), cap, 0, got, h.next_id };
-      nh.next_id = h.next_id;   // ids of the kept records stay as they were
+      Hdr nh = { MAGIC, VERSION, (uint16_t)sizeof(E), cap, 0, got, h.next_id };   // the kept records keep their ids
       bool ok = fwrite(&nh, sizeof(nh), 1, o) == 1 && (got == 0 || fwrite(buf, sizeof(E), got, o) == got);
       fclose(o);
       if (ok) { remove(path); rename(tmp, path); }   // FAT's rename doesn't replace

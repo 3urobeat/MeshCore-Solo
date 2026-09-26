@@ -235,7 +235,6 @@ public:
   void pinRowRefresh();
   void accentRow(lv_obj_t* body);   // Settings > Display & power > Accent colour
   void setAccent(int idx);
-  void showFavourites();
   void showDiag();
   void diagTab(int tab);
   void diagResetPopup();
@@ -252,7 +251,7 @@ public:
 
   // Kept for main.cpp's sim hooks (ui-new API).
   void openContactDM(const ContactInfo& ci) { openDM(ci.id.pub_key); }
-  void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
+  void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)from_picker; openAdmin(ci.id.pub_key); }
 
 private:
   enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE, SCR_GPS };
@@ -278,6 +277,7 @@ private:
   void otaTick();
   void otaLeave();
   bool otaBusy() const;
+  bool wifiInUse() const;   // a map download or an update holds the WiFi
   void buildNearby();
   void refreshNearbyList();
   uint32_t nearbySignature() const;
@@ -344,7 +344,7 @@ private:
   void lockPoll();
   void favGrid(lv_obj_t* grid);
   void favRefresh();
-  int homeUnreadTotal();
+  int unreadTotal();   // DMs, channels and rooms
   void buildDiag();
   void refreshDiag();
   void buildCompass();
@@ -363,8 +363,10 @@ private:
   void sleep();
   void toggleMute();
   uint32_t _next_wake_poll_ms = 0;
+  uint32_t _next_touch_poll_ms = 0;   // tap to wake, while the screen is off
   bool _wake_down = false;
   uint32_t autoOffMillis() const;
+  uint32_t idleMillis(uint32_t lv_next);
   void checkLowBattery();
 
 #ifdef PIN_BUZZER
@@ -402,7 +404,7 @@ private:
   uint32_t _map_left_ms = 0;          // when the map was left, for dropping live tiles' WiFi
   bool     _admin_from_pick = false;   // Admin opened from its Home tile (back returns there)
   uint32_t _prune_armed_ms = 0;
-  uint16_t _batt_mv = 0;         // smoothed, for the low-battery shutdown
+  uint16_t _batt_mv = 0;         // smoothed, read every 8 s: the status bar and the low-battery shutdown
   uint32_t _next_batt_ms = 0;
   lv_obj_t* _prune_lbl = nullptr;
   // Screen PIN (DeviceScreen.h); stored in NVS (lvport::loadPin)

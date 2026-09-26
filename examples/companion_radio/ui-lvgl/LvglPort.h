@@ -103,6 +103,21 @@ static bool touched() {
 
 static void swallowTouch() { s_swallow = true; }
 
+// ── Power ────────────────────────────────────────────────────────────────────
+// Screen off: the CPU clock down (LoRa, BLE and WiFi all run at 80 MHz) and
+// the touch panel asleep unless a tap is to wake the screen. Screen on: back.
+static bool s_touch_asleep = false;
+static void powerSave(bool on, bool keep_touch) {
+  static uint32_t full_mhz = 0;
+  if (!full_mhz) full_mhz = getCpuFrequencyMhz();
+  setCpuFrequencyMhz(on ? 80 : full_mhz);
+  if (on && !keep_touch) { board.touchSleep(); s_touch_asleep = true; }
+  else if (!on && s_touch_asleep) { board.touchWake(); s_touch_asleep = false; }
+}
+// Nothing due for `ms`: the loop task blocks and the core idles, clock-gated,
+// instead of spinning.
+static void idle(uint32_t ms) { if (ms) vTaskDelay(pdMS_TO_TICKS(ms)); }
+
 // Backlight 1-100 % (the brightness slider), on the LP5814 PWM.
 static void setBacklightPct(uint8_t pct) {
   if (pct > 100) pct = 100;
@@ -110,141 +125,84 @@ static void setBacklightPct(uint8_t pct) {
 }
 
 // microSD over SDMMC, 1-bit (CLK 2, CMD 3, D0 1); its power rail (expander
-// P14) is switched on in WioTrackerL2Board::begin(). Retried on every call
-// until it works, so a card inserted later is picked up the next time.
+// P14) is switched on in WioTrackerL2Board::begin(). Retried until it works --
+// at most every 5 s, a failed mount takes a while -- so a card inserted later
+// is picked up.
 static bool mountStorage() {
   static bool mounted = false;
+  static uint32_t last_try = 0;
   if (mounted) return true;
+  if (last_try && millis() - last_try < 5000) return false;
+  last_try = millis() | 1;
   SD_MMC.setPins(2, 3, 1);
   mounted = SD_MMC.begin("/sdcard", true /* 1-bit */);
   return mounted;
 }
 
-// ── WiFi (station, only while a map download runs) ───────────────────────────
-// Credentials in NVS, not in NodePrefs (whose on-flash layout stays fixed) and
-// not on the removable card.
-static bool loadWifi(char* ssid, size_t ssid_n, char* pass, size_t pass_n) {
+// ── Settings kept in NVS ─────────────────────────────────────────────────────
+// Not in NodePrefs (whose on-flash layout stays fixed) and not on the
+// removable card. One value per call: the namespace is opened and closed
+// around it; a namespace that won't open reads as the default.
+namespace nvs {
+struct Ns {
   Preferences p;
-  if (!p.begin("mc_wifi", true)) { ssid[0] = pass[0] = '\0'; return false; }
-  p.getString("ssid", ssid, ssid_n);
-  p.getString("pass", pass, pass_n);
-  p.end();
+  bool ok;
+  Ns(const char* ns, bool ro) { ok = p.begin(ns, ro); }
+  ~Ns() { if (ok) p.end(); }
+};
+static bool getBool(const char* ns, const char* key, bool def) { Ns n(ns, true); return n.ok ? n.p.getBool(key, def) : def; }
+static void putBool(const char* ns, const char* key, bool v) { Ns n(ns, false); if (n.ok) n.p.putBool(key, v); }
+static int  getI8(const char* ns, const char* key, int def) { Ns n(ns, true); return n.ok ? n.p.getChar(key, (int8_t)def) : def; }
+static void putI8(const char* ns, const char* key, int v) { Ns n(ns, false); if (n.ok) n.p.putChar(key, (int8_t)v); }
+static int  getU8(const char* ns, const char* key, int def) { Ns n(ns, true); return n.ok ? n.p.getUChar(key, (uint8_t)def) : def; }
+static void putU8(const char* ns, const char* key, int v) { Ns n(ns, false); if (n.ok) n.p.putUChar(key, (uint8_t)v); }
+static void getStr(const char* ns, const char* key, char* out, size_t n_out) {
+  out[0] = '\0';
+  Ns n(ns, true);
+  if (n.ok) n.p.getString(key, out, n_out);
+}
+static void putStr(const char* ns, const char* key, const char* v) { Ns n(ns, false); if (n.ok) n.p.putString(key, v); }
+}  // namespace nvs
+
+// ── WiFi (station, only while a map download runs) ───────────────────────────
+static bool loadWifi(char* ssid, size_t ssid_n, char* pass, size_t pass_n) {
+  nvs::getStr("mc_wifi", "ssid", ssid, ssid_n);
+  nvs::getStr("mc_wifi", "pass", pass, pass_n);
   return ssid[0] != '\0';
 }
 static void saveWifi(const char* ssid, const char* pass) {
-  Preferences p;
-  if (!p.begin("mc_wifi", false)) return;
-  p.putString("ssid", ssid);
-  p.putString("pass", pass);
-  p.end();
+  nvs::putStr("mc_wifi", "ssid", ssid);
+  nvs::putStr("mc_wifi", "pass", pass);
 }
 // Settings > WiFi's switch: off keeps the radio off for everything (scan, map
 // download). Kept with the credentials.
 static int8_t s_wifi_allowed = -1;   // read once (the status bar asks every second)
 static bool wifiAllowed() {
-  if (s_wifi_allowed < 0) {
-    Preferences p;
-    bool on = true;
-    if (p.begin("mc_wifi", true)) { on = p.getBool("on", true); p.end(); }
-    s_wifi_allowed = on;
-  }
+  if (s_wifi_allowed < 0) s_wifi_allowed = nvs::getBool("mc_wifi", "on", true);
   return s_wifi_allowed;
 }
-static void setWifiAllowed(bool on) {
-  s_wifi_allowed = on;
-  Preferences p;
-  if (!p.begin("mc_wifi", false)) return;
-  p.putBool("on", on);
-  p.end();
-}
+static void setWifiAllowed(bool on) { s_wifi_allowed = on; nvs::putBool("mc_wifi", "on", on); }
 // Map tools > Live tiles: missing tiles fetched over WiFi while the map is open.
-static bool liveTiles() {
-  Preferences p;
-  if (!p.begin("mc_wifi", true)) return true;
-  bool on = p.getBool("live", true);
-  p.end();
-  return on;
-}
-static void setLiveTiles(bool on) {
-  Preferences p;
-  if (!p.begin("mc_wifi", false)) return;
-  p.putBool("live", on);
-  p.end();
-}
+static bool liveTiles() { return nvs::getBool("mc_wifi", "live", true); }
+static void setLiveTiles(bool on) { nvs::putBool("mc_wifi", "live", on); }
 
 // Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
-// In NVS for the same reason as the WiFi credentials.
-static void loadPin(char* out, size_t n) {
-  Preferences p;
-  out[0] = '\0';
-  if (!p.begin("mc_lock", true)) return;
-  p.getString("pin", out, n);
-  p.end();
-}
-static void savePin(const char* pin) {
-  Preferences p;
-  if (!p.begin("mc_lock", false)) return;
-  p.putString("pin", pin);
-  p.end();
-}
+static void loadPin(char* out, size_t n) { nvs::getStr("mc_lock", "pin", out, n); }
+static void savePin(const char* pin) { nvs::putStr("mc_lock", "pin", pin); }
 
 // Accent colour (Settings > Display & power): an index into theme::ACCENTS.
-static int loadAccent() {
-  Preferences p;
-  if (!p.begin("mc_ui", true)) return 0;
-  int v = p.getUChar("accent", 0);
-  p.end();
-  return v;
-}
-static void saveAccent(int idx) {
-  Preferences p;
-  if (!p.begin("mc_ui", false)) return;
-  p.putUChar("accent", (uint8_t)idx);
-  p.end();
-}
+static int loadAccent() { return nvs::getU8("mc_ui", "accent", 0); }
+static void saveAccent(int idx) { nvs::putU8("mc_ui", "accent", idx); }
 // Settings > Storage > Kept per conversation (an index into histstore::KEEP).
-static int loadHistKeep() {
-  Preferences p;
-  if (!p.begin("mc_ui", true)) return -1;
-  int v = p.getChar("hkeep", -1);
-  p.end();
-  return v;
-}
-static void saveHistKeep(int idx) {
-  Preferences p;
-  if (!p.begin("mc_ui", false)) return;
-  p.putChar("hkeep", (int8_t)idx);
-  p.end();
-}
+static int loadHistKeep() { return nvs::getI8("mc_ui", "hkeep", -1); }
+static void saveHistKeep(int idx) { nvs::putI8("mc_ui", "hkeep", idx); }
 // Settings > Storage > Live map tiles: index into mapview::LIVE_CAP_MB, -1 = default.
-static int loadLiveCap() {
-  Preferences p;
-  if (!p.begin("mc_ui", true)) return -1;
-  int v = p.getChar("ltcap", -1);
-  p.end();
-  return v;
-}
-static void saveLiveCap(int idx) {
-  Preferences p;
-  if (!p.begin("mc_ui", false)) return;
-  p.putChar("ltcap", (int8_t)idx);
-  p.end();
-}
+static int loadLiveCap() { return nvs::getI8("mc_ui", "ltcap", -1); }
+static void saveLiveCap(int idx) { nvs::putI8("mc_ui", "ltcap", idx); }
 // Settings > Display & power > Tap to wake: a touch turns the dark screen on
-// (off: only the side button does).
-static bool loadTapWake() {
-  Preferences p;
-  if (!p.begin("mc_ui", true)) return true;
-  bool on = p.getBool("tapwake", true);
-  p.end();
-  return on;
-}
-static void saveTapWake(bool on) {
-  Preferences p;
-  if (!p.begin("mc_ui", false)) return;
-  p.putBool("tapwake", on);
-  p.end();
-}
+// (off: only the top button does).
+static bool loadTapWake() { return nvs::getBool("mc_ui", "tapwake", true); }
+static void saveTapWake(bool on) { nvs::putBool("mc_ui", "tapwake", on); }
 // Filesystem size and space in use (Settings > Storage), plus the card's own
 // size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
 // imager) shows both. The first free-space count on a big card takes a moment.
@@ -495,7 +453,7 @@ static void touchCb(lv_indev_t* indev, lv_indev_data_t* data) {
 static bool begin() {
   lv_display_t* disp = lv_display_create(SimLcdDisplay::W, SimLcdDisplay::H);
   lv_display_set_flush_cb(disp, flushCb);
-  static uint8_t buf[SimLcdDisplay::W * 40 * 2];   // same 40-line partial buffer as the board
+  static uint8_t buf[SimLcdDisplay::W * 40 * 2];   // 40 lines (the board: two half screens)
   lv_display_set_buffers(disp, buf, nullptr, sizeof(buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
 
   lv_indev_t* indev = lv_indev_create();
@@ -506,6 +464,8 @@ static bool begin() {
 
 static bool touched() { return SimLcdDisplay::touchState().down; }
 static void swallowTouch() { s_swallow = true; }
+static void powerSave(bool, bool) {}   // the browser's page loop runs the sim
+static void idle(uint32_t) {}
 static void setBacklightPct(uint8_t pct) { (void)pct; }   // the browser canvas has no backlight
 
 // The host page preloads map tiles into the in-memory FS under /sdcard/maps.

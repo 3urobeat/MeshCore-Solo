@@ -248,7 +248,7 @@ void UITask::unlockScreen() {
     anim::run(fading, anim::setBgOpa, LV_OPA_COVER, LV_OPA_TRANSP, anim::UNLOCK_MS, anim::coverDone);
     if (_body) anim::run(_body, anim::setTy, 12, 0, anim::UNLOCK_MS);
   }
-  s_lock =s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = s_pin_dots = s_pin_msg = nullptr;
+  s_lock = s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = s_pin_dots = s_pin_msg = nullptr;
   _pin_entry[0] = '\0';
   if (_screen == SCR_HOME) refreshHome();
   else if (_screen == SCR_CHATS) buildChats();   // counts moved on while locked
@@ -302,7 +302,7 @@ void UITask::refreshLock() {
     lv_label_set_text(s_lock_clock, clk);
     if (s_lock_date) lv_label_set_text(s_lock_date, date);
   }
-  int unread = _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
+  int unread = unreadTotal();
   if (!s_lock_date) {   // PIN card: the count next to the clock, the keypad's line
     if (unread > 0) lv_label_set_text_fmt(s_lock_unread, LV_SYMBOL_ENVELOPE " %d", unread);
     else lv_label_set_text(s_lock_unread, "");
@@ -448,11 +448,6 @@ void UITask::setAccent(int idx) {
 }
 
 // ── Favourites card (Home, left of the main page) ─────────────────────────────
-
-void UITask::showFavourites() {
-  home::s_page = home::FAVS;
-  showHome();
-}
 
 // The six slots, three to a row, into `grid` (a wrapping row).
 void UITask::favGrid(lv_obj_t* grid) {

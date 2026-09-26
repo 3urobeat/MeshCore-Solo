@@ -48,7 +48,6 @@ void UITask::showRepeater() {
 
 void UITask::buildRepeater() {
   using namespace rptview;
-  using radioview::settingRow;
   using radioview::rowDropdown;
   lv_obj_t* body = newScreen("Repeater", true);
   NodePrefs* p = _prefs;

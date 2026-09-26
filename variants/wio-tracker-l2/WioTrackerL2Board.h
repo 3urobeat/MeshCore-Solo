@@ -20,7 +20,7 @@
 #define ADS1115_ADDR   0x48
 
 // TCA9535 pin numbering: 0..7 = port 0 (P00..P07), 8..15 = port 1 (P10..P17)
-#define EXP_PIN_WAKE_BTN     0   // input  - side WAKE button
+#define EXP_PIN_WAKE_BTN     0   // input  - WAKE button (top edge)
 #define EXP_PIN_I2C_IRQ      1   // input  - shared I2C IRQ
 #define EXP_PIN_SD_DETECT    2   // input  - microSD card detect
 #define EXP_PIN_TP_INT       3   // output - touch panel interrupt (driven for reset seq)
@@ -57,8 +57,6 @@ public:
   // antenna away from class-D switching noise and to save battery
   void setSpeakerAmp(bool on) { expWritePin(EXP_PIN_PA_EN, on); }
 
-  // hardware reset pulse to the L76K GNSS (active HIGH on this board); the
-  // module keeps almanac/ephemeris across it, so this is a warm restart
   // GNSS rail: off saves the whole receiver when GPS is disabled; on re-runs
   // the power-up reset so the module comes back cleanly
   void setGnssPower(bool on) {
@@ -73,6 +71,10 @@ public:
   // Grove expansion port rail (nothing on-board depends on it)
   void setGrovePower(bool on) { expWritePin(EXP_PIN_GROVE_EN, on); }
 
+  bool gnssPowered() const { return (out_shadow[EXP_PIN_GNSS_EN >> 3] >> (EXP_PIN_GNSS_EN & 7)) & 1; }
+
+  // hardware reset pulse to the L76K GNSS (active HIGH on this board); the
+  // module keeps almanac/ephemeris across it, so this is a warm restart
   void gnssReset() {
     expWritePin(EXP_PIN_GNSS_RST, HIGH);
     delay(10);
@@ -81,6 +83,11 @@ public:
 
   // WAKE button on expander P00: pressed = level differs from boot baseline
   bool readWakeButton();
+
+  // GT911 touch controller: sleep (a few mA -> tens of uA) while the screen is
+  // off and a touch shouldn't wake it; wake with a pulse on its INT line.
+  void touchSleep();
+  void touchWake();
 
   // VBUS presence via the AW35615 USB-C controller (I2C 0x22)
   bool isExternalPowered() override;
@@ -95,6 +102,7 @@ private:
   bool aw_ok = false;              // AW35615 USB-C controller responded at probe
   uint8_t wake_btn_baseline = 0;   // idle level of P00, captured at init
   uint16_t batt_mv_last = 0;       // last good battery reading (a failed read keeps it)
+  uint32_t batt_read_ms = 0;       // when it was taken (reads closer together reuse it)
 
   int expReadInputs();   // 16-bit input register pair, -1 on error
 

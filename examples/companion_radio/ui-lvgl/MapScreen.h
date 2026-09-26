@@ -583,13 +583,7 @@ void UITask::mapDownloadPopup() {
   if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3;
   if (_dl_zmax > src_max) _dl_zmax = src_max;   // the server has nothing finer
 
-  _dl_overlay = lv_obj_create(screen());
-  lv_obj_remove_style_all(_dl_overlay);
-  lv_obj_set_size(_dl_overlay, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(_dl_overlay, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_bg_opa(_dl_overlay, LV_OPA_60, 0);
-  lv_obj_add_flag(_dl_overlay, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(_dl_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  _dl_overlay = dimOverlay(screen());
 
   lv_obj_t* panel = lv_obj_create(_dl_overlay);
   anim::popup(_dl_overlay);
@@ -828,8 +822,9 @@ void UITask::mapDownloadTick() {
     bool got = false;
     while (dl.liveTake(z, x, y)) { mapview::s_cache.forgetMissing(z, x, y); got = true; }
     if (got && _screen == SCR_MAP) layoutMap();
-    // The WiFi goes 30 s after the map was left (a quick look elsewhere keeps it).
-    if (_screen != SCR_MAP) {
+    // The WiFi goes 30 s after the map was left or the screen went off (a
+    // quick look elsewhere keeps it).
+    if (_screen != SCR_MAP || _asleep) {
       if (!_map_left_ms) _map_left_ms = millis() | 1;
       else if (millis() - _map_left_ms > 30000) dl.liveEnd();
     }

@@ -175,7 +175,7 @@ void UITask::pollWifiScan() {
   }
   if (n > 0) lv_obj_remove_flag(_wifi_list, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(_wifi_status, n > 0 ? "Tap a network, then enter its password." : "No networks found.");
-  if (!mapview::s_dl.active()) lvport::netEnd();   // the scan switched the radio on
+  if (!wifiInUse()) lvport::netEnd();   // the scan switched the radio on
 }
 
 void UITask::wifiPick(int idx) {

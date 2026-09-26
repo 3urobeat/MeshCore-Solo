@@ -14,11 +14,24 @@
   #include <helpers/ui/MomentaryButton.h>
 #endif
 
+// The L76K's power and reset lines are on the IO expander, out of the NMEA
+// provider's reach: begin() / stop() / reset() drive them here, so GPS off
+// (Settings, duty cycling) really powers the receiver down.
+class L2GpsProvider : public MicroNMEALocationProvider {
+  bool _uart_off = false;
+public:
+  using MicroNMEALocationProvider::MicroNMEALocationProvider;
+  void begin() override;
+  void stop() override;
+  void reset() override;
+  bool isEnabled() override;
+};
+
 extern WioTrackerL2Board board;
 extern WRAPPER_CLASS radio_driver;
 extern AutoDiscoverRTCClock rtc_clock;
 extern EnvironmentSensorManager sensors;
-extern MicroNMEALocationProvider gps;
+extern L2GpsProvider gps;
 
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;

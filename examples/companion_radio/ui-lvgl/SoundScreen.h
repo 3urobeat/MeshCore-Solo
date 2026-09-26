@@ -268,7 +268,7 @@ void UITask::buildSoundRows(lv_obj_t* body, bool top) {
   using namespace sndview;
   if (top) {
     static const char* MODES[] = { "On", "Off", "Auto", "" };
-    lv_obj_t* row = radioview::settingRow(body, "Sound", "Auto: off with the app");
+    lv_obj_t* row = settingRow(body, "Sound", "Auto: off with the app");
     radioview::rowSegmented(row, MODES, soundctl::mode(_prefs), 150, onSoundMode, 0);
     return;
   }

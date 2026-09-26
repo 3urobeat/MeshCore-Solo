@@ -83,13 +83,13 @@ void UITask::channelMenu(int idx) {
   // bottom of the screen from a popup this low).
   static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
   static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
-  lv_obj_t* row = radioview::settingRow(panel, "Alerts", NULL);
+  lv_obj_t* row = settingRow(panel, "Alerts", NULL);
   radioview::rowSegmented(row, NOTIF, chanctl::notif(_prefs, idx), 200, onChanSegment, C_NOTIF);
-  row = radioview::settingRow(panel, "Sound", NULL);
+  row = settingRow(panel, "Sound", NULL);
   radioview::rowSegmented(row, MELODY, chanctl::melody(_prefs, idx), 200, onChanSegment, C_MELODY);
   const ScopeList& sl = the_mesh.scopeList();
   if (sl.count > 0) {   // only once regions are set up (Settings in the app)
-    row = radioview::settingRow(panel, "Scope", "Region it's sent in");
+    row = settingRow(panel, "Scope", "Region it's sent in");
     int o = 0;
     for (uint8_t i = 0; i <= sl.count && o < (int)sizeof(s_scope_opts) - 24; i++)
       o += snprintf(s_scope_opts + o, sizeof(s_scope_opts) - o, "%s%s", i ? "\n" : "", sl.name(i));
@@ -217,7 +217,7 @@ void UITask::buildChannelEdit() {
   s_secret = chanField(body, "Passphrase");
   lv_textarea_set_max_length(s_secret, 32);
 
-  lv_obj_t* row = radioview::settingRow(body, "Hex key", "32 characters");
+  lv_obj_t* row = settingRow(body, "Hex key", "32 characters");
   s_hex_sw = lv_switch_create(row);
   lv_obj_set_size(s_hex_sw, 46, 24);
   lv_obj_align(s_hex_sw, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);

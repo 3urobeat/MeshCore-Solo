@@ -14,6 +14,11 @@ static const uint8_t ADS_REG_CONFIG     = 0x01;
 static const uint16_t ADS_CFG_BATT = 0x8000 | 0x4000 | 0x0200 | 0x0100 | 0x0080 | 0x0003;
 // +/-4.096V FSR -> 125uV/LSB; battery is behind a x2 divider -> 0.25 mV/LSB
 static const float ADS_MV_PER_LSB = 0.125f * 2.0f;
+static const uint32_t BATT_SETTLE_MS = 1;       // divider on -> input settled (measured: at once)
+static const uint32_t BATT_REUSE_MS  = 2000;    // the UI, diagnostics and the app all ask
+
+// GT911: its command register; 0x05 = sleep
+static const uint8_t GT911_ADDR = 0x5D;
 
 bool WioTrackerL2Board::expWriteReg(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(TCA9535_ADDR);
@@ -64,7 +69,7 @@ bool WioTrackerL2Board::initExpander() {
   delay(10);
   expSetOutput(EXP_PIN_TF_EN, HIGH);
   delay(10);
-  expSetOutput(EXP_PIN_BAT_ADC_EN, HIGH);
+  expSetOutput(EXP_PIN_BAT_ADC_EN, LOW);   // the divider only draws while a reading is taken
   delay(10);
   expSetOutput(EXP_PIN_GNSS_EN, HIGH);
   delay(10);
@@ -216,15 +221,40 @@ int16_t WioTrackerL2Board::adsReadRaw() {
 // A failed or zero ADS1115 read (the I2C bus busy or the ADC not answering)
 // keeps the last good value instead of reporting 0 mV -- that read as 0 % in
 // the status bar and could trip the low-battery shutdown. Retried once first.
+// The divider is powered only around the reading; one taken in the last 2 s
+// is reused.
 uint16_t WioTrackerL2Board::getBattMilliVolts() {
   if (!expander_ok) return 0;  // BAT_ADC_EN rail never came up
+  if (batt_mv_last && millis() - batt_read_ms < BATT_REUSE_MS) return batt_mv_last;
 
+  expWritePin(EXP_PIN_BAT_ADC_EN, HIGH);
+  delay(BATT_SETTLE_MS);
   for (int attempt = 0; attempt < 2; attempt++) {
     int16_t raw = adsReadRaw();
     if (raw > 0) {
       batt_mv_last = (uint16_t)(raw * ADS_MV_PER_LSB);
-      return batt_mv_last;
+      break;
     }
   }
+  expWritePin(EXP_PIN_BAT_ADC_EN, LOW);
+  batt_read_ms = millis();
   return batt_mv_last;
 }
+
+void WioTrackerL2Board::touchSleep() {
+  if (!expander_ok) return;
+  expWritePin(EXP_PIN_TP_INT, LOW);   // held low while it sleeps (it is, from the reset sequence on)
+  Wire.beginTransmission(GT911_ADDR);
+  Wire.write((uint8_t)0x80);
+  Wire.write((uint8_t)0x40);
+  Wire.write((uint8_t)0x05);
+  Wire.endTransmission();
+}
+
+void WioTrackerL2Board::touchWake() {
+  if (!expander_ok) return;
+  expWritePin(EXP_PIN_TP_INT, HIGH);   // 2-5 ms high wakes it
+  delay(5);
+  expWritePin(EXP_PIN_TP_INT, LOW);
+}
+

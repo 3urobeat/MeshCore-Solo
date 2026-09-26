@@ -89,18 +89,12 @@ void UITask::buildBot() {
   lv_obj_set_style_bg_color(tabs, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
   lv_obj_add_event_cb(tabs, onBotTab, LV_EVENT_VALUE_CHANGED, NULL);
 
-  lv_obj_t* list = lv_obj_create(body);
-  styleSurface(list, theme::BG);
-  lv_obj_set_width(list, LV_PCT(100));
-  lv_obj_set_flex_grow(list, 1);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t* list = scrollList(body);
 
   for (int i = 0; i < botcfg::rowCount(s_tab); i++) {
     const botcfg::Row& r = botcfg::row(s_tab, i);
     uint8_t* fl = botcfg::flag(p, r.kind);
-    lv_obj_t* row = radioview::settingRow(list, r.label, fl || botcfg::isHour(r.kind) ? r.hint : nullptr);
+    lv_obj_t* row = settingRow(list, r.label, fl || botcfg::isHour(r.kind) ? r.hint : nullptr);
     if (fl && r.kind == botcfg::DM_SCOPE) {
       static const char* SCOPE[] = { "All", "Fav", "" };
       lv_obj_t* seg = segmented(row, SCOPE, *fl ? 1 : 0, 110, 32);

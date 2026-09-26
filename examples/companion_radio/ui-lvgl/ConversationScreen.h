@@ -163,10 +163,10 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
 
   if (!room) {   // alerts: three segments (a dropdown's list runs off screen this low)
     static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
-    lv_obj_t* row = radioview::settingRow(panel, "Alerts", NULL);
+    lv_obj_t* row = settingRow(panel, "Alerts", NULL);
     radioview::rowSegmented(row, NOTIF, contactctl::notif(_prefs, ci.id.pub_key), 200, onConvNotif, 0);
     static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
-    row = radioview::settingRow(panel, "Sound", NULL);
+    row = settingRow(panel, "Sound", NULL);
     radioview::rowSegmented(row, MELODY, contactctl::melody(_prefs, ci.id.pub_key), 200, onConvMelody, 0);
   } else {
     bool in = _core->rooms.isLoggedIn(ci.id.pub_key);

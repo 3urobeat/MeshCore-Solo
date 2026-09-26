@@ -476,13 +476,7 @@ void UITask::navToNode(const uint8_t* key, int32_t lat, int32_t lon, const char*
 
 lv_obj_t* UITask::navPopupPanel(const char* title, bool full) {
   navClosePopup();
-  _nav_overlay = lv_obj_create(screen());
-  lv_obj_remove_style_all(_nav_overlay);
-  lv_obj_set_size(_nav_overlay, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(_nav_overlay, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_bg_opa(_nav_overlay, LV_OPA_60, 0);
-  lv_obj_add_flag(_nav_overlay, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(_nav_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  _nav_overlay = dimOverlay(screen());
 
   lv_obj_t* panel = lv_obj_create(_nav_overlay);
   anim::popup(_nav_overlay);
@@ -529,13 +523,7 @@ static void navRowRight(lv_obj_t* row, const char* text, uint32_t col, int right
 
 void UITask::navTargetsPopup() {
   lv_obj_t* panel = navPopupPanel("Navigate to", true);
-  lv_obj_t* list = lv_obj_create(panel);
-  styleSurface(list, theme::BG);
-  lv_obj_set_width(list, LV_PCT(100));
-  lv_obj_set_flex_grow(list, 1);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t* list = scrollList(panel);
 
   int32_t lat = 0, lon = 0;
   bool gps = _core->course.currentLocation(lat, lon);
@@ -914,13 +902,7 @@ static lv_obj_t* toolButton(lv_obj_t* row, const char* text, uint8_t act, bool a
 
 void UITask::navToolsPopup() {
   lv_obj_t* panel = navPopupPanel("Map tools", true);
-  lv_obj_t* list = lv_obj_create(panel);
-  styleSurface(list, theme::BG);
-  lv_obj_set_width(list, LV_PCT(100));
-  lv_obj_set_flex_grow(list, 1);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t* list = scrollList(panel);
 
   sectionTitle(list, "TRAIL");
   _nav_trail_lbl = label(list, "", THEME_FONT_SMALL, theme::TEXT);
@@ -1035,20 +1017,31 @@ void UITask::navSetShareTarget(int sel) {
   the_mesh.savePrefs();
 }
 
+// A new file in /sdcard/trails named by the local time, "trail-YYYYMMDD-HHMM"
+// (seconds since boot before the clock is set), with `ext`; a second save in
+// the same minute gets "-2", "-3"...
+static void trailFilePath(char* path, size_t n, const char* ext, const NodePrefs* p) {
+  char stem[40];
+  uint32_t now = rtc_clock.getCurrentTime();
+  if (now > 1000000000UL) {
+    time_t t = (time_t)((int64_t)now + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
+    struct tm* ti = gmtime(&t);
+    snprintf(stem, sizeof(stem), "%s/trail-%04d%02d%02d-%02d%02d", navmap::TRAILS_DIR, ti->tm_year + 1900,
+             ti->tm_mon + 1, ti->tm_mday, ti->tm_hour, ti->tm_min);
+  } else {
+    snprintf(stem, sizeof(stem), "%s/trail-%lu", navmap::TRAILS_DIR, (unsigned long)(millis() / 1000));
+  }
+  snprintf(path, n, "%s%s", stem, ext);
+  struct stat st;
+  for (int k = 2; k < 100 && stat(path, &st) == 0; k++) snprintf(path, n, "%s-%d%s", stem, k, ext);
+  mapview::makeParents(path);
+}
+
 // GPX of the live trail (with the waypoints) to /sdcard/trails/.
 bool UITask::exportTrailGpx(char* name_out, size_t n) {
   if (!lvport::mountStorage()) return false;
   char path[64];
-  uint32_t now = rtc_clock.getCurrentTime();
-  if (now > 1000000000UL) {
-    time_t t = (time_t)((int64_t)now + (int64_t)_prefs->tz_offset_hours * 3600);
-    struct tm* ti = gmtime(&t);
-    snprintf(path, sizeof(path), "/sdcard/trails/trail-%04d%02d%02d-%02d%02d.gpx", ti->tm_year + 1900,
-             ti->tm_mon + 1, ti->tm_mday, ti->tm_hour, ti->tm_min);
-  } else {
-    snprintf(path, sizeof(path), "/sdcard/trails/trail-%lu.gpx", (unsigned long)(millis() / 1000));
-  }
-  mapview::makeParents(path);
+  trailFilePath(path, sizeof(path), ".gpx", _prefs);
   FILE* f = fopen(path, "w");
   if (!f) return false;
   navmap::FilePrint out(f);
@@ -1062,16 +1055,7 @@ bool UITask::exportTrailGpx(char* name_out, size_t n) {
 // The live trail to a new file in /sdcard/trails (named by the local time).
 bool UITask::saveTrailToCard(char* name_out, size_t n) {
   char path[64];
-  uint32_t now = rtc_clock.getCurrentTime();
-  if (now > 1000000000UL) {
-    time_t t = (time_t)((int64_t)now + (int64_t)_prefs->tz_offset_hours * 3600);
-    struct tm* ti = gmtime(&t);
-    snprintf(path, sizeof(path), "%s/trail-%04d%02d%02d-%02d%02d.trl", navmap::TRAILS_DIR, ti->tm_year + 1900,
-             ti->tm_mon + 1, ti->tm_mday, ti->tm_hour, ti->tm_min);
-  } else {
-    snprintf(path, sizeof(path), "%s/trail-%lu.trl", navmap::TRAILS_DIR, (unsigned long)(millis() / 1000));
-  }
-  mapview::makeParents(path);
+  trailFilePath(path, sizeof(path), ".trl", _prefs);
   FILE* f = fopen(path, "wb");
   if (!f) return false;
   navmap::FileRW io{ f };
@@ -1086,13 +1070,7 @@ bool UITask::saveTrailToCard(char* name_out, size_t n) {
 // device's own slot (manual saves without a card, the low-battery auto-save).
 void UITask::savedTrailsPopup() {
   lv_obj_t* panel = navPopupPanel("Saved trails", true);
-  lv_obj_t* list = lv_obj_create(panel);
-  styleSurface(list, theme::BG);
-  lv_obj_set_width(list, LV_PCT(100));
-  lv_obj_set_flex_grow(list, 1);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t* list = scrollList(panel);
   navmap::scanTrails();
   for (int i = 0; i < navmap::s_st_n; i++) {
     char title[32], sub[48], path[64];
@@ -1328,13 +1306,7 @@ void UITask::navWaypointsPopup() {
   toolButton(r, UI_SYMBOL_PIN " Here (GPS)", navmap::TL_WP_HERE, true);
   toolButton(r, LV_SYMBOL_KEYBOARD " Coordinates", navmap::TL_WP_COORDS, false);
 
-  lv_obj_t* list = lv_obj_create(panel);
-  styleSurface(list, theme::BG);
-  lv_obj_set_width(list, LV_PCT(100));
-  lv_obj_set_flex_grow(list, 1);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, theme::GAP, 0);
-  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t* list = scrollList(panel);
   int32_t lat = 0, lon = 0;
   bool gps = _core->course.currentLocation(lat, lon);
   for (int i = 0; i < wp.count(); i++) {

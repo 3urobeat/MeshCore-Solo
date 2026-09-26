@@ -24,21 +24,6 @@ static const int OPTS_LEN = 1024;
 static char* s_opts = psramBuf<char>(OPTS_LEN);   // dropdown options (LVGL copies them)
 
 // Label + optional hint on the left of a settings row; the control goes on the right.
-static lv_obj_t* settingRow(lv_obj_t* parent, const char* text, const char* hint) {
-  lv_obj_t* row = lv_obj_create(parent);
-  styleSurface(row, theme::SURFACE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
-  lv_obj_set_style_radius(row, theme::RADIUS, 0);
-  lv_obj_align(label(row, text, THEME_FONT_BODY, theme::TEXT), LV_ALIGN_TOP_LEFT, theme::PAD, hint ? 5 : 13);
-  if (hint) {
-    lv_obj_t* h = label(row, hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
-    lv_obj_set_size(h, 150, 15);
-    lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
-  }
-  return row;
-}
 
 static lv_obj_t* rowDropdown(lv_obj_t* row, const char* opts, int sel, int width, lv_event_cb_t cb, uintptr_t which) {
   lv_obj_t* dd = lv_dropdown_create(row);
@@ -170,12 +155,7 @@ void UITask::radioFreqPopup(bool repeater) {
   using namespace radioview;
   if (s_overlay) return;
   s_freq_rpt = repeater;
-  s_overlay = lv_obj_create(screen());
-  lv_obj_remove_style_all(s_overlay);
-  lv_obj_set_size(s_overlay, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(s_overlay, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_bg_opa(s_overlay, LV_OPA_60, 0);
-  lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_CLICKABLE);
+  s_overlay = dimOverlay(screen());
   lv_obj_t* panel = lv_obj_create(s_overlay);
   anim::popup(s_overlay);
   lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16, LV_SIZE_CONTENT);
