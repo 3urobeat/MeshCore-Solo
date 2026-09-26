@@ -47,7 +47,9 @@ public:
 // which copies onto a FAT card far faster than millions of loose files.
 class RasterTileProvider : public TileProvider {
 public:
-  explicit RasterTileProvider(const char* root) : _root(root) {}
+  // `live`: a second folder in the same layout (live tiles, LiveCache.h), read
+  // when <root> has no tile.
+  explicit RasterTileProvider(const char* root, const char* live = nullptr) : _root(root), _live(live) {}
 
   // Also reads <root>/attribution.txt (written by tools/maps/fetch_tiles.py and
   // the on-device downloader): the tile set's credit line, shown on the map.
@@ -68,8 +70,9 @@ public:
 
   bool renderTile(int z, int x, int y, uint16_t* out) override {
     uint32_t len = 0;
-    uint8_t* png = readLoose(z, x, y, len);
+    uint8_t* png = readLoose(_root, z, x, y, len);
     if (!png) png = readPacked(z, x, y, len);
+    if (!png && _live) png = readLoose(_live, z, x, y, len);
     if (!png) return false;
 
     unsigned char* res = nullptr;
@@ -94,6 +97,7 @@ public:
 
 private:
   const char* _root;
+  const char* _live;
   char _attr[96] = "";
 
   static uint8_t* readRange(FILE* f, long off, uint32_t len) {
@@ -104,9 +108,9 @@ private:
     return buf;
   }
 
-  uint8_t* readLoose(int z, int x, int y, uint32_t& len) {
+  uint8_t* readLoose(const char* root, int z, int x, int y, uint32_t& len) {
     char path[64];
-    snprintf(path, sizeof(path), "%s/%d/%d/%d.png", _root, z, x, y);
+    snprintf(path, sizeof(path), "%s/%d/%d/%d.png", root, z, x, y);
     FILE* f = fopen(path, "rb");
     if (!f) return nullptr;
     fseek(f, 0, SEEK_END);

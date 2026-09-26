@@ -20,7 +20,8 @@
 // Live tiles: while the map is open, single tiles it is missing are fetched
 // the same way (one at a time, between the job's steps when there is no job),
 // the WiFi connected on the first miss and dropped by the caller (liveEnd)
-// once the map has been closed for a while.
+// once the map has been closed for a while. They go to LIVE_ROOT, not
+// <root>, and only up to the Storage limit (LiveCache.h).
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp only (after LvglPort.h).
 
@@ -317,7 +318,10 @@ private:
       _lv_fetching = false;
       size_t len = 0;
       const uint8_t* data = r > 0 ? lvport::fetchData(len) : nullptr;
-      if (r > 0 && looksLikeImage(data, len) && !isNoTilePicture(data, len) && writeTile(_lv_cur.z, _lv_cur.x, _lv_cur.y, data, len)) {
+      char lpath[64];
+      LiveCache::tilePath(lpath, sizeof(lpath), _lv_cur.z, _lv_cur.x, _lv_cur.y);
+      if (r > 0 && looksLikeImage(data, len) && !isNoTilePicture(data, len) && writeFile(lpath, data, len)) {
+        s_live_cache.add(_lv_cur.z, _lv_cur.x, _lv_cur.y, (uint32_t)len);   // kept apart, within the Storage limit
         _lv_consec_fail = 0;
         if (_lv_done_n < LV_DONE) _lv_done[_lv_done_n++] = _lv_cur;
       } else {
@@ -476,8 +480,12 @@ private:
   }
 
   bool writeTile(int z, int x, int y, const uint8_t* d, size_t n) {
-    char path[96], tmp[100];
+    char path[96];
     tilePath(path, sizeof(path), z, x, y);
+    return writeFile(path, d, n);
+  }
+  static bool writeFile(const char* path, const uint8_t* d, size_t n) {
+    char tmp[100];
     makeParents(path);
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE* f = fopen(tmp, "wb");

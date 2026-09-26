@@ -17,11 +17,12 @@
 #include <math.h>
 #include "map/TileProvider.h"
 #include "map/TileCache.h"
+#include "map/LiveCache.h"
 #include "map/TileDownloader.h"
 
 namespace mapview {
 
-static RasterTileProvider s_raster("/sdcard/maps");
+static RasterTileProvider s_raster("/sdcard/maps", LIVE_ROOT);
 static TileProvider*      s_provider = &s_raster;   // the one place to swap in a vector renderer
 static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();   // decoded tiles, in PSRAM
 static TileDownloader     s_dl("/sdcard/maps");
@@ -787,6 +788,7 @@ void UITask::setLiveTiles(bool on) {
 void UITask::mapDownloadTick() {
   mapview::TileDownloader& dl = mapview::s_dl;
   dl.loop();
+  mapview::s_live_cache.service(6);   // trims live tiles past the Storage limit
   if (dl.liveOn()) {
     int z, x, y;
     bool got = false;

@@ -224,6 +224,8 @@ public:
   void pollStorage();
   void storageKeep(int idx);
   void storageClearHistory();
+  void storageLiveCap(int idx);
+  void storageClearLive();
   bool locked() const;
   void pinKey(const char* key);        // the lock screen's keypad
   void pinSetupPopup();                // Settings > Display & power > Screen PIN

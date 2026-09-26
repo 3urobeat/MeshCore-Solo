@@ -212,6 +212,20 @@ static void saveHistKeep(int idx) {
   p.putChar("hkeep", (int8_t)idx);
   p.end();
 }
+// Settings > Storage > Live map tiles: index into mapview::LIVE_CAP_MB, -1 = default.
+static int loadLiveCap() {
+  Preferences p;
+  if (!p.begin("mc_ui", true)) return -1;
+  int v = p.getChar("ltcap", -1);
+  p.end();
+  return v;
+}
+static void saveLiveCap(int idx) {
+  Preferences p;
+  if (!p.begin("mc_ui", false)) return;
+  p.putChar("ltcap", (int8_t)idx);
+  p.end();
+}
 // Filesystem size and space in use (Settings > Storage), plus the card's own
 // size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
 // imager) shows both. The first free-space count on a big card takes a moment.
@@ -508,6 +522,9 @@ static void saveAccent(int idx) { s_accent = idx; }
 static int s_hist_keep = -1;
 static int loadHistKeep() { return s_hist_keep; }
 static void saveHistKeep(int idx) { s_hist_keep = idx; }
+static int s_live_cap = -1;
+static int loadLiveCap() { return s_live_cap; }
+static void saveLiveCap(int idx) { s_live_cap = idx; }
 // The browser has no card: a nominal 32 GB, used = what the files add up to
 // (the storage screen counts them anyway; it passes that in).
 static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) { total = card = 32ULL << 30; used = 0; return true; }

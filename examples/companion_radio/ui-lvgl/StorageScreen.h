@@ -2,7 +2,7 @@
 // Settings > Storage: how full the SD card and the internal flash are and
 // what takes the card's space (maps, message history, GPX trails, the rest),
 // how many messages each conversation keeps (HistoryStore.h) and deleting
-// the history.
+// the history, and how much space live map tiles may take (map/LiveCache.h).
 //
 // The card's files are counted in the background while the screen is open
 // (a map can be tens of thousands of tiles), a few milliseconds per loop.
@@ -11,8 +11,8 @@
 
 namespace storeview {
 
-enum Cat : uint8_t { C_MAPS, C_MSGS, C_TRAILS, C_OTHER, C_COUNT };
-static const char* const CAT_NAME[C_COUNT] = { "Maps", "Messages", "Trails (GPX)", "Other" };
+enum Cat : uint8_t { C_MAPS, C_LIVE, C_MSGS, C_TRAILS, C_OTHER, C_COUNT };
+static const char* const CAT_NAME[C_COUNT] = { "Maps", "Live map tiles", "Messages", "Trails (GPX)", "Other" };
 
 static uint64_t s_bytes[C_COUNT];
 static uint32_t s_files = 0;
@@ -34,6 +34,9 @@ static lv_obj_t* s_cat_val[C_COUNT];
 static lv_obj_t* s_status = nullptr;
 static lv_obj_t* s_clear_lbl = nullptr;
 static uint32_t  s_clear_armed_ms = 0;
+static lv_obj_t* s_live_lbl = nullptr;       // "Delete live map tiles" row label
+static lv_obj_t* s_live_info = nullptr;      // count / size from the index
+static uint32_t  s_live_armed_ms = 0;
 static uint32_t  s_shown_ms = 0;
 
 static void fmtBytes(char* out, size_t n, uint64_t b) {
@@ -65,6 +68,7 @@ static void startWalk() {
 // What a top-level folder counts as.
 static uint8_t topCat(const char* name) {
   if (!strcmp(name, "maps")) return C_MAPS;
+  if (!strcmp(name, "maps-live")) return C_LIVE;
   if (!strcmp(name, "meshcore")) return C_MSGS;
   if (!strcmp(name, "trails")) return C_TRAILS;
   return C_OTHER;
@@ -193,6 +197,10 @@ static void onHistKeep(lv_event_t* e) {
   s_ui->storageKeep((int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onHistClear(lv_event_t* e) { (void)e; s_ui->storageClearHistory(); }
+static void onLiveCap(lv_event_t* e) {
+  s_ui->storageLiveCap((int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+}
+static void onLiveClear(lv_event_t* e) { (void)e; s_ui->storageClearLive(); }
 
 void UITask::showStorage() {
   _screen = SCR_STORAGE;
@@ -202,7 +210,7 @@ void UITask::showStorage() {
 void UITask::buildStorage() {
   using namespace storeview;
   lv_obj_t* body = newScreen("Storage", true);
-  s_sd_bar = s_sd_lbl = s_status = s_clear_lbl = nullptr;
+  s_sd_bar = s_sd_lbl = s_status = s_clear_lbl = s_live_lbl = s_live_info = nullptr;
   memset(s_cat_val, 0, sizeof(s_cat_val));
   s_clear_armed_ms = 0;
 
@@ -245,6 +253,21 @@ void UITask::buildStorage() {
   lv_obj_t* row = listRow(body, LV_SYMBOL_TRASH "  Delete message history", "Every chat, on the card and in memory",
                           onHistClear, NULL);
   s_clear_lbl = lv_obj_get_child(row, 0);
+
+  sectionTitle(body, "LIVE MAP TILES");
+  int cap_idx = mapview::LIVE_CAP_DEFAULT;
+  for (int i = 0; i < mapview::LIVE_CAP_COUNT; i++)
+    if (((uint64_t)mapview::LIVE_CAP_MB[i] << 20) == mapview::s_live_cache.limit()) cap_idx = i;
+  lv_obj_t* cd = dropdownRow(body, "Keep up to", mapview::LIVE_CAP_OPTS, cap_idx);
+  lv_obj_remove_event_cb(cd, onKeyboardAlphabet);
+  lv_obj_add_event_cb(cd, onLiveCap, LV_EVENT_VALUE_CHANGED, NULL);
+  s_live_info = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(s_live_info, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(s_live_info, LV_PCT(100));
+  lv_obj_t* lrow = listRow(body, LV_SYMBOL_TRASH "  Delete live map tiles", "Downloaded maps stay",
+                           onLiveClear, NULL);
+  s_live_lbl = lv_obj_get_child(lrow, 0);
+  s_live_armed_ms = 0;
   s_shown_ms = 0;
 }
 
@@ -273,6 +296,18 @@ void UITask::pollStorage() {
     uint64_t used = s_sd_used;
     if (used == 0) for (int c = 0; c < C_COUNT; c++) used += s_bytes[c];   // the sim counts files
     showUsage(s_sd_bar, s_sd_lbl, s_sd_total, used);
+  }
+  if (s_live_info) {
+    char b[16], t[96];
+    fmtBytes(b, sizeof(b), mapview::s_live_cache.bytes());
+    if (mapview::s_live_cache.clearing()) snprintf(t, sizeof(t), "Deleting... %lu left", (unsigned long)mapview::s_live_cache.count());
+    else snprintf(t, sizeof(t), "Fetched while browsing online: %lu tiles, %s. Past the limit, the oldest go first.",
+                  (unsigned long)mapview::s_live_cache.count(), b);
+    lv_label_set_text(s_live_info, t);
+  }
+  if (s_live_armed_ms && millis() - s_live_armed_ms > 4000) {
+    s_live_armed_ms = 0;
+    if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Delete live map tiles");
   }
   if (s_clear_armed_ms && millis() - s_clear_armed_ms > 4000) {   // the confirm tap timed out
     s_clear_armed_ms = 0;
@@ -303,4 +338,24 @@ void UITask::storageClearHistory() {
   if (s_clear_lbl) lv_label_set_text(s_clear_lbl, LV_SYMBOL_TRASH "  Delete message history");
   showToast("Message history deleted");
   startWalk();
+}
+
+void UITask::storageLiveCap(int idx) {
+  if (idx < 0 || idx >= mapview::LIVE_CAP_COUNT) return;
+  lvport::saveLiveCap(idx);
+  mapview::s_live_cache.setLimit((uint64_t)mapview::LIVE_CAP_MB[idx] << 20);   // trimmed in the background
+  showToast("Saved");
+}
+
+void UITask::storageClearLive() {
+  using namespace storeview;
+  if (!s_live_armed_ms) {   // first tap: ask
+    s_live_armed_ms = millis();
+    if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Tap again to delete");
+    return;
+  }
+  s_live_armed_ms = 0;
+  mapview::s_live_cache.clearAll();   // a few files per loop (mapDownloadTick)
+  if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Delete live map tiles");
+  showToast("Deleting live map tiles");
 }

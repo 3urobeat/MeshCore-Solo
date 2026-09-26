@@ -225,7 +225,26 @@ Ideas to come back to (2026-09-26):
       remove it?
 - [ ] Import routes from the SD card (optional extra).
 - [ ] Battery life without losing features, above all CPU sleep.
-- [ ] Live tiles: don't keep them, or give them a bounded cache on the card
-      so they never fill it.
+- [x] Live tiles: bounded cache on the card (2026-09-26) -- they go to
+      /sdcard/maps-live, apart from downloaded maps; an index keeps their
+      order and the oldest are deleted past the limit (Settings > Storage >
+      Live map tiles: 16 / 64 / 256 MB / 1 GB, default 64 MB; Delete).
+      Live tiles saved by earlier builds sit in /sdcard/maps and can't be
+      told apart from downloaded ones.
 - [ ] Vector maps and other tile sources (to think through).
+
+User list, second batch (2026-09-26):
+
+- [ ] Status bar icons look like different sizes?
+- [ ] Under own messages: a small counter as in the original (L1), not a
+      checkmark with "relayed".
+- [ ] Polish the path popup of a sent / received message.
+- [ ] Map download popup runs off the screen; take the WiFi settings out
+      of it (one place: Settings > WiFi).
+- [ ] Splash: "MeshCore Solo" with the upstream version and ours, all in
+      the MeshCore title font.
+- [ ] Emoji, ideally the full range (glyphs could live on the SD card).
+- [ ] Tap-to-wake toggle.
+- [ ] Favourites as their own screen in the menu rather than a tile.
+- [ ] WiFi indicator icon in the status bar.
 

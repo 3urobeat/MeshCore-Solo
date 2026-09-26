@@ -35,6 +35,7 @@ template <class T> static T* psramBuf(size_t n) {
 #include "Anim.h"
 #include "LvglPort.h"
 #include "HistoryStore.h"
+#include "map/LiveCache.h"
 static histstore::SdArchive s_archive;   // message history on the SD card
 namespace storeview { static void stopWalk(); }   // StorageScreen.h
 #include "../ui-core/KeyboardData.h"
@@ -216,6 +217,8 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   {  // history kept on the SD card: back into the ring, then every new entry to it
     int hk = lvport::loadHistKeep();
     s_archive.setKeep(histstore::KEEP[hk >= 0 && hk < histstore::KEEP_COUNT ? hk : histstore::KEEP_DEFAULT]);
+    int lc = lvport::loadLiveCap();
+    mapview::s_live_cache.setLimit((uint64_t)mapview::LIVE_CAP_MB[lc >= 0 && lc < mapview::LIVE_CAP_COUNT ? lc : mapview::LIVE_CAP_DEFAULT] << 20);
     s_archive.restore(_core->history);
     _core->history.setArchive(&s_archive);
   }
