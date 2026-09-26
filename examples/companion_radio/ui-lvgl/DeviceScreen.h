@@ -55,7 +55,6 @@ static void onNodeName(lv_event_t* e)    { (void)e; s_ui->nodeNamePopup(); }
 static void onNodeNameKb(lv_event_t* e)  { s_ui->nodeNameDone(lv_event_get_code(e) == LV_EVENT_READY); }
 static void onPowerRow(lv_event_t* e)    { s_ui->powerPopup((uintptr_t)lv_event_get_user_data(e) != 0); }
 static void onPowerGo(lv_event_t* e)     { s_ui->shutdown((uintptr_t)lv_event_get_user_data(e) != 0); }
-static void onOpenFavourites(lv_event_t* e) { (void)e; s_ui->showFavourites(); }
 static void onFavTap(lv_event_t* e) { s_ui->favTap((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onFavHold(lv_event_t* e) {
   lv_indev_wait_release(lv_indev_active());   // the hold isn't also a tap that opens it
@@ -448,22 +447,15 @@ void UITask::setAccent(int idx) {
   pinRowRefresh();   // the page, kept at its bottom where this row is
 }
 
-// ── Favourites dial ───────────────────────────────────────────────────────────
+// ── Favourites card (Home, left of the main page) ─────────────────────────────
 
 void UITask::showFavourites() {
-  _screen = SCR_FAVS;
-  buildFavourites();
+  home::s_page = home::FAVS;
+  showHome();
 }
 
-void UITask::buildFavourites() {
-  lv_obj_t* body = newScreen("Favourites", true);
-  lv_obj_t* grid = lv_obj_create(body);
-  styleSurface(grid, theme::BG);
-  lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(grid, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
-  lv_obj_set_style_pad_column(grid, theme::GAP, 0);
-  lv_obj_set_style_pad_row(grid, theme::GAP, 0);
+// The six slots, three to a row, into `grid` (a wrapping row).
+void UITask::favGrid(lv_obj_t* grid) {
   int w = (lv_display_get_horizontal_resolution(NULL) - 2 * theme::PAD - 2 * theme::GAP) / 3;
   for (int s = 0; s < NodePrefs::FAVOURITES_COUNT; s++) {
     char name[33];
@@ -471,7 +463,7 @@ void UITask::buildFavourites() {
     bool used = contactctl::favName(_prefs, s, name, sizeof(name), &c);
     bool chan = favslots::kind(_prefs, s) == NodePrefs::FAV_KIND_CHANNEL;
     lv_obj_t* b = lv_button_create(grid);
-    lv_obj_set_size(b, w, 70);
+    lv_obj_set_size(b, w, 76);
     lv_obj_set_style_pad_all(b, 4, 0);
     lv_obj_set_style_radius(b, theme::RADIUS, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
@@ -484,19 +476,26 @@ void UITask::buildFavourites() {
     lv_obj_add_event_cb(b, onFavTap, LV_EVENT_CLICKED, (void*)(uintptr_t)s);
     lv_obj_add_event_cb(b, onFavHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)s);
     const char* icon = !used ? LV_SYMBOL_PLUS : chan ? "#" : c.type == ADV_TYPE_ROOM ? LV_SYMBOL_HOME : UI_SYMBOL_USERS;
-    lv_obj_align(label(b, icon, THEME_FONT_LARGE, used ? theme::ACCENT : theme::TEXT_MUTED), LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_align(label(b, icon, THEME_FONT_LARGE, used ? theme::ACCENT : theme::TEXT_MUTED), LV_ALIGN_TOP_MID, 0, 10);
     lv_obj_t* n = label(b, used ? name : "Add", THEME_FONT_SMALL, used ? theme::TEXT : theme::TEXT_MUTED);
     lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(n, w - 10);
-    lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -8);
     if (used) {
       int unread = chan ? _core->history.chUnread(_prefs->favourite_contacts[s][0])
                         : (c.type == ADV_TYPE_CHAT ? _core->dmUnread(c.id.pub_key) : 0);
       badge(b, unread, false);
     }
   }
-  label(body, "Tap to open. Hold to change or remove.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_t* hint = label(grid, "Tap to open. Hold to change or remove.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_set_width(hint, LV_PCT(100));
+  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+}
+
+// A slot changed: the card redrawn if it's up.
+void UITask::favRefresh() {
+  if (_screen == SCR_HOME && home::s_page == home::FAVS) setHomePage(home::FAVS);
 }
 
 void UITask::favTap(int slot) {
@@ -524,7 +523,7 @@ void UITask::favAction(uint8_t act) {
   favslots::clear(_prefs, slot);
   the_mesh.savePrefs();
   navClosePopup();
-  buildFavourites();
+  favRefresh();
 }
 
 // What to put in a slot: channels, then contacts and rooms (favourites first).
@@ -571,7 +570,7 @@ void UITask::favPick(int code) {
   else favslots::pinChannel(_prefs, s_fav_slot, (uint8_t)code);
   the_mesh.savePrefs();
   navClosePopup();
-  if (_screen == SCR_FAVS) buildFavourites();
+  favRefresh();
 }
 
 // "Pin" in an options popup: six slot buttons with who is in them now.

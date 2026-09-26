@@ -138,7 +138,7 @@ void UITask::roomPoll() {
   if (o == RoomSessions::NONE) return;
   bool mine = s_login_wait && memcmp(key, s_login_key, 4) == 0;
   if (mine) s_login_wait = false;
-  bool picking = (_screen == SCR_CHATS || _screen == SCR_FAVS) && !_nav_overlay && !locked();   // where it was tapped
+  bool picking = (_screen == SCR_CHATS || _screen == SCR_HOME) && !_nav_overlay && !locked();   // where it was tapped
   if (o == RoomSessions::LOGGED_IN) {
     showToast("Logged in", 1200);
     if (mine && picking) openDM(s_login_key);

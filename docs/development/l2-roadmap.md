@@ -255,6 +255,7 @@ User list, second batch (2026-09-26):
 - [ ] Emoji, ideally the full range (glyphs could live on the SD card).
 - [x] Tap-to-wake toggle (Settings > Display & power > WAKE, NVS, on by
       default; off: only the top button wakes it).
-- [ ] Favourites as their own screen in the menu rather than a tile.
+- [x] Favourites as their own screen in the menu rather than a tile: a
+      Home card left of the main page (six slots, unread badges).
 - [ ] WiFi indicator icon in the status bar.
 

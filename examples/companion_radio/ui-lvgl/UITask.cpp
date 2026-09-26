@@ -771,7 +771,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
 int UITask::screenDepth(Screen s) {
   switch (s) {
     case SCR_HOME: return 0;
-    case SCR_CHATS: case SCR_NEARBY: case SCR_MAP: case SCR_SETTINGS: case SCR_FAVS:
+    case SCR_CHATS: case SCR_NEARBY: case SCR_MAP: case SCR_SETTINGS:
     case SCR_COMPASS: case SCR_CLOCK: case SCR_BOT: case SCR_REPEATER: case SCR_ADMIN_PICK:
     case SCR_DIAG: case SCR_GPS: return 1;
     case SCR_THREAD: case SCR_CONTACTS: case SCR_CHANNEL_EDIT: case SCR_NODE:
@@ -787,7 +787,6 @@ void UITask::back() {
     case SCR_CONTACTS: showChats(); break;
     case SCR_CHANNEL_EDIT: showChats(); break;
     case SCR_BOT:      if (_nav_overlay) navClosePopup(); else showHome(); break;
-    case SCR_FAVS:     if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_DIAG:     if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_ADMIN_PICK: showHome(); break;
     case SCR_OTA:      otaLeave(); break;
@@ -860,7 +859,6 @@ static void onOpenNodesMap(lv_event_t* e) { (void)e; s_ui->openMap(false); }
 static void onOpenNav(lv_event_t* e) { (void)e; s_ui->openMap(true); }
 static void onOpenClock(lv_event_t* e);   // ClockScreen.h
 static void onOpenBot(lv_event_t* e);     // BotScreen.h
-static void onOpenFavourites(lv_event_t* e);   // DeviceScreen.h
 static void onOpenCompass(lv_event_t* e);   // CompassScreen.h
 static void onOpenDiag(lv_event_t* e);      // DiagScreen.h
 static void onOpenGps(lv_event_t* e);       // GpsScreen.h
@@ -870,8 +868,9 @@ static void onOpenAdminPick(lv_event_t* e); // AdminScreen.h
 static void onNodeName(lv_event_t* e);
 static void onPowerRow(lv_event_t* e);
 
-// Home apps, in order; PER_PAGE to a page, further pages are swiped to (with
-// dots underneath), so new apps don't squeeze the row.
+// Home: the favourites card first (swiped to, left of the main page), then
+// the apps, PER_PAGE to a page, further pages swiped to (dots underneath), so
+// new apps don't squeeze the row.
 namespace home {
 struct App { const char* icon; const char* text; lv_event_cb_t cb; bool unread; };
 static const App APPS[] = {
@@ -880,23 +879,26 @@ static const App APPS[] = {
   { UI_SYMBOL_MAP,      "Map",      onOpenNav,      false },
   { LV_SYMBOL_SETTINGS, "Settings", onOpenSettings, false },
   // Page 2: tools
-  { UI_SYMBOL_STAR,     "Favourites", onOpenFavourites, false },
   { UI_SYMBOL_COMPASS,  "Compass",  onOpenCompass,  false },
   { UI_SYMBOL_CLOCK,    "Clock",    onOpenClock,    false },
   { LV_SYMBOL_CHARGE,   "Bot",      onOpenBot,      false },
+  { LV_SYMBOL_GPS,      "GPS",      onOpenGps,      false },
   // Page 3: the device and the network (the map's tools and Nearby's advert
   // are in those screens, not tiles of their own)
   { LV_SYMBOL_LOOP,     "Repeater", onOpenRepeater, false },
   { UI_SYMBOL_KEY,      "Admin",    onOpenAdminPick, false },
   { UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,  false },
-  { LV_SYMBOL_GPS,      "GPS",      onOpenGps,      false },
 };
 static const int COUNT = sizeof(APPS) / sizeof(APPS[0]);
 static const int PER_PAGE = 4;
-static const int PAGES = (COUNT + PER_PAGE - 1) / PER_PAGE;
-static lv_obj_t* s_row = nullptr;    // the current page's tiles
+static const int FAVS = 0;   // page 0: the favourites card
+static const int MAIN = 1;   // the first page of apps, where Home opens
+static const int PAGES = 1 + (COUNT + PER_PAGE - 1) / PER_PAGE;
+static lv_obj_t* s_row = nullptr;    // the current page's tiles (or favourites)
 static lv_obj_t* s_dots = nullptr;
-static int s_page = 0;   // kept across rebuilds (the home screen is rebuilt on return)
+static lv_obj_t* s_top = nullptr;    // clock, date and name: hidden on the favourites card
+static int s_page = MAIN;   // kept across rebuilds (the home screen is rebuilt on return)
+static int s_fav_sig = -1;  // unread total the favourites card was drawn with
 
 // A horizontal swipe anywhere on Home turns the page (the tiles row alone is
 // too small a target), tracked from the touch itself: LVGL's gesture detector
@@ -941,9 +943,15 @@ void UITask::buildHome() {
   lv_obj_t* body = newScreen(NULL, false);
   lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  _home_clock = label(body, "--:--", THEME_FONT_CLOCK, theme::TEXT);
-  _home_date = label(body, "", THEME_FONT_BODY, theme::TEXT_MUTED);
-  lv_obj_t* name = label(body, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
+  home::s_top = lv_obj_create(body);
+  lv_obj_remove_style_all(home::s_top);
+  lv_obj_remove_flag(home::s_top, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(home::s_top, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(home::s_top, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(home::s_top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  _home_clock = label(home::s_top, "--:--", THEME_FONT_CLOCK, theme::TEXT);
+  _home_date = label(home::s_top, "", THEME_FONT_BODY, theme::TEXT_MUTED);
+  lv_obj_t* name = label(home::s_top, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
   lv_obj_set_style_pad_bottom(name, 4, 0);
 
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);   // a drag is a page swipe, not a scroll
@@ -953,11 +961,14 @@ void UITask::buildHome() {
   lv_obj_set_size(home::s_row, LV_PCT(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(home::s_row, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(home::s_row, theme::GAP, 0);
+  lv_obj_set_style_pad_row(home::s_row, theme::GAP, 0);
   home::s_dots = nullptr;
   if (home::PAGES > 1) {
     home::s_dots = lv_obj_create(body);
     lv_obj_remove_style_all(home::s_dots);
+    lv_obj_add_flag(home::s_dots, LV_OBJ_FLAG_IGNORE_LAYOUT);   // at the bottom whichever card is up
     lv_obj_set_size(home::s_dots, LV_SIZE_CONTENT, 22);
+    lv_obj_align(home::s_dots, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_flex_flow(home::s_dots, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(home::s_dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(home::s_dots, 12, 0);
@@ -999,7 +1010,16 @@ void UITask::setHomePage(int page) {
   home::s_page = page;
   lv_obj_clean(home::s_row);
   _home_unread = nullptr;
-  for (int i = page * home::PER_PAGE; i < (page + 1) * home::PER_PAGE; i++) {
+  bool favs = page == home::FAVS;
+  if (favs) lv_obj_add_flag(home::s_top, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_remove_flag(home::s_top, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_flex_flow(home::s_row, favs ? LV_FLEX_FLOW_ROW_WRAP : LV_FLEX_FLOW_ROW);
+  if (favs) {
+    home::s_fav_sig = homeUnreadTotal();
+    favGrid(home::s_row);   // DeviceScreen.h
+  }
+  int first = (page - home::MAIN) * home::PER_PAGE;
+  for (int i = first; !favs && i < first + home::PER_PAGE; i++) {
     if (i < home::COUNT) {
       const home::App& a = home::APPS[i];
       homeTile(home::s_row, a.icon, a.text, a.cb, a.unread ? &_home_unread : NULL);
@@ -1016,6 +1036,10 @@ void UITask::setHomePage(int page) {
   refreshHome();
 }
 
+int UITask::homeUnreadTotal() {
+  return _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
+}
+
 void UITask::refreshHome() {
   if (!_home_clock) return;
   struct tm ti;
@@ -1029,8 +1053,12 @@ void UITask::refreshHome() {
     lv_label_set_text(_home_clock, "--:--");
     lv_label_set_text(_home_date, "time not synced");
   }
+  if (home::s_page == home::FAVS && home::s_row && homeUnreadTotal() != home::s_fav_sig) {
+    setHomePage(home::FAVS);   // new messages: the favourites' badges redrawn
+    return;
+  }
   if (!_home_unread) return;
-  int unread = _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
+  int unread = homeUnreadTotal();
   if (unread > 0) lv_label_set_text_fmt(_home_unread, "%d", unread);
   else lv_label_set_text(_home_unread, "");
 }
