@@ -12,7 +12,13 @@
   #include <HTTPClient.h>
   #include <WiFiClientSecure.h>
   #include <Preferences.h>
+  #include <SPIFFS.h>
   #include <esp_heap_caps.h>
+  #include <esp_system.h>
+  #include <esp_core_dump.h>
+  #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    #include <esp_vfs_fat.h>
+  #endif
   #include <mbedtls/platform.h>
 #elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
   #include <emscripten/fetch.h>
@@ -191,6 +197,76 @@ static void saveAccent(int idx) {
   if (!p.begin("mc_ui", false)) return;
   p.putUChar("accent", (uint8_t)idx);
   p.end();
+}
+// Settings > Storage > Kept per conversation (an index into histstore::KEEP).
+static int loadHistKeep() {
+  Preferences p;
+  if (!p.begin("mc_ui", true)) return -1;
+  int v = p.getChar("hkeep", -1);
+  p.end();
+  return v;
+}
+static void saveHistKeep(int idx) {
+  Preferences p;
+  if (!p.begin("mc_ui", false)) return;
+  p.putChar("hkeep", (int8_t)idx);
+  p.end();
+}
+// Filesystem size and space in use (Settings > Storage), plus the card's own
+// size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
+// imager) shows both. The first free-space count on a big card takes a moment.
+static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) {
+  if (!mountStorage()) return false;
+  card = SD_MMC.cardSize();
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  uint64_t fs_free = 0;
+  if (esp_vfs_fat_info("/sdcard", &total, &fs_free) == ESP_OK) {   // asks the mounted volume, not drive 0:
+    used = total - fs_free;
+    return total > 0;
+  }
+#endif
+  total = SD_MMC.totalBytes();
+  used = SD_MMC.usedBytes();
+  return total > 0;
+}
+// Why the device last started (Diagnostics).
+static const char* resetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:   return "Power on";
+    case ESP_RST_SW:        return "Restart";
+    case ESP_RST_PANIC:     return "Crash";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return "Watchdog";
+    case ESP_RST_BROWNOUT:  return "Low voltage";
+    case ESP_RST_DEEPSLEEP: return "Wake from sleep";
+    case ESP_RST_EXT:       return "Reset pin";
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    case ESP_RST_USB:       return "USB";
+#endif
+    default:                return "Other";
+  }
+}
+// The last crash the core dump partition holds: task and address (decode
+// the address with the build's firmware.elf, or read the whole dump over USB).
+static bool crashSummary(char* out, size_t n) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  if (esp_core_dump_image_check() != ESP_OK) return false;
+  esp_core_dump_summary_t sum;
+  if (esp_core_dump_get_summary(&sum) != ESP_OK) return false;
+  snprintf(out, n, "%.10s %08lx", sum.exc_task, (unsigned long)sum.exc_pc);
+  return true;
+#else
+  (void)out; (void)n;
+  return false;
+#endif
+}
+// The internal flash file system (contacts, channels, settings, trail...).
+static const char* const FLASH_ROOT = "/spiffs";
+static bool flashInfo(uint64_t& total, uint64_t& used) {
+  total = SPIFFS.totalBytes();
+  used = SPIFFS.usedBytes();
+  return total > 0;
 }
 
 static void netBegin(const char* ssid, const char* pass) {
@@ -426,6 +502,16 @@ static void savePin(const char* pin) { snprintf(s_pin, sizeof(s_pin), "%s", pin)
 static int s_accent = 0;
 static int loadAccent() { return s_accent; }
 static void saveAccent(int idx) { s_accent = idx; }
+static int s_hist_keep = -1;
+static int loadHistKeep() { return s_hist_keep; }
+static void saveHistKeep(int idx) { s_hist_keep = idx; }
+// The browser has no card: a nominal 32 GB, used = what the files add up to
+// (the storage screen counts them anyway; it passes that in).
+static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) { total = card = 32ULL << 30; used = 0; return true; }
+static const char* const FLASH_ROOT = "/sim_data";
+static const char* resetReason() { return "Power on"; }
+static bool crashSummary(char*, size_t) { return false; }
+static bool flashInfo(uint64_t& total, uint64_t& used) { total = 1536ULL << 10; used = 0; return true; }
 static bool s_wifi_on = true;
 static bool wifiAllowed() { return s_wifi_on; }
 static void setWifiAllowed(bool on) { s_wifi_on = on; }

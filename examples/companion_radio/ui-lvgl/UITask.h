@@ -208,6 +208,19 @@ public:
   void nodeNameDone(bool ok);
   void powerPopup(bool restart);
   void unlockScreen();
+  void threadPage(int dir);           // +1 older, -1 newer
+  // Saved trails on the SD card (NavMap.h)
+  bool saveTrailToCard(char* name_out, size_t n);
+  void savedTrailsPopup();
+  void savedTrailPopup(int idx);      // -1 = the device's own slot
+  void savedTrailAction(uint8_t act);
+  void navFrameTrail();
+  // Settings > Storage (StorageScreen.h)
+  void showStorage();
+  void buildStorage();
+  void pollStorage();
+  void storageKeep(int idx);
+  void storageClearHistory();
   bool locked() const;
   void pinKey(const char* key);        // the lock screen's keypad
   void pinSetupPopup();                // Settings > Display & power > Screen PIN
@@ -236,7 +249,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -392,6 +405,9 @@ private:
 
   // Open conversation (SCR_THREAD)
   bool     _thread_is_channel = false;
+  int      _thread_skip = 0;          // newest messages above the page shown (Older / Newer)
+  bool     _thread_scroll_top = false;
+  int      loadThreadPage(int& total);
   uint8_t  _thread_channel = 0;
   uint8_t  _thread_key[PUB_KEY_SIZE] = {0};
   bool     _thread_dirty = false;

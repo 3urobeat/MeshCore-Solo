@@ -269,12 +269,12 @@ void UITask::messageMenu(int idx) {
   AckState dm_st = ACK_NONE;
   if (m.pos >= 0) {
     if (m.channel) {
-      const ChHistEntry& e = h.chAtPos(m.pos);
+      const ChHistEntry& e = s_th_ch[m.pos];
       packed = e.path_len; path = e.path; relay = m.own; ts = e.timestamp;
       const char* sep = strstr(e.text, ": ");
       body = sep ? sep + 2 : e.text;
     } else {
-      const DmHistEntry& e = h.dmAtPos(m.pos);
+      const DmHistEntry& e = s_th_dm[m.pos];
       packed = e.path_len; path = e.path; ts = e.timestamp; body = e.text;
       if (e.outgoing) dm_st = h.dmEffectiveStatus(e);
       else {
@@ -304,7 +304,11 @@ void UITask::messageMenu(int idx) {
     struct tm ti = *gmtime(&t);
     char clk[12];
     fmtClock(clk, sizeof(clk), ti, _prefs, true);
-    snprintf(when, sizeof(when), "%s  -  %s ago", clk, age);
+    if (clockBehind(now, ts)) {   // the clock isn't set yet: the date instead of an age
+      char date[32];
+      fmtDate(date, sizeof(date), ti, nullptr);
+      snprintf(when, sizeof(when), "%s  %s", date, clk);
+    } else snprintf(when, sizeof(when), "%s  -  %s ago", clk, age);
   } else {
     snprintf(when, sizeof(when), "%s ago", age);
   }

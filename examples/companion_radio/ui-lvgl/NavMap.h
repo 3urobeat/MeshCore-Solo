@@ -391,6 +391,31 @@ void UITask::navFrameTarget() {
   layoutMap();
 }
 
+// Frame the whole trail (after loading one).
+void UITask::navFrameTrail() {
+  const TrailStore& ts = _core->trail.store();
+  if (ts.empty()) return;
+  double x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (int i = 0; i < ts.count(); i++) {
+    double x = navmap::normX(ts.at(i).lon_1e6), y = navmap::normY(ts.at(i).lat_1e6);
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+  }
+  _map_follow = false;
+  int w = _map_area ? lv_obj_get_width(_map_area) : 320;
+  int h = (_map_area ? lv_obj_get_height(_map_area) : 218) - navmap::BAR_H;
+  double dx = (x1 - x0) * mapview::TILE_PX, dy = (y1 - y0) * mapview::TILE_PX;
+  int z = mapview::MAX_Z - 1;
+  while (z > mapview::MIN_Z && (dx * (1 << z) > w - 110 || dy * (1 << z) > h - 60)) z--;   // clear of the buttons
+  _map_z = z;
+  double n = (double)(1 << z);
+  _map_cx = (x0 + x1) / 2 * n;
+  _map_cy = (y0 + y1) / 2 * n + navmap::BAR_H / 2.0 / mapview::TILE_PX;
+  layoutMap();
+}
+
 void UITask::navSetTarget(uint8_t kind, const uint8_t* key, int32_t lat, int32_t lon, const char* name) {
   navmap::s_tb.stop();   // a chosen target replaces walking the trail back
   _core->locator.setTarget(kind, key, lat, lon, name);
@@ -761,7 +786,8 @@ void UITask::shareToMessage(const char* text) {
 namespace navmap {
 enum : uint8_t { TL_TRAIL_TOGGLE, TL_TRAIL_SAVE, TL_TRAIL_LOAD, TL_TRAIL_RESET, TL_TRAIL_GPX, TL_TRACKBACK,
                  TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD, TL_OPTIONS,
-                 TL_WP_HERE, TL_WP_COORDS, TL_SPOT_ADD, TL_SPOT_GO };
+                 TL_WP_HERE, TL_WP_COORDS, TL_SPOT_ADD, TL_SPOT_GO,
+                 TL_ST_LOAD, TL_ST_GPX, TL_ST_DELETE };
 
 // Live-share targets offered in the dropdown: channels, then favourite contacts.
 static const int SHARE_TARGETS = MAX_GROUP_CHANNELS + 16;
@@ -786,7 +812,71 @@ struct FilePrint {
   size_t print(const __FlashStringHelper* s) { return print(reinterpret_cast<const char*>(s)); }
 };
 
+// FILE* in the shape TrailStore's writeTo / readFrom / exportGpxFromFile use.
+struct FileRW {
+  FILE* f;
+  size_t write(const uint8_t* b, size_t n) { return fwrite(b, 1, n, f); }
+  int    read(uint8_t* b, size_t n)        { return (int)fread(b, 1, n, f); }
+};
+
+// Saved trails on the card (L2): /sdcard/trails/trail-YYYYMMDD-HHMM.trl, the
+// same format as the one internal slot (TrailEngine's /trail), which the
+// list also offers -- the low-battery auto-save still goes there.
+static const char* const TRAILS_DIR = "/sdcard/trails";
+static const int ST_MAX = 40;
+static char s_st_names[ST_MAX][28];   // newest first
+static int  s_st_n = 0;
+static int  s_st_sel = -2;            // the one the popup is about; -1 = the internal slot
+static uint32_t s_st_del_armed_ms = 0;
+static lv_obj_t* s_st_del_lbl = nullptr;
+
+// "trail-20260926-1405.trl" -> "26 Sep 2026  14:05" (else the name).
+static void trailTitle(const char* name, char* out, size_t n) {
+  static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  int y, mo, d, h, mi;
+  if (sscanf(name, "trail-%4d%2d%2d-%2d%2d", &y, &mo, &d, &h, &mi) == 5 && mo >= 1 && mo <= 12)
+    snprintf(out, n, "%d %s %d  %02d:%02d", d, MON[mo - 1], y, h, mi);
+  else snprintf(out, n, "%s", name);
+}
+
+// Points, distance and recorded time of a saved trail, from its file.
+template <typename F>
+static bool trailSummary(F& io, int& points, float& meters, uint32_t& secs) {
+  uint16_t cnt = 0;
+  uint32_t accum = 0;
+  if (!persist::readHeader(io, TrailStore::SAVE_MAGIC, TrailStore::SAVE_VERSION, cnt)) return false;
+  if (io.read((uint8_t*)&accum, sizeof(accum)) != (int)sizeof(accum)) return false;
+  points = 0; meters = 0; secs = accum / 1000;
+  TrailPoint prev, p;
+  for (uint16_t i = 0; i < cnt; i++) {
+    if (io.read((uint8_t*)&p, sizeof(p)) != (int)sizeof(p)) break;
+    if (points > 0 && !(p.flags & TRAIL_FLAG_SEG_START))
+      meters += TrailStore::haversineMeters(prev.lat_1e6, prev.lon_1e6, p.lat_1e6, p.lon_1e6);
+    prev = p;
+    points++;
+  }
+  return true;
+}
+
+static void scanTrails() {
+  s_st_n = 0;
+  DIR* d = opendir(TRAILS_DIR);
+  if (!d) return;
+  while (struct dirent* de = readdir(d)) {
+    size_t l = strlen(de->d_name);
+    if (l < 5 || l >= sizeof(s_st_names[0]) || strcmp(de->d_name + l - 4, ".trl") != 0) continue;
+    if (s_st_n < ST_MAX) snprintf(s_st_names[s_st_n++], sizeof(s_st_names[0]), "%s", de->d_name);
+  }
+  closedir(d);
+  // Newest first: the names carry the date.
+  qsort(s_st_names, s_st_n, sizeof(s_st_names[0]), [](const void* a, const void* b) {
+    return -strcmp((const char*)a, (const char*)b);
+  });
+}
+
 }  // namespace navmap
+
+static void onSavedTrail(lv_event_t* e) { s_ui->savedTrailPopup((int)(intptr_t)lv_event_get_user_data(e)); }
 
 static void onNavTools(lv_event_t* e)       { (void)e; s_ui->navToolsPopup(); }
 static void onLiveTiles(lv_event_t* e) {
@@ -969,6 +1059,137 @@ bool UITask::exportTrailGpx(char* name_out, size_t n) {
   return ok;
 }
 
+// The live trail to a new file in /sdcard/trails (named by the local time).
+bool UITask::saveTrailToCard(char* name_out, size_t n) {
+  char path[64];
+  uint32_t now = rtc_clock.getCurrentTime();
+  if (now > 1000000000UL) {
+    time_t t = (time_t)((int64_t)now + (int64_t)_prefs->tz_offset_hours * 3600);
+    struct tm* ti = gmtime(&t);
+    snprintf(path, sizeof(path), "%s/trail-%04d%02d%02d-%02d%02d.trl", navmap::TRAILS_DIR, ti->tm_year + 1900,
+             ti->tm_mon + 1, ti->tm_mday, ti->tm_hour, ti->tm_min);
+  } else {
+    snprintf(path, sizeof(path), "%s/trail-%lu.trl", navmap::TRAILS_DIR, (unsigned long)(millis() / 1000));
+  }
+  mapview::makeParents(path);
+  FILE* f = fopen(path, "wb");
+  if (!f) return false;
+  navmap::FileRW io{ f };
+  bool ok = _core->trail.store().writeTo(io);
+  ok = (fclose(f) == 0) && ok;
+  if (!ok) remove(path);
+  snprintf(name_out, n, "%s", strrchr(path, '/') + 1);
+  return ok;
+}
+
+// Map tools > Load, with a card: the saved trails, newest first, and the
+// device's own slot (manual saves without a card, the low-battery auto-save).
+void UITask::savedTrailsPopup() {
+  lv_obj_t* panel = navPopupPanel("Saved trails", true);
+  lv_obj_t* list = lv_obj_create(panel);
+  styleSurface(list, theme::BG);
+  lv_obj_set_width(list, LV_PCT(100));
+  lv_obj_set_flex_grow(list, 1);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(list, theme::GAP, 0);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  navmap::scanTrails();
+  for (int i = 0; i < navmap::s_st_n; i++) {
+    char title[32], sub[48], path[64];
+    navmap::trailTitle(navmap::s_st_names[i], title, sizeof(title));
+    snprintf(path, sizeof(path), "%s/%s", navmap::TRAILS_DIR, navmap::s_st_names[i]);
+    struct stat st;
+    long pts = stat(path, &st) == 0 ? ((long)st.st_size - 12) / (long)sizeof(TrailPoint) : 0;
+    snprintf(sub, sizeof(sub), "%ld points", pts > 0 ? pts : 0);
+    listRow(list, title, sub, onSavedTrail, (void*)(intptr_t)i);
+  }
+  if (TrailEngine::savedExists()) listRow(list, "Saved on the device", "Without a card, or on low battery", onSavedTrail, (void*)(intptr_t)-1);
+  if (lv_obj_get_child_count(list) == 0) label(list, "No saved trails yet - Save one first.", THEME_FONT_BODY, theme::TEXT_MUTED);
+}
+
+// One saved trail: what it holds, Load / GPX / Delete.
+void UITask::savedTrailPopup(int idx) {
+  if (idx >= navmap::s_st_n) return;
+  navmap::s_st_sel = idx;
+  navmap::s_st_del_armed_ms = 0;
+  char title[32];
+  if (idx < 0) snprintf(title, sizeof(title), "Saved on the device");
+  else navmap::trailTitle(navmap::s_st_names[idx], title, sizeof(title));
+  lv_obj_t* panel = navPopupPanel(title, false);
+
+  int pts = 0; float m = 0; uint32_t secs = 0; bool ok = false;
+  if (idx >= 0) {
+    char path[64];
+    snprintf(path, sizeof(path), "%s/%s", navmap::TRAILS_DIR, navmap::s_st_names[idx]);
+    if (FILE* f = fopen(path, "rb")) { navmap::FileRW io{ f }; ok = navmap::trailSummary(io, pts, m, secs); fclose(f); }
+  } else if (DataStore* ds = the_mesh.getDataStore()) {
+    File f = ds->openRead(TrailEngine::TRAIL_FILE);
+    if (f) { ok = navmap::trailSummary(f, pts, m, secs); f.close(); }
+  }
+  char dist[12], dur[12], info[64];
+  geo::fmtDist(dist, sizeof(dist), m / 1000.0f, _prefs && _prefs->units_imperial);
+  navmap::fmtDuration(dur, sizeof(dur), secs);
+  if (ok) snprintf(info, sizeof(info), "%s  -  %s  -  %d points", dist, dur, pts);
+  else snprintf(info, sizeof(info), "Can't read this file");
+  label(panel, info, THEME_FONT_BODY, theme::TEXT);
+  if (!_core->trail.store().empty())
+    label(panel, "Loading replaces the trail on the map.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_t* r = toolRow(panel);
+  lv_obj_t* lb = toolButton(r, LV_SYMBOL_DIRECTORY " Load", navmap::TL_ST_LOAD, true);
+  stylePrimary(lv_obj_get_parent(lb));
+  if (idx >= 0) toolButton(r, LV_SYMBOL_SD_CARD " GPX", navmap::TL_ST_GPX, false);
+  navmap::s_st_del_lbl = toolButton(r, LV_SYMBOL_TRASH " Delete", navmap::TL_ST_DELETE, false);
+}
+
+void UITask::savedTrailAction(uint8_t act) {
+  int idx = navmap::s_st_sel;
+  if (idx >= navmap::s_st_n || idx < -1) return;
+  char path[64] = "";
+  if (idx >= 0) snprintf(path, sizeof(path), "%s/%s", navmap::TRAILS_DIR, navmap::s_st_names[idx]);
+  if (act == navmap::TL_ST_DELETE) {
+    if (!navmap::s_st_del_armed_ms || millis() - navmap::s_st_del_armed_ms > 3000) {   // second tap confirms
+      navmap::s_st_del_armed_ms = millis() | 1;
+      if (navmap::s_st_del_lbl) lv_label_set_text(navmap::s_st_del_lbl, "Delete?");
+      return;
+    }
+    bool ok = idx >= 0 ? remove(path) == 0
+                       : (the_mesh.getDataStore() && the_mesh.getDataStore()->removeFile(TrailEngine::TRAIL_FILE));
+    showToast(ok ? "Trail deleted" : "Delete failed");
+    savedTrailsPopup();
+    return;
+  }
+  if (act == navmap::TL_ST_GPX && idx >= 0) {
+    char gpx[64];
+    snprintf(gpx, sizeof(gpx), "%.*s.gpx", (int)(strlen(path) - 4), path);
+    FILE* in = fopen(path, "rb");
+    FILE* out = in ? fopen(gpx, "w") : nullptr;
+    bool ok = false;
+    if (in && out) {
+      navmap::FileRW io{ in };
+      navmap::FilePrint pr(out);
+      ok = TrailStore::exportGpxFromFile(io, pr, _core->waypoints.store()) > 0 && pr.ok;
+    }
+    if (in) fclose(in);
+    if (out) ok = (fclose(out) == 0) && ok;
+    char t[64];
+    if (ok) { snprintf(t, sizeof(t), "Saved trails/%s", strrchr(gpx, '/') + 1); showToast(t, 3500); }
+    else showToast("Can't write to the SD card");
+    return;
+  }
+  // Load: replaces the live trail (recording stops).
+  bool ok = false;
+  if (idx >= 0) {
+    if (FILE* f = fopen(path, "rb")) { navmap::FileRW io{ f }; ok = _core->trail.store().readFrom(io); fclose(f); }
+  } else {
+    ok = _core->trail.load() == TrailEngine::FILE_OK;
+  }
+  navClosePopup();
+  showToast(ok ? "Trail loaded" : "Load failed");
+  rebuildMapMarkers();
+  layoutMap();
+  if (ok) navFrameTrail();
+}
+
 void UITask::navToolAction(uint8_t act) {
   TrailEngine& tr = _core->trail;
   switch (act) {
@@ -984,17 +1205,30 @@ void UITask::navToolAction(uint8_t act) {
       }
       break;
     case navmap::TL_TRAIL_SAVE: {
+      if (tr.store().empty()) { showToast("No trail to save"); break; }
+      char name[32], t[64];
+      if (lvport::mountStorage()) {   // on the card, one file per save
+        if (saveTrailToCard(name, sizeof(name))) { snprintf(t, sizeof(t), "Saved trails/%s", name); showToast(t, 3000); }
+        else showToast("Can't write to the SD card");
+        break;
+      }
       TrailEngine::FileResult r = tr.save();
       showToast(r == TrailEngine::FILE_OK ? "Trail saved" : "Save failed");
       break;
     }
     case navmap::TL_TRAIL_LOAD: {
+      if (lvport::mountStorage()) { savedTrailsPopup(); return; }
       TrailEngine::FileResult r = tr.load();
       showToast(r == TrailEngine::FILE_OK ? "Trail loaded" : r == TrailEngine::FILE_MISSING ? "No saved trail" : "Load failed");
       rebuildMapMarkers();
       layoutMap();
       break;
     }
+    case navmap::TL_ST_LOAD:
+    case navmap::TL_ST_GPX:
+    case navmap::TL_ST_DELETE:
+      savedTrailAction(act);
+      return;
     case navmap::TL_TRAIL_RESET:
       if (!_nav_reset_armed_ms || millis() - _nav_reset_armed_ms > 3000) {   // second tap within 3 s confirms
         _nav_reset_armed_ms = millis() | 1;

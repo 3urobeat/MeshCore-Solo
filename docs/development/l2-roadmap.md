@@ -54,11 +54,26 @@ Decisions already made:
 
 ## 3. Data on the SD card
 
-Postponed (2026-09-26): the user may extend this stage first.
-
-- [ ] Message history on SD, kept across reboots (~100 per conversation;
-      the newest ones cached in PSRAM).
-- [ ] Trail saved to SD (it holds 4096 points in PSRAM since stage 2).
+- [x] Message history on SD (`HistoryStore.h`, `-D HIST_ARCHIVE`): one
+      file per conversation in `/sdcard/meshcore/history` (channels keyed by a
+      hash of name + secret, contacts / rooms by key prefix), a ring of the
+      history entries themselves, every new message and later change (relay
+      echo, delivery) written at once. After a reboot the newest entries go
+      back into the RAM ring (Messages list, previews); a conversation shows
+      50 at a time with "Older messages (n)" / "Newer messages" and reads the
+      card, so it reaches back as far as the card keeps. Kept per chat: 100 /
+      250 / 500 (default) / 1000 / 2000, ~20 KB per 100 messages.
+- [x] Settings > Storage: SD card used / free with what takes it (maps,
+      messages, GPX trails, other; files counted in the background), the
+      internal flash, "Kept per chat", "Delete message history" (tap twice).
+- [x] Saved trails on the SD card: Map tools > Save writes a new
+      `/sdcard/trails/trail-YYYYMMDD-HHMM.trl` each time (the internal slot
+      without a card); Load lists them newest first (plus the internal slot,
+      where the low-battery auto-save goes) -- each with distance, time and
+      points, Load (the map frames it), GPX, Delete.
+- [x] Diagnostics > Live: GPS (off / no data / fix or no fix with satellites),
+      why the device last started (crash, watchdog, low voltage...), and the
+      last crash from the core dump partition (task and address).
 
 ## 4. UI layout
 

@@ -10,8 +10,38 @@ namespace diagview {
 enum : uint8_t { TAB_LIVE, TAB_SYSTEM, TAB_FONT, TAB_COUNT };
 static uint8_t s_tab = TAB_LIVE;   // kept across visits
 static lv_obj_t* s_list = nullptr;
-static lv_obj_t* s_vals[diag::MAX_ROWS];
+static const int EXTRA = 3;   // GPS, last reset, last crash (L2 only)
+static lv_obj_t* s_vals[diag::MAX_ROWS + EXTRA];
 static int s_rows = 0;
+
+static void extraRow(diag::Row* rows, int& n, const char* lbl, const char* fmt, ...) {
+  rows[n].label = lbl;
+  va_list ap; va_start(ap, fmt);
+  vsnprintf(rows[n].value, sizeof(rows[n].value), fmt, ap);
+  va_end(ap);
+  n++;
+}
+
+// ui-core's live rows plus the receiver's state and why the device last
+// started -- what to look at when GPS gets no fix or the device restarted.
+static int allRows(diag::Row* rows, bool gps_on) {
+  int n = diag::liveRows(rows);
+#if defined(SEEED_WIO_TRACKER_L2)
+  static uint32_t s_chars = 0, s_moved_ms = 0;
+  uint32_t c = gps.rxChars();
+  if (c != s_chars) { s_chars = c; s_moved_ms = millis(); }
+  bool data = c > 0 && millis() - s_moved_ms < 3000;
+  if (!gps_on) extraRow(rows, n, "GPS", "off");
+  else if (!data) extraRow(rows, n, "GPS", "no data (%lu B)", (unsigned long)c);
+  else extraRow(rows, n, "GPS", "%s, %ld sats", gps.isValid() ? "fix" : "no fix", gps.satellitesCount());
+#else
+  (void)gps_on;
+#endif
+  extraRow(rows, n, "Last start", "%s", lvport::resetReason());
+  char crash[32];
+  if (lvport::crashSummary(crash, sizeof(crash))) extraRow(rows, n, "Last crash", "%s", crash);
+  return n;
+}
 
 }  // namespace diagview
 
@@ -56,8 +86,8 @@ void UITask::buildDiag() {
   s_rows = 0;
 
   if (s_tab == TAB_LIVE) {
-    diag::Row rows[diag::MAX_ROWS];
-    s_rows = diag::liveRows(rows);
+    diag::Row rows[diag::MAX_ROWS + EXTRA];
+    s_rows = allRows(rows, _core->gpsEnabled());
     for (int i = 0; i < s_rows; i++) {
       lv_obj_t* r = lv_obj_create(s_list);
       lv_obj_remove_style_all(r);
@@ -82,8 +112,8 @@ void UITask::buildDiag() {
 void UITask::refreshDiag() {
   using namespace diagview;
   if (_screen != SCR_DIAG || s_tab != TAB_LIVE || _nav_overlay) return;
-  diag::Row rows[diag::MAX_ROWS];
-  int n = diag::liveRows(rows);
+  diag::Row rows[diag::MAX_ROWS + EXTRA];
+  int n = allRows(rows, _core->gpsEnabled());
   if (n != s_rows) { buildDiag(); return; }
   for (int i = 0; i < n; i++)
     if (strcmp(lv_label_get_text(s_vals[i]), rows[i].value) != 0) lv_label_set_text(s_vals[i], rows[i].value);

@@ -39,6 +39,7 @@
 
 class MicroNMEALocationProvider : public LocationProvider {
     char _nmeaBuffer[100];
+    uint32_t _rx_chars = 0;
     MicroNMEA nmea;
     mesh::RTCClock* _clock;
     Stream* _gps_serial;
@@ -122,6 +123,9 @@ public :
         return alt;
     }
     long satellitesCount() override { return nmea.getNumSatellites(); }
+    // Bytes read from the receiver so far: still at 0 (or not moving) = no NMEA
+    // arriving at all, as opposed to NMEA without a fix (a UI diagnostics row).
+    uint32_t rxChars() const { return _rx_chars; }
     long getHDOP() override { return nmea.getHDOP(); }
     bool isValid() override { return nmea.isValid(); }
 
@@ -138,6 +142,7 @@ public :
 
         while (_gps_serial->available()) {
             char c = _gps_serial->read();
+            _rx_chars++;
             #ifdef GPS_NMEA_DEBUG
             Serial.print(c);
             #endif

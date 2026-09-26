@@ -184,7 +184,7 @@ if [ "$SIM_UI" = "lvgl" ]; then
   done
   # The L2's PSRAM-sized limits (solo/wio-tracker-l2/platformio.ini).
   DEFINES=("${kept[@]}" -DDISPLAY_CLASS=SimLcdDisplay -DMAX_GROUP_CHANNELS=40 -DUI_ZOOM=1 -DLV_CONF_INCLUDE_SIMPLE
-           -DTRAIL_CAPACITY=4096 -DWAYPOINT_CAPACITY=64 -DHIST_CH_MAX=256 -DHIST_DM_MAX=128 -DNEARBY_MAX=64)
+           -DTRAIL_CAPACITY=4096 -DWAYPOINT_CAPACITY=64 -DHIST_CH_MAX=256 -DHIST_DM_MAX=128 -DNEARBY_MAX=64 -DHIST_ARCHIVE)
   INCLUDES+=("-I$LVGL_DIR")
   LINK_EXTRA=(-sFETCH=1)   # map downloads (LvglPort.h) go through emscripten_fetch
 fi

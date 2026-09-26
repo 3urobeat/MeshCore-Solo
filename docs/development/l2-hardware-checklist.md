@@ -301,3 +301,15 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] Nearby with many nodes: up to 64 rows; contact list "All" shows beyond 64 contacts
 - [ ] Home tile and screen title read "Nodes" (was "Nearby")
 - [ ] Nodes > advert: "Zero hop" / "Flood" (were "Nearby only" / "Everyone"), toasts "Zero-hop advert sent" / "Flood advert sent"
+
+## Roadmap stage 3: message history on the SD card (2026-09-26)
+- [ ] Receive and send a few channel posts and DMs, reboot: they're all back (Messages list and inside), relay marks / delivery ticks as before the reboot
+- [ ] A busy channel: "Older messages (n)" at the top pages back 50 at a time, "Newer messages" at the bottom returns; older than the ~256 the memory holds are still there
+- [ ] Settings > System > Storage: SD used / free bar, Maps / Messages / Trails / Other fill in while "Counting files..." runs (a big map takes a while), internal flash bar
+- [ ] Kept per chat 500 → 100: conversations with more keep their newest 100; back to 500 keeps working (new messages add up again)
+- [ ] Delete message history: first tap asks, second deletes; Messages is empty, the card's Messages size drops to ~0
+- [ ] Without an SD card: messages work as before (memory only), Storage says "No SD card"
+- [ ] A channel deleted and added again (same name / key) gets its history back
+- [ ] Map tools > Save with a card: toast "Saved trails/trail-....trl"; Save again later: a second file
+- [ ] Map tools > Load: list newest first ("Saved on the device" too if there is one); a trail: distance / time / points, Load frames it on the map, GPX writes trails/<name>.gpx, Delete asks then deletes
+- [ ] Diagnostics > Live: GPS row (no data / no fix, n sats / fix, n sats), Last start, Last crash (after a crash)

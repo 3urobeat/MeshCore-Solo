@@ -34,6 +34,9 @@ template <class T> static T* psramBuf(size_t n) {
 #include "Theme.h"
 #include "Anim.h"
 #include "LvglPort.h"
+#include "HistoryStore.h"
+static histstore::SdArchive s_archive;   // message history on the SD card
+namespace storeview { static void stopWalk(); }   // StorageScreen.h
 #include "../ui-core/KeyboardData.h"
 #include "Keyboard.h"
 
@@ -177,6 +180,21 @@ static void fmtDate(char* b, size_t n, const struct tm& ti, const NodePrefs* p) 
   snprintf(b, n, "%s%s %d %s %d", (p && p->clock_12h) ? (ti.tm_hour < 12 ? "AM  " : "PM  ") : "",
            DOW[ti.tm_wday], ti.tm_mday, MON[ti.tm_mon], ti.tm_year + 1900);
 }
+// A message's age ("12s" / "5m" / "3h" / "2d"). After a restart the clock runs
+// from the build date until GPS or the app sets it, so messages restored from
+// the card look newer than "now": those show when they came ("25 Sep 14:05").
+static const NodePrefs* s_prefs = nullptr;   // for the free helpers below; set in begin()
+static bool clockBehind(uint32_t now, uint32_t ts) { return ts > 1000000000UL && ts > now + 120; }
+static void fmtMsgAge(char* b, size_t n, uint32_t now, uint32_t ts, const NodePrefs* p) {
+  if (!clockBehind(now, ts)) { geo::fmtAgeShort(b, (int)n, now, ts ? ts : now); return; }
+  static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  time_t t = (time_t)((int64_t)ts + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
+  struct tm ti = *gmtime(&t);
+  char clk[12];
+  fmtClock(clk, sizeof(clk), ti, p, true);
+  snprintf(b, n, "%d %s %s", ti.tm_mday, MON[ti.tm_mon], clk);
+}
 
 static void contactName(const uint8_t* prefix, char* out, size_t n) {
   ContactInfo c;
@@ -191,9 +209,16 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   _display = display_drv;
   _sensors = sensors;
   _prefs = node_prefs;
+  s_prefs = node_prefs;
 
   _core = new UiCore();
   _core->begin(node_prefs, sensors, this);
+  {  // history kept on the SD card: back into the ring, then every new entry to it
+    int hk = lvport::loadHistKeep();
+    s_archive.setKeep(histstore::KEEP[hk >= 0 && hk < histstore::KEEP_COUNT ? hk : histstore::KEEP_DEFAULT]);
+    s_archive.restore(_core->history);
+    _core->history.setArchive(&s_archive);
+  }
   msgtext::seedQuick(node_prefs);   // "OK" in quick message 1 on first boot
   _nearby = new NearbyModel();
   _nearby->bindModel(_core, node_prefs);
@@ -378,6 +403,7 @@ void UITask::loop() {
     }
     if (_screen == SCR_MAP) mapLoop();
     if (_screen == SCR_WIFI) pollWifiScan();
+    if (_screen == SCR_STORAGE) pollStorage();
     if (_screen == SCR_ADMIN) adminPoll();
     roomPoll();
     if (_screen == SCR_CLOCK && (int32_t)(millis() - _next_clock_ms) >= 0) {
@@ -814,6 +840,7 @@ void UITask::back() {
       else showHome();
       break;
     case SCR_WIFI:     showSettings(); break;
+    case SCR_STORAGE:  storeview::stopWalk(); showSettings(); break;
     default:           break;
   }
   _nav_back = false;   // only closed a popup
@@ -1773,6 +1800,7 @@ void UITask::setKeyboardVisible(bool show) {
 void UITask::openChannel(uint8_t channel_idx) {
   _thread_is_channel = true;
   _thread_channel = channel_idx;
+  _thread_skip = 0;
   _core->history.setChUnread(channel_idx, 0);
   _screen = SCR_THREAD;
   buildThread();
@@ -1780,6 +1808,7 @@ void UITask::openChannel(uint8_t channel_idx) {
 
 void UITask::openDM(const uint8_t* pub_key) {
   _thread_is_channel = false;
+  _thread_skip = 0;
   memset(_thread_key, 0, sizeof(_thread_key));
   ContactInfo c;
   if (MessageHistory::contactByPrefix(pub_key, c)) memcpy(_thread_key, c.id.pub_key, PUB_KEY_SIZE);
@@ -1888,7 +1917,13 @@ static const int THREAD_MAX_SHOWN = 50;   // newest bubbles built per conversati
 static MsgLoc* s_msg_locs = psramBuf<MsgLoc>(THREAD_MAX_SHOWN);
 static int    s_msg_loc_n = 0;
 
-// What a held bubble is about: its history ring entry, sender, position slot.
+// The messages shown, oldest first: copies from the SD card's history (which
+// holds far more than the RAM ring) or from the ring, one page at a time.
+static ChHistEntry* s_th_ch = psramBuf<ChHistEntry>(THREAD_MAX_SHOWN);
+static DmHistEntry* s_th_dm = psramBuf<DmHistEntry>(THREAD_MAX_SHOWN);
+
+// What a held bubble is about: its entry (index into s_th_ch / s_th_dm),
+// sender, position slot.
 struct MsgMeta { int pos; bool channel; bool own; int loc; char from[32]; };
 static MsgMeta* s_msg_meta = psramBuf<MsgMeta>(THREAD_MAX_SHOWN);
 static int     s_msg_meta_n = 0;
@@ -1952,7 +1987,7 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
 
   char meta[32];
   uint32_t now = rtc_clock.getCurrentTime();
-  geo::fmtAgeShort(meta, sizeof(meta), now, ts ? ts : now);   // "12s" / "5m" / "3h" / "2d"
+  fmtMsgAge(meta, sizeof(meta), now, ts, s_prefs);   // "12s" / "5m" / "3h" / "2d"
 
   // Channel messages: "Sender  5m" on one line above the text, which keeps
   // the bubble two lines tall -- matters with the keyboard up.
@@ -2029,22 +2064,85 @@ void UITask::messageLocationAction(int idx, bool save) {
   refreshNavBar();
 }
 
+// The page of the open conversation into s_th_ch / s_th_dm (oldest first):
+// THREAD_MAX_SHOWN messages ending _thread_skip before the newest. From the
+// SD card's copy when it has at least what the ring has, else from the ring.
+// `total` = messages in that source.
+int UITask::loadThreadPage(int& total) {
+  const MessageHistory& h = _core->history;
+  char path[64];
+  if (_thread_is_channel) {
+    int ring = h.histCountForChannel(_thread_channel);
+    int arc = s_archive.ready() && s_archive.chPath(_thread_channel, path, sizeof(path))
+            ? s_archive.total<ChHistEntry>(path) : 0;
+    if (arc > 0 && arc >= ring) {
+      total = arc;
+      return s_archive.window(path, _thread_skip, THREAD_MAX_SHOWN, s_th_ch);
+    }
+    total = ring;
+    int m = ring - _thread_skip;
+    if (m > THREAD_MAX_SHOWN) m = THREAD_MAX_SHOWN;
+    for (int i = 0; i < m; i++) s_th_ch[i] = h.chAtPos(h.histEntryForChannel(_thread_channel, _thread_skip + m - 1 - i));
+    return m > 0 ? m : 0;
+  }
+  int ring = h.dmHistCountForContact(_thread_key);
+  int arc = 0;
+  if (s_archive.ready()) {
+    histstore::SdArchive::dmPath(_thread_key, path, sizeof(path));
+    arc = s_archive.total<DmHistEntry>(path);
+  }
+  if (arc > 0 && arc >= ring) {
+    total = arc;
+    return s_archive.window(path, _thread_skip, THREAD_MAX_SHOWN, s_th_dm);
+  }
+  total = ring;
+  int m = ring - _thread_skip;
+  if (m > THREAD_MAX_SHOWN) m = THREAD_MAX_SHOWN;
+  for (int i = 0; i < m; i++) s_th_dm[i] = h.dmAtPos(h.dmHistEntryForContact(_thread_key, _thread_skip + m - 1 - i));
+  return m > 0 ? m : 0;
+}
+
+static void onThreadPage(lv_event_t* e) { s_ui->threadPage((int)(intptr_t)lv_event_get_user_data(e)); }
+
+// "Older messages" / "Newer messages" at the ends of a page.
+static void pageButton(lv_obj_t* list, const char* text, int dir) {
+  lv_obj_t* b = lv_button_create(list);
+  lv_obj_set_size(b, LV_PCT(100), 32);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_add_event_cb(b, onThreadPage, LV_EVENT_CLICKED, (void*)(intptr_t)dir);
+  lv_obj_center(label(b, text, THEME_FONT_SMALL, theme::TEXT_MUTED));
+}
+
+void UITask::threadPage(int dir) {
+  _thread_skip += dir > 0 ? THREAD_MAX_SHOWN : -THREAD_MAX_SHOWN;
+  if (_thread_skip < 0) _thread_skip = 0;
+  _thread_scroll_top = dir < 0;   // newer: read on from the top of that page
+  refreshThread();
+}
+
 void UITask::refreshThread() {
   if (!_thread_list) return;
   _thread_dirty = false;
   _thread_sig = threadSignature();
   lv_obj_clean(_thread_list);
   const MessageHistory& h = _core->history;
-  const int MAX_SHOWN = THREAD_MAX_SHOWN;
   s_msg_loc_n = 0;
   s_msg_meta_n = 0;
+  int total = 0;
+  int n = loadThreadPage(total);
+  if (n == 0 && _thread_skip > 0) {   // the page went away (history trimmed)
+    _thread_skip = 0;
+    n = loadThreadPage(total);
+  }
+  if (total > _thread_skip + n) {
+    char t[40];
+    snprintf(t, sizeof(t), LV_SYMBOL_UP "  Older messages (%d)", total - _thread_skip - n);
+    pageButton(_thread_list, t, 1);
+  }
 
   if (_thread_is_channel) {
-    int n = h.histCountForChannel(_thread_channel);
-    if (n > MAX_SHOWN) n = MAX_SHOWN;
-    for (int j = n - 1; j >= 0; j--) {   // oldest first
-      int pos = h.histEntryForChannel(_thread_channel, j);
-      const ChHistEntry& e = h.chAtPos(pos);
+    for (int i = 0; i < n; i++) {   // oldest first
+      const ChHistEntry& e = s_th_ch[i];
       // Channel text is "Sender: body"; our own posts are filed as "Me: body".
       char from[40] = "";
       const char* body = e.text;
@@ -2067,16 +2165,13 @@ void UITask::refreshThread() {
       } else if (own) st = "";
       int loc = own ? -1 : noteMsgLocation(body, from);
       bubble(_thread_list, own ? NULL : from, body, own, e.timestamp, st, col,
-             loc, noteMsgMeta(pos, true, own, loc, own ? "" : from));
+             loc, noteMsgMeta(i, true, own, loc, own ? "" : from));
     }
   } else {
-    int n = h.dmHistCountForContact(_thread_key);
-    if (n > MAX_SHOWN) n = MAX_SHOWN;
     ContactInfo tc;
     bool room = MessageHistory::contactByPrefix(_thread_key, tc) && tc.type == ADV_TYPE_ROOM;
-    for (int j = n - 1; j >= 0; j--) {
-      int pos = h.dmHistEntryForContact(_thread_key, j);
-      const DmHistEntry& e = h.dmAtPos(pos);
+    for (int i = 0; i < n; i++) {
+      const DmHistEntry& e = s_th_dm[i];
       const char* st = NULL; uint32_t col = theme::TEXT_MUTED;
       if (e.outgoing) {
         switch (h.dmEffectiveStatus(e)) {
@@ -2093,13 +2188,14 @@ void UITask::refreshThread() {
       else if (!e.outgoing) contactName(_thread_key, who, sizeof(who));
       int loc = e.outgoing ? -1 : noteMsgLocation(text, who);
       bubble(_thread_list, room && !e.outgoing ? who : NULL, text, e.outgoing, e.timestamp, st, col,
-             loc, e.outgoing ? -1 : noteMsgMeta(pos, false, false, loc, who));   // nothing to show for our own DM
+             loc, e.outgoing ? -1 : noteMsgMeta(i, false, false, loc, who));   // nothing to show for our own DM
     }
   }
-  if (lv_obj_get_child_count(_thread_list) == 0)
-    label(_thread_list, "No messages yet", THEME_FONT_BODY, theme::TEXT_MUTED);
+  if (_thread_skip > 0) pageButton(_thread_list, LV_SYMBOL_DOWN "  Newer messages", -1);
+  if (n == 0) label(_thread_list, "No messages yet", THEME_FONT_BODY, theme::TEXT_MUTED);
   lv_obj_update_layout(_thread_list);
-  lv_obj_scroll_to_y(_thread_list, LV_COORD_MAX, LV_ANIM_OFF);
+  lv_obj_scroll_to_y(_thread_list, _thread_scroll_top ? 0 : LV_COORD_MAX, LV_ANIM_OFF);
+  _thread_scroll_top = false;
 }
 
 // To the open conversation (channel or DM). The caller refreshes the thread.
@@ -2386,6 +2482,7 @@ void UITask::showSettings() {
 }
 
 static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
+static void onOpenStorage(lv_event_t* e); // StorageScreen.h
 
 void UITask::buildSettings() {
   // The order of the original (ui-new): display, sound, radio, system,
@@ -2419,6 +2516,7 @@ void UITask::buildSettings() {
     if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
   }
+  listRow(body, LV_SYMBOL_SD_CARD "  Storage", "SD card, message history", onOpenStorage, NULL);
   listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
   listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
   sectionTitle(body, "KEYBOARD");
@@ -2466,4 +2564,5 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "SoundScreen.h"
 #include "QuickScreen.h"
 #include "OtaScreen.h"
+#include "StorageScreen.h"
 #include "Splash.h"

@@ -57,6 +57,9 @@ struct ChHistEntry {
   // path_len packs (hash_size-1)<<6|hop_count, same as mesh::Packet::path_len.
   uint8_t  path_len;
   uint8_t  path[MAX_HIST_PATH_BYTES];
+#ifdef HIST_ARCHIVE
+  uint32_t arc_id;         // record id in the conversation's archive file (HistArchive)
+#endif
 };
 
 struct DmHistEntry {
@@ -78,7 +81,24 @@ struct DmHistEntry {
   // repeater-echo concept), so this stays unset (0) for outgoing entries.
   uint8_t  path_len;
   uint8_t  path[MAX_HIST_PATH_BYTES];
+#ifdef HIST_ARCHIVE
+  uint32_t arc_id;
+#endif
 };
+
+#ifdef HIST_ARCHIVE
+// A lasting copy of the history (the L2 keeps one file per conversation on
+// the SD card, ui-lvgl/HistoryStore.h). Told of every new entry -- it sets
+// arc_id -- and of every later change to one (relay echoes, delivery), so the
+// copy shows the same marks the ring does.
+class HistArchive {
+public:
+  virtual void chAppend(ChHistEntry& e) = 0;
+  virtual void chUpdate(const ChHistEntry& e) = 0;
+  virtual void dmAppend(DmHistEntry& e) = 0;
+  virtual void dmUpdate(const DmHistEntry& e) = 0;
+};
+#endif
 
 // Boards with PSRAM raise these (the L2: -D HIST_CH_MAX=256 -D HIST_DM_MAX=128,
 // ~80 KB in PSRAM with UiCore); the defaults are sized for the nRF52's heap.
@@ -158,6 +178,9 @@ public:
     else _hist[pos].path_len = 0;
 
     if (!viewing && !own_message && _ch_unread[ch_idx] < 99) _ch_unread[ch_idx]++;
+#ifdef HIST_ARCHIVE
+    if (_arc) _arc->chAppend(_hist[pos]);
+#endif
     return pos;
   }
 
@@ -212,6 +235,9 @@ public:
           }
         }
       }
+#ifdef HIST_ARCHIVE
+      if (_arc) _arc->chUpdate(e);
+#endif
       return;
     }
   }
@@ -226,6 +252,9 @@ public:
     _hist[pos].relay_status = ACK_PENDING;
     _hist[pos].relay_seq    = seq;
     _hist[pos].path_len     = 0;
+#ifdef HIST_ARCHIVE
+    if (_arc) _arc->chUpdate(_hist[pos]);
+#endif
   }
 
   ChHistEntry&       chAtPos(int pos)       { return _hist[pos]; }
@@ -334,6 +363,9 @@ public:
     _dm_hist[pos].resends_left    = (outgoing && ack_tag) ? resends : 0;
     if (path && path_len_packed) capturePath(_dm_hist[pos].path_len, _dm_hist[pos].path, path, path_len_packed);
     else _dm_hist[pos].path_len = 0;
+#ifdef HIST_ARCHIVE
+    if (_arc) _arc->dmAppend(_dm_hist[pos]);
+#endif
   }
 
   // ack_tag/ack_deadline_ms/resends let an outgoing DM (e.g. one the phone app
@@ -396,6 +428,9 @@ public:
       DmHistEntry& e = _dm_hist[(_dm_hist_head + i) % DM_HIST_MAX];
       if (e.outgoing && e.ack_status == ACK_PENDING && e.ack_tag == ack_crc) {
         e.ack_status = ACK_OK;
+#ifdef HIST_ARCHIVE
+        if (_arc) _arc->dmUpdate(e);
+#endif
         return;
       }
     }
@@ -410,9 +445,9 @@ public:
       DmHistEntry& e = _dm_hist[(_dm_hist_head + i) % DM_HIST_MAX];
       if (!e.outgoing || e.ack_status != ACK_PENDING) continue;
       if ((int32_t)(now - e.ack_deadline_ms) < 0) continue;   // still waiting
-      if (e.resends_left == 0) { e.ack_status = ACK_FAIL; continue; }
+      if (e.resends_left == 0) { failDm(e); continue; }
       ContactInfo c;
-      if (!contactByPrefix(e.prefix, c)) { e.ack_status = ACK_FAIL; continue; }
+      if (!contactByPrefix(e.prefix, c)) { failDm(e); continue; }
       uint32_t expected_ack = 0, est_timeout = 0;
       uint8_t next_attempt = e.attempt + 1;
       if (the_mesh.sendMessage(c, e.msg_ts, next_attempt, e.text,
@@ -422,7 +457,7 @@ public:
         e.ack_deadline_ms = now + est_timeout + 4000;
         e.resends_left--;
       } else {
-        e.ack_status = ACK_FAIL;            // couldn't compose/send — give up
+        failDm(e);                          // couldn't compose/send — give up
       }
     }
   }
@@ -451,7 +486,48 @@ public:
     return false;
   }
 
+#ifdef HIST_ARCHIVE
+  void setArchive(HistArchive* a) { _arc = a; }
+
+  // Put back an entry kept in the archive (after a reboot), oldest first: no
+  // unread count, no archive write; a delivery still waiting is settled as
+  // plain "sent" (its ACK timer didn't survive the reboot).
+  void restoreCh(const ChHistEntry& in) {
+    int pos;
+    if (_hist_count < CH_HIST_MAX) { pos = (_hist_head + _hist_count) % CH_HIST_MAX; _hist_count++; }
+    else { pos = _hist_head; _hist_head = (_hist_head + 1) % CH_HIST_MAX; }
+    _hist[pos] = in;
+    if (_hist[pos].relay_status == ACK_PENDING) _hist[pos].relay_status = ACK_NONE;
+    _hist[pos].relay_seq = 0;
+  }
+  void restoreDm(const DmHistEntry& in) {
+    int pos;
+    if (_dm_hist_count < DM_HIST_MAX) { pos = (_dm_hist_head + _dm_hist_count) % DM_HIST_MAX; _dm_hist_count++; }
+    else { pos = _dm_hist_head; _dm_hist_head = (_dm_hist_head + 1) % DM_HIST_MAX; }
+    _dm_hist[pos] = in;
+    if (_dm_hist[pos].ack_status == ACK_PENDING) _dm_hist[pos].ack_status = ACK_NONE;
+    _dm_hist[pos].resends_left = 0;
+    _dm_hist[pos].ack_tag = 0;
+  }
+#endif
+
+  // Forget every message (L2: Settings > Storage > Delete message history).
+  void clearAll() {
+    _hist_head = _hist_count = _dm_hist_head = _dm_hist_count = 0;
+    clearAllChannelUnread();
+  }
+
 private:
+  void failDm(DmHistEntry& e) {
+    e.ack_status = ACK_FAIL;
+#ifdef HIST_ARCHIVE
+    if (_arc) _arc->dmUpdate(e);
+#endif
+  }
+
+#ifdef HIST_ARCHIVE
+  HistArchive* _arc = nullptr;
+#endif
   ChHistEntry _hist[CH_HIST_MAX];
   int _hist_head, _hist_count;
   uint8_t _ch_unread[MAX_GROUP_CHANNELS];

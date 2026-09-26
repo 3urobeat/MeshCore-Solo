@@ -18,6 +18,7 @@ extern WioTrackerL2Board board;
 extern WRAPPER_CLASS radio_driver;
 extern AutoDiscoverRTCClock rtc_clock;
 extern EnvironmentSensorManager sensors;
+extern MicroNMEALocationProvider gps;
 
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;
