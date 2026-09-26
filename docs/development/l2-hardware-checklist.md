@@ -290,3 +290,5 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] Own channel post: "1s ✓ 2" (green, number of repeaters heard relaying it) under the bubble, nothing before an echo; DM: ✓ delivered, ✗ (red) not delivered, "..." sending
 - [ ] Hold a message: quote, time + hops, path diagram sender → repeaters → this device; own post: "Relayed by n repeaters" + names; own DM: Delivered / Not delivered / Sending in words
 - [ ] Map download popup: no WiFi button, fits the screen (scrolls if the unfinished-job row is shown); no network saved → toast pointing to Settings > WiFi
+- [ ] Unlock (slider or right PIN): the lock fades away while the screen underneath drifts up into place, no instant jump
+- [ ] Lock slider: knob snaps to the end near it but only unlocks on letting go; let go earlier → it springs back smoothly

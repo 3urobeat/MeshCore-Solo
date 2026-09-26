@@ -237,8 +237,19 @@ void UITask::unlockScreen() {
   using namespace devview;
   if (!s_lock) return;
   lv_indev_wait_release(lv_indev_active());   // the slide isn't also a tap underneath
-  lv_obj_delete_async(s_lock);
-  s_lock = s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = s_pin_dots = s_pin_msg = nullptr;
+  // The lock's content goes at once and its background fades away as the
+  // screen underneath drifts up into place -- the same cheap cover fade as a
+  // screen change (Anim.h), which deletes the overlay at the end.
+  lv_obj_t* fading = s_lock;
+  for (uint32_t i = 0; i < lv_obj_get_child_count(fading); i++)
+    lv_obj_add_flag(lv_obj_get_child(fading, i), LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(fading, LV_OBJ_FLAG_CLICKABLE);
+  if (_asleep) lv_obj_delete_async(fading);
+  else {
+    anim::run(fading, anim::setBgOpa, LV_OPA_COVER, LV_OPA_TRANSP, anim::UNLOCK_MS, anim::coverDone);
+    if (_body) anim::run(_body, anim::setTy, 12, 0, anim::UNLOCK_MS);
+  }
+  s_lock =s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = s_pin_dots = s_pin_msg = nullptr;
   _pin_entry[0] = '\0';
   if (_screen == SCR_HOME) refreshHome();
   else if (_screen == SCR_CHATS) buildChats();   // counts moved on while locked
@@ -246,9 +257,10 @@ void UITask::unlockScreen() {
 
 bool UITask::locked() const { return devview::s_lock != nullptr; }
 
-// From loop() while locked: the knob follows the finger. Tracked from the
-// touch itself, like the Home page swipe -- LVGL stops feeding a pressed
-// widget once the finger has moved past its scroll threshold.
+// From loop() while locked: the knob follows the finger and unlocks when let
+// go at the end (a knob let go earlier springs back). Tracked from the touch
+// itself, like the Home page swipe -- LVGL stops feeding a pressed widget
+// once the finger has moved past its scroll threshold.
 void UITask::lockPoll() {
   using namespace devview;
   static bool s_dragging = false, s_was_down = false;
@@ -262,19 +274,22 @@ void UITask::lockPoll() {
   int32_t knob = lv_area_get_height(&a);   // round knob, as tall as the track
   if (down && !s_was_down) {               // a drag starts on the knob only
     s_dragging = p.y >= a.y1 - 10 && p.y <= a.y2 + 10 && p.x <= a.x1 + knob + 16;
+    if (s_dragging) lv_anim_delete(s_lock_slider, anim::setSlider);
   }
   s_was_down = down;
   if (!down) {
-    if (s_dragging || lv_slider_get_value(s_lock_slider) != 0) lv_slider_set_value(s_lock_slider, 0, LV_ANIM_OFF);
+    if (!s_dragging) return;
     s_dragging = false;
+    int32_t v = lv_slider_get_value(s_lock_slider);
+    if (v >= 100) unlockScreen();
+    else if (v > 0) anim::run(s_lock_slider, anim::setSlider, v, 0, anim::SPRING_MS);
     return;
   }
   if (!s_dragging) return;
   int32_t span = lv_area_get_width(&a) - knob;
   int32_t v = span > 0 ? (p.x - a.x1 - knob / 2) * 100 / span : 0;
-  v = v < 0 ? 0 : v > 100 ? 100 : v;
+  v = v < 0 ? 0 : v >= 92 ? 100 : v;       // snaps to the end: let go to unlock
   lv_slider_set_value(s_lock_slider, v, LV_ANIM_OFF);
-  if (v >= 95) { s_dragging = s_was_down = false; unlockScreen(); }
 }
 
 void UITask::refreshLock() {

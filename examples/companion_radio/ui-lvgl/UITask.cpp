@@ -1788,7 +1788,7 @@ void UITask::buildThread() {
   bool can_send = true;
   if (_thread_is_channel) {
     ChannelDetails ch;
-    if (the_mesh.getChannel(_thread_channel, ch)) snprintf(title, sizeof(title), "%s%s", ch.name[0] == '#' ? "" : "# ", ch.name);
+    if (the_mesh.getChannel(_thread_channel, ch)) snprintf(title, sizeof(title), "%s", ch.name);   // as named: "#" marks a hashtag channel
     else snprintf(title, sizeof(title), "Channel %d", _thread_channel);
   } else {
     contactName(_thread_key, title, sizeof(title));

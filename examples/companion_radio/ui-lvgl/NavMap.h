@@ -836,8 +836,9 @@ void UITask::navToolsPopup() {
   _nav_share_lbl = label(list, "", THEME_FONT_SMALL, theme::TEXT);
   lv_label_set_long_mode(_nav_share_lbl, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(_nav_share_lbl, LV_PCT(100));
-  // Target: channels, then favourite contacts.
-  char opts[MAX_GROUP_CHANNELS * 24 + 16 * 36];
+  // Target: channels (as named -- "#" marks a hashtag channel), then
+  // favourite contacts (starred, so the two stay apart).
+  char opts[MAX_GROUP_CHANNELS * 24 + 16 * 40];
   int o = 0, sel = 0;
   navmap::s_share_n = 0;
   for (int i = 0; i < MAX_GROUP_CHANNELS && navmap::s_share_n < navmap::SHARE_TARGETS; i++) {
@@ -846,7 +847,7 @@ void UITask::navToolsPopup() {
     if (_prefs->loc_share_target_type == 0 && _prefs->loc_share_channel_idx == i) sel = navmap::s_share_n;
     navmap::s_share_kind[navmap::s_share_n] = 0;
     navmap::s_share_ch[navmap::s_share_n++] = (uint8_t)i;
-    o += snprintf(opts + o, sizeof(opts) - o, "%s# %s", o ? "\n" : "", ch.name);
+    o += snprintf(opts + o, sizeof(opts) - o, "%s%s", o ? "\n" : "", ch.name);
   }
   int favs = 0;
   for (int i = 0; i < the_mesh.getNumContacts() && favs < 16 && navmap::s_share_n < navmap::SHARE_TARGETS; i++) {
@@ -857,7 +858,7 @@ void UITask::navToolsPopup() {
         memcmp(_prefs->loc_share_dm_prefix, c.id.pub_key, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) sel = navmap::s_share_n;
     navmap::s_share_kind[navmap::s_share_n] = 1;
     memcpy(navmap::s_share_key[navmap::s_share_n++], c.id.pub_key, NodePrefs::FAVOURITE_PREFIX_LEN);
-    o += snprintf(opts + o, sizeof(opts) - o, "%s%s", o ? "\n" : "", c.name);
+    o += snprintf(opts + o, sizeof(opts) - o, "%s" UI_SYMBOL_STAR " %s", o ? "\n" : "", c.name);
     favs++;
   }
   lv_obj_t* tr = lv_obj_create(list);

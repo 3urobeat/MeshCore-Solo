@@ -9,11 +9,14 @@ namespace anim {
   static const uint32_t POP_MS    = 160;   // popup / toast in
   static const uint32_t OUT_MS    = 120;   // toast out
   static const uint32_t PAGE_MS   = 160;   // Home page after a swipe
+  static const uint32_t UNLOCK_MS = 260;   // lock screen away
+  static const uint32_t SPRING_MS = 200;   // a let-go slider knob back home
 
   static void setTy(void* o, int32_t v)  { lv_obj_set_style_translate_y((lv_obj_t*)o, v, 0); }
   static void setTx(void* o, int32_t v)  { lv_obj_set_style_translate_x((lv_obj_t*)o, v, 0); }
   static void setOpa(void* o, int32_t v) { lv_obj_set_style_opa((lv_obj_t*)o, (lv_opa_t)v, 0); }
   static void setBgOpa(void* o, int32_t v) { lv_obj_set_style_bg_opa((lv_obj_t*)o, (lv_opa_t)v, 0); }
+  static void setSlider(void* o, int32_t v) { lv_slider_set_value((lv_obj_t*)o, v, LV_ANIM_OFF); }
 
   static void run(lv_obj_t* o, lv_anim_exec_xcb_t cb, int32_t from, int32_t to, uint32_t ms,
                   lv_anim_completed_cb_t done = nullptr) {

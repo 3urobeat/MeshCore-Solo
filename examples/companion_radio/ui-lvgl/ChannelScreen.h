@@ -76,7 +76,7 @@ void UITask::channelMenu(int idx) {
   s_del_armed_ms = 0;
   s_del_lbl = s_fav_btn = nullptr;
   char title[40];
-  snprintf(title, sizeof(title), "%s%s", ch.name[0] == '#' ? "" : "# ", ch.name);   // "#topic" has its own
+  snprintf(title, sizeof(title), "%s", ch.name);   // as named: "#" marks a hashtag channel
   lv_obj_t* panel = navPopupPanel(title, false);
 
   // Notifications: three segments in the row (a dropdown's list ran off the
