@@ -743,11 +743,12 @@ void UITask::shareToMessage(const char* text) {
   showToast("Pick a conversation to share it in");
 }
 
-// ── Tools panel: trail recording, live share, map download ────────────────────
+// ── Tools panel: trail recording, live share, arrival alert, map download,
+// and their options (the schema's PG_NAV page) -- all of it lives with the map.
 
 namespace navmap {
 enum : uint8_t { TL_TRAIL_TOGGLE, TL_TRAIL_SAVE, TL_TRAIL_LOAD, TL_TRAIL_RESET, TL_TRAIL_GPX, TL_TRACKBACK,
-                 TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD,
+                 TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD, TL_OPTIONS,
                  TL_WP_HERE, TL_WP_COORDS, TL_SPOT_ADD, TL_SPOT_GO };
 
 // Live-share targets offered in the dropdown: channels, then favourite contacts.
@@ -807,7 +808,7 @@ static lv_obj_t* toolButton(lv_obj_t* row, const char* text, uint8_t act, bool a
 }
 
 void UITask::navToolsPopup() {
-  lv_obj_t* panel = navPopupPanel("Trail & sharing", true);
+  lv_obj_t* panel = navPopupPanel("Map tools", true);
   lv_obj_t* list = lv_obj_create(panel);
   styleSurface(list, theme::BG);
   lv_obj_set_width(list, LV_PCT(100));
@@ -870,14 +871,20 @@ void UITask::navToolsPopup() {
   r = toolRow(list);
   _nav_share_btn = toolButton(r, "", navmap::TL_SHARE_TOGGLE, true);
   toolButton(r, LV_SYMBOL_UPLOAD " Send once", navmap::TL_SHARE_ONCE, false);
-  lv_obj_t* hint = label(list, "Timing and duration: Settings > Trail, live share, alerts.", THEME_FONT_SMALL,
-                         theme::TEXT_MUTED);
-  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(hint, LV_PCT(100));
+
+  sectionTitle(list, "ARRIVAL ALERT");
+  char al[64], rad[12];
+  uint16_t m = NodePrefs::locatorRadiusMeters(_prefs->locator_radius_idx);
+  geo::fmtDist(rad, sizeof(rad), m / 1000.0f, _prefs->units_imperial);
+  if (_prefs->locator_enabled) snprintf(al, sizeof(al), "On  -  %s, %s radius", NodePrefs::locatorModeLabel(_prefs->locator_mode), rad);
+  else snprintf(al, sizeof(al), "Off");
+  label(list, al, THEME_FONT_SMALL, theme::TEXT);
 
   sectionTitle(list, "MAP");
   r = toolRow(list);
   toolButton(r, LV_SYMBOL_DOWNLOAD " Download this area", navmap::TL_DOWNLOAD, false);
+  r = toolRow(list);
+  toolButton(r, LV_SYMBOL_SETTINGS " Options: trail, sharing, alert", navmap::TL_OPTIONS, false);
 
   _nav_reset_armed_ms = 0;
   refreshNavTools();
@@ -1027,6 +1034,9 @@ void UITask::navToolAction(uint8_t act) {
     case navmap::TL_DOWNLOAD:
       navClosePopup();
       mapDownloadPopup();
+      return;
+    case navmap::TL_OPTIONS:   // back returns to the map
+      showSchemaSettings(settings::PG_NAV);
       return;
     case navmap::TL_WP_HERE:
       navClosePopup();

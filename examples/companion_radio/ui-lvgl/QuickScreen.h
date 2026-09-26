@@ -180,16 +180,23 @@ void UITask::quickEditDone(bool ok) {
   }
 }
 
-// ── Settings > Send advert ────────────────────────────────────────────────────
+// ── Nearby > advert ───────────────────────────────────────────────────────────
+// Shows you (and your position, if shared) to other nodes: now, or on a timer
+// (the schema's PG_ADVERT page, ui-new's Tools > Auto-Advert).
 
 void UITask::advertPopup() {
   using namespace qview;
-  lv_obj_t* panel = navPopupPanel("Send advert", false);
-  lv_obj_t* t = label(panel, "Shows you (and your position, if shared) to other nodes.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
-  listRow(panel, "Nearby only", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
-  listRow(panel, "Everyone", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
+  lv_obj_t* panel = navPopupPanel("Advert", true);
+  lv_obj_t* list = lv_obj_create(panel);
+  styleSurface(list, theme::BG);
+  lv_obj_set_width(list, LV_PCT(100));
+  lv_obj_set_flex_grow(list, 1);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(list, theme::GAP, 0);
+  sectionTitle(list, "SEND NOW");
+  listRow(list, "Nearby only", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
+  listRow(list, "Everyone", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
+  schemaRows(list, settings::PG_ADVERT);
 }
 
 void UITask::advertSend(bool flood) {

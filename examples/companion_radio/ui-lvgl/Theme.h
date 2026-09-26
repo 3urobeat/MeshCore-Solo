@@ -40,4 +40,6 @@ namespace theme {
   #define UI_SYMBOL_STOPWATCH "\xEF\x8B\xB2" // U+F2F2
   #define UI_SYMBOL_RADIO   "\xEF\x94\x99"   // U+F519, broadcast tower
   #define UI_SYMBOL_CHART   "\xEF\x82\x80"   // U+F080, diagnostics
+  #define UI_SYMBOL_KEY     "\xEF\x82\x84"   // U+F084, admin
+  #define UI_SYMBOL_ROUTE   "\xEF\x93\x97"   // U+F4D7, trail
 }

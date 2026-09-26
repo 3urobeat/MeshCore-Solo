@@ -1,5 +1,5 @@
 #pragma once
-// Settings > Repeater -- ui-new's Tools > Repeater: relay other people's
+// Home > Repeater -- ui-new's Tools > Repeater: relay other people's
 // messages from this device. The switch, the network it relays on (the
 // companion's own frequency, or a dedicated profile with its preset / freq /
 // SF / BW / CR), and the flood filters (adverts, hop limit, yield, min SNR,
@@ -39,13 +39,6 @@ static void extraScopesSummary(const NodePrefs* p, char* b, int n) {
   const ScopeList& sl = the_mesh.scopeList();
   if (sl.count == 0) snprintf(b, n, "No scopes set up (Settings > Radio)");
   else snprintf(b, n, "%d of %u relayed besides the default", rptctl::extraScopesPicked(p), (unsigned)sl.count);
-}
-
-// Settings row: "Off", or what it relays on.
-static void repeaterSummary(const NodePrefs* p, char* b, int n) {
-  if (!p->client_repeat) snprintf(b, n, "Off");
-  else if (p->repeater_use_profile) snprintf(b, n, "On  -  own profile, %.3f MHz", p->repeater_freq);
-  else snprintf(b, n, "On  -  your chat frequency");
 }
 
 void UITask::showRepeater() {

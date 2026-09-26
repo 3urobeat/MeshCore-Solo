@@ -45,6 +45,9 @@ public:
   void showContacts();
   void showSettings();
   void showSchemaSettings(int page);
+  // Home > Admin: the repeaters / room servers to log in to (AdminScreen.h)
+  void showAdminPick();
+  void adminPick(int row);
   void pruneContacts();
   void setBrightnessPct(uint8_t pct, bool save);
   void applyDisplayPrefs() override;
@@ -222,7 +225,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -234,6 +237,8 @@ private:
   void buildContacts();
   void buildSettings();
   void buildSchemaSettings();
+  void schemaRows(lv_obj_t* body, uint8_t page);
+  void buildAdminPick();
   void buildNearby();
   void refreshNearbyList();
   uint32_t nearbySignature() const;
@@ -341,6 +346,7 @@ private:
   uint32_t _next_trackback_ms = 0;
   uint32_t _next_clock_ms = 0;
   uint8_t  _settings_page = 0;   // settings::Page shown in SCR_SETTINGS_NAV
+  bool     _admin_from_pick = false;   // Admin opened from its Home tile (back returns there)
   uint32_t _prune_armed_ms = 0;
   uint16_t _batt_mv = 0;         // smoothed, for the low-battery shutdown
   uint32_t _next_batt_ms = 0;
@@ -355,8 +361,9 @@ private:
 
   // Widgets
   lv_obj_t* _status_time = nullptr;
-  lv_obj_t* _status_icons = nullptr;
-  lv_obj_t* _status_gps = nullptr;
+  lv_obj_t* _status_icons = nullptr;   // a row of icon labels, rebuilt with the state
+  lv_obj_t* _status_batt = nullptr;
+  char      _status_sig[48] = "";       // what the icon row shows, to skip unchanged rebuilds
   lv_obj_t* _toast = nullptr;
   lv_timer_t* _toast_timer = nullptr;
   lv_obj_t* _home_clock = nullptr;

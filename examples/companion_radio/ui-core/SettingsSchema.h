@@ -19,29 +19,31 @@
 namespace settings {
 
 // Pages (one screen each) and the sections on them, in display order.
-enum Page : uint8_t { PG_NAV, PG_DEVICE, PG_MESSAGES, PG_SOUND, PG_COUNT };
-enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_UNITS,
-                         SEC_DISPLAY, SEC_POWER, SEC_TIME,
+// PG_NAV is the Map's options (its trail / live share / target tools),
+// PG_ADVERT sits in Nearby's advert popup; the rest are Settings pages.
+enum Page : uint8_t { PG_NAV, PG_ADVERT, PG_DEVICE, PG_MESSAGES, PG_SOUND, PG_COUNT };
+enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_ADVERT,
+                         SEC_DISPLAY, SEC_POWER, SEC_TIME, SEC_UNITS,
                          SEC_MESSAGES, SEC_CONTACTS,
                          SEC_SOUND, SEC_SOUND_FOR, SEC_COUNT };
 
 static const char* pageTitle(uint8_t p) {
-  static const char* T[PG_COUNT] = { "Trail, live share, alerts", "Display & power", "Messages & contacts", "Sound" };
+  static const char* T[PG_COUNT] = { "Map options", "Advert", "Display & power", "Messages & contacts", "Sound" };
   return p < PG_COUNT ? T[p] : "";
 }
 static const char* sectionTitle(uint8_t s) {
-  static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "UNITS",
-                                      "DISPLAY", "POWER", "TIME",
+  static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "AUTOMATIC",
+                                      "DISPLAY", "POWER", "TIME", "UNITS",
                                       "MESSAGES", "CONTACTS",
                                       "SOUND", "PLAYS FOR" };
   return s < SEC_COUNT ? T[s] : "";
 }
 static uint8_t sectionPage(uint8_t s) {
-  static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_NAV,
-                                        PG_DEVICE, PG_DEVICE, PG_DEVICE,
+  static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_ADVERT,
+                                        PG_DEVICE, PG_DEVICE, PG_DEVICE, PG_DEVICE,
                                         PG_MESSAGES, PG_MESSAGES,
                                         PG_SOUND, PG_SOUND };
-  return s < SEC_COUNT ? P[s] : PG_NAV;
+  return s < SEC_COUNT ? P[s] : PG_DEVICE;
 }
 
 struct Setting {
@@ -171,8 +173,6 @@ static const Setting ALL[] = {
       NodePrefs::LOC_SHARE_INTERVAL_COUNT, optGap, nullptr),
   IDX("Heartbeat", "Resend while standing still", SEC_LIVE_SHARE, loc_share_heartbeat_idx,
       NodePrefs::LOC_SHARE_HEARTBEAT_COUNT, optHeartbeat, nullptr),
-  MAP("Auto-advert", "Advert with your position", SEC_LIVE_SHARE, advert_auto_interval_sec, AUTO_ADVERT,
-      optAutoAdvert, nullptr),
 
   SW("Arrival alert", "When you reach the target", SEC_LOCATOR, locator_enabled, rearmLocator),
   IDX("Radius", nullptr, SEC_LOCATOR, locator_radius_idx,
@@ -181,7 +181,8 @@ static const Setting ALL[] = {
       NodePrefs::LOCATOR_MODE_COUNT, optLocMode, rearmLocator),
   SW("Proximity beeper", "Ticks faster when closer", SEC_LOCATOR, locator_beeper, nullptr),
 
-  SW("Imperial units", "Miles and feet", SEC_UNITS, units_imperial, nullptr),
+  MAP("Auto-advert", "Advert with your position", SEC_ADVERT, advert_auto_interval_sec, AUTO_ADVERT,
+      optAutoAdvert, nullptr),
 
   IDX("Brightness", nullptr, SEC_DISPLAY, display_brightness, 5, optBrightness, applyDisplay),
   MAP("Screen off after", "Without a touch", SEC_DISPLAY, auto_off_secs, AUTO_OFF, optAutoOff, nullptr),
@@ -196,6 +197,8 @@ static const Setting ALL[] = {
   MAP("Time zone", "For the clock and the alarm", SEC_TIME, tz_offset_hours, TZ, optTz, nullptr),
   SW("12-hour clock", "AM / PM instead of 24 h", SEC_TIME, clock_12h, nullptr),
   MAP("Clock seconds", "On the home clock", SEC_TIME, clock_hide_seconds, INVERTED, nullptr, nullptr),
+
+  SW("Imperial units", "Miles and feet", SEC_UNITS, units_imperial, nullptr),
 
   IDX("Resend direct messages", "Retries without a tick", SEC_MESSAGES, dm_resend_count, 6,
       optResend, nullptr),

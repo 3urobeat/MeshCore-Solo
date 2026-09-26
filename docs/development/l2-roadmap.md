@@ -25,15 +25,21 @@ Decisions already made:
 
 ## 2. Arduino-ESP32 3.x, PSRAM
 
-- [ ] A separate L2 env on pioarduino (as `esp32c6_base`); the 2.0.17 env
-      stays until the new one passes the hardware checklist.
-- [ ] Port: speaker (new I2S driver), BLE, ESP-NOW, HTTPS map download,
-      LovyanGFX.
-- [ ] Large buffers in PSRAM: message history, trail, tile cache. Measure
-      internal RAM before / after.
+- [x] A separate L2 env on pioarduino 55.03.312-1 (Arduino-ESP32 3.3.12,
+      IDF 5.5): `Wio_Tracker_L2_companion_solo_lvgl_v3`; the 2.0.17 env stays
+      until the new one passes the hardware checklist.
+- [x] Port: speaker (new I2S driver), BLE (NimBLE), ESP-NOW (IDF 5 callbacks);
+      HTTPS map download and LovyanGFX build unchanged (check on the device).
+- [x] Large buffers in PSRAM (`psramBuf`): trail drawing, tile cache, map
+      marks, list rows, keyboard maps, message metadata. Internal heap free at
+      runtime: 2.0.17 147.8 KB; 3.x 128.2 KB before, 147.9 KB after (static RAM
+      109 → 71 KB). Measured with `-D UI_HEAP_REPORT`. History and a larger
+      trail come to PSRAM with stage 3.
 - [ ] Full hardware checklist, then make the new env the default.
 
 ## 3. Data on the SD card
+
+Postponed (2026-09-26): the user may extend this stage first.
 
 - [ ] Message history on SD, kept across reboots (~100 per conversation;
       the newest ones cached in PSRAM).
@@ -42,11 +48,19 @@ Decisions already made:
 
 ## 4. UI layout
 
-- [ ] Every tool as its own Home tile (trail, live share, arrival alert,
-      repeater, admin, diagnostics, ...), not inside Settings.
-- [ ] Settings in a sensible order, as on the original (L1).
-- [ ] Every status icon the original has (BT, GPS, live share, trail,
-      repeater, alarm, mute, arrival alert, ...).
+L1 splits its tools into many small screens because of the joystick and the
+128x64 display; the L2 groups them where they are used instead.
+
+- [x] Tools: trail, live share and arrival alert stay in the map (its tools
+      popup, with their options behind "Options"); the advert (send now,
+      auto-advert) is in Nearby; Repeater, Admin (a list of repeaters and
+      room servers) and Diagnostics are Home tiles next to Favourites,
+      Compass, Clock and Bot. The melody editor stays in Sound.
+- [x] Settings in L1's order: display, sound, radio (with Bluetooth, WiFi),
+      system, keyboard, contacts & messages.
+- [x] Every status icon L1 has (Bluetooth, GPS, alarm, mute, auto-advert,
+      trail, live share, repeater) plus arrival alert; background modes in
+      the accent colour instead of L1's blinking.
 
 ## 5. Security and internet
 

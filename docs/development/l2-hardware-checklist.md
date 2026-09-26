@@ -8,7 +8,7 @@ Confirmed on the device: live share sends and receives positions.
 - [ ] Map: ☰ tools moved to the left column (back, pin, ☰); nothing overlaps the crosshair
 - [ ] Target ring sits exactly on the marker (all markers were drawn ~3 px low)
 - [ ] A person sharing on a channel, picked as target, is followed as they move (was a fixed point where they were); bar shows the person icon
-- [ ] Settings: "Trail, live share, alerts" subtitle no longer covers the title (all list rows)
+- [ ] Settings: subtitles no longer cover the titles (all list rows)
 - [ ] Map credit is a small "©" (tap: full line in a toast); full text also in Settings > About; long toasts wrap
 - [ ] Home: Messages, Nearby, Map, Settings — "Map" is the navigation map; the nodes map opens from Nearby's header (map icon), back returns to Nearby
 - [ ] Home tiles are wider; more apps will go on further swipeable pages (dots appear once there are two)
@@ -66,6 +66,17 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Room server login from the phone app / L1 still works while this exists (only admin logins go to the new session)
 - [ ] L1 (ui-new): Tools > Admin works as before (login, saved password, typed values, confirm reboot); it now also skips the login for the node you just used
 
+## Roadmap stage 2: Arduino-ESP32 3.3.12 / IDF 5.5 (2026-09-26)
+Env `Wio_Tracker_L2_companion_solo_lvgl_v3` (flash with `L2_ENV=Wio_Tracker_L2_companion_solo_lvgl_v3`). Bluetooth runs on NimBLE now, the speaker on the new I2S driver. Internal heap at runtime: 147.9 KB free on 3.x vs 147.8 KB on 2.0.17 (large UI buffers moved to PSRAM; static RAM 109 → 71 KB).
+- [ ] Boots, screen and touch as before; WAKE and USER buttons
+- [ ] Bluetooth: the app pairs with the PIN (asks for it: the link is encrypted), connects, syncs contacts and messages, sends; reconnects after the app is closed / reopened; the Bluetooth switch still works
+- [ ] Sound: startup chime, message sounds, melody editor, volume; no new knocks
+- [ ] LoRa: send / receive on a channel and a DM, adverts
+- [ ] GPS fix, map, trail drawn on the map (its buffers moved to PSRAM)
+- [ ] WiFi: scan, map download over HTTPS; the WiFi switch
+- [ ] SD card: maps load, trail GPX export
+- [ ] Settings / contacts / channels survive the update from the 2.0.17 build (same flash layout)
+
 ## Roadmap stage 1: quick fixes (2026-09-26)
 - [ ] Keyboard: the keyboard key (bottom left) closes it; in a chat the typed text stays, in a dialog nothing is saved
 - [ ] Symbols page ("1#"): "_" is in the third row now
@@ -79,7 +90,7 @@ Confirmed: green dot inside the ring, waypoints much better, download works, set
 - [ ] Chat "+" (left of the text field): Insert {loc} / {time} / {batt} (+ sensors) into the message; they are filled in when sent (a reply's "@[name] " stays as typed)
 - [ ] Chat "+" > a quick message sends it at once (the popup shows what will go out, filled in); "Edit quick messages" opens the list
 - [ ] Settings > Messages & contacts > Quick messages: 10 slots, tap to edit (field, placeholder chips, keyboard); empty clears; "OK" is there on a fresh device; the same slots as L1's Settings > Messages
-- [ ] Settings > NODE > Send advert: Nearby only (zero-hop) / Everyone (flood through repeaters); another node sees you
+- [ ] Nearby > advert button (tower icon) > Nearby only (zero-hop) / Everyone (flood through repeaters); another node sees you
 - [ ] Settings > CONNECTIVITY > Bluetooth: off / on; the row shows the pairing PIN while waiting, "the app is connected" when paired; USB keeps working with Bluetooth off; after a reboot Bluetooth is on again (as on L1)
 - [ ] Messages: "Read all" in the header while anything is unread
 - [ ] Nearby > a node with a position: flag button saves it as a waypoint; pin button puts a contact on the favourites dial; with five or more buttons they show icons only; delete asks with "trash?" and a toast
@@ -119,10 +130,10 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] Settings > Display & power > TIME > Clock seconds off: Home and lock screen clocks show HH:MM; on: HH:MM:SS
 
 ## New: Diagnostics, auto-advert, compass (2026-09-25)
-- [ ] Settings > SYSTEM > Diagnostics: tabs Live / System / Font; Live counters (uptime, rx/tx, heap, noise floor, RSSI/SNR, queue, errors) tick every second
+- [ ] Home > Diagnostics (page 3): tabs Live / System / Font; Live counters (uptime, rx/tx, heap, noise floor, RSSI/SNR, queue, errors) tick every second
 - [ ] Live > Reset → confirm popup → "Counters reset", rx/tx and forwarded go back to 0
 - [ ] System shows firmware, build date, board, node name, frequency / SF / BW / CR, TX power; Font shows Polish, Greek and Cyrillic samples without boxes
-- [ ] Settings > Trail, live share, alerts > LIVE SHARE > Auto-advert 30 s: another node sees your advert (with position) every ~30 s; Off stops it; survives a reboot
+- [ ] Nearby > advert button > AUTOMATIC > Auto-advert 30 s: another node sees your advert (with position) every ~30 s; Off stops it; survives a reboot
 - [ ] L1: Tools › Auto-Advert shows the value set on L2 (same pref), Tools › Diagnostics unchanged
 - [ ] Home page 2 > Compass: without a fix "Waiting for a GPS fix" (GPS off: hint to turn it on); standing still "Move to set the heading"; walking: dial turns so your course is under the amber pointer, degrees + cardinal on the right
 
@@ -198,9 +209,9 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] ✕ on the bar clears the target
 - [ ] Waypoint menu (pencil): Go / Name (Polish letters, 11-byte limit) / Share / Delete (second tap confirms)
 - [ ] Share → Messages → pick a conversation → compose holds `[WAY]lat,lon name` → send; a Solo L1 receiving it can save it
-- [ ] Settings > Trail, live share, alerts > "Show others' positions" on → someone's `[LOC]` share appears on the Map and in the list; tap → navigate to them
+- [ ] Map > ☰ > Options > "Show others' positions" on → someone's `[LOC]` share appears on the Map and in the list; tap → navigate to them
 - [ ] Node detail (a node with a position) has the compass button → Map with that node as target
-- [ ] Settings > … > "Arrival alert" on + target set → toast "Arrived: …" when you get within the radius
+- [ ] Map > ☰ > Options > "Arrival alert" on + target set → toast "Arrived: …" when you get within the radius
 
 ## Positions in messages
 - [ ] A received message with `[WAY]lat,lon name`, `[LOC]lat,lon` or plain "lat, lon" shows Go / Save under the bubble
@@ -209,7 +220,7 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 
 ## Trail & live share (Map > ☰ tools button, left column)
 - [ ] Record → pill "REC 0 m" at the top; walk: blue trail line follows, distance grows
-- [ ] Auto-pause (Settings > Trail, live share, alerts): standing still → "PAUSED", walking resumes
+- [ ] Auto-pause (Map > ☰ > Options): standing still → "PAUSED", walking resumes
 - [ ] Stop / Save / Load / Reset (second tap confirms) behave; a trail saved on L2 loads (same /trail file as L1)
 - [ ] Export GPX → toast "Saved trails/trail-YYYYMMDD-HHMM.gpx"; the file opens in a GPX viewer (track + waypoints)
 - [ ] Live share: pick "Send to" (channel or favourite), Share live → pill "LIVE 1h00"; another node sees the [LOC] updates while you move; stops by itself after the chosen time
@@ -218,8 +229,8 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] ☰ > Download this area opens the download popup
 - [ ] Waypoint averaging 5 s/10 s/30 s: pin → "Averaging GPS… n s" pill (tap cancels) → waypoint saved at the mean
 
-## Settings > Trail, live share, alerts (schema-driven)
-- [ ] Every row changes and survives a reboot; "Imperial units" relabels point spacing and distances
+## Map > ☰ > Options (schema-driven)
+- [ ] Every row changes and survives a reboot; Settings > Display & power > "Imperial units" relabels point spacing and distances
 - [ ] Changing "Stop sharing after" during a session restarts its clock
 - [ ] Radius / Alert on (arrive, leave, both) change when the arrival toast fires
 
@@ -230,3 +241,13 @@ The speaker plays through the ES8311 codec (I2S MCLK 10 / BCK 11 / WS 12 / DOUT 
 - [ ] L1: Tools › Trail Save / Load / Reset still work (now via TrailEngine)
 - [ ] L1: Mark with averaging (Trail › Settings › Mark avg) still counts down and marks
 - [ ] L1: Track back still advances along the trail and ends at the start
+
+## Roadmap stage 4: UI layout (2026-09-26)
+- [ ] Home page 3: Repeater, Admin, Diagnostics tiles open their screens; back (arrow or USER button) returns to Home
+- [ ] Home > Admin: repeaters and room servers listed, favourites (star) first; tap → login / admin tabs; back leaves to the list; with none heard yet a short note instead
+- [ ] Settings order like L1: DISPLAY (Display & power), SOUND, RADIO (Radio, Bluetooth, WiFi), SYSTEM (Name, GPS, Reboot, Power off), KEYBOARD, CONTACTS & MESSAGES, ABOUT; no Repeater / Diagnostics / Send advert / trail rows left there
+- [ ] Settings > Display & power: UNITS section with "Imperial units"
+- [ ] Map > ☰ "Map tools": TRAIL, LIVE SHARE, ARRIVAL ALERT (On/Off with mode and radius), MAP; "Options: trail, sharing, alert" opens Map options; back returns to the map
+- [ ] Nearby header: back, title, advert (tower), map, sort, scan (refresh icon) -- nothing overlaps; advert popup sends Nearby only / Everyone and sets Auto-advert
+- [ ] Status bar, right to left next to the battery: Bluetooth (grey on, white with the app), GPS (grey searching, green fix), bell (alarm set), mute, then amber: auto-advert (tower), trail (route), live share (pin), repeater (loop), arrival alert (flag, with a target); each appears / disappears within a second of switching it
+- [ ] All icons at once still leave the clock readable on the left

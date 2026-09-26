@@ -473,9 +473,15 @@ void UITask::buildStatusBar() {
 
   _status_time = label(bar, "--:--", THEME_FONT_SMALL, theme::TEXT);
   lv_obj_align(_status_time, LV_ALIGN_LEFT_MID, 0, 0);
-  _status_icons = label(bar, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_obj_align(_status_icons, LV_ALIGN_RIGHT_MID, 0, 0);
-  _status_gps = label(bar, LV_SYMBOL_GPS, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  _status_batt = label(bar, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_align(_status_batt, LV_ALIGN_RIGHT_MID, 0, 0);
+  _status_icons = lv_obj_create(bar);
+  lv_obj_remove_style_all(_status_icons);
+  lv_obj_remove_flag(_status_icons, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(_status_icons, 200, LV_PCT(100));   // fixed: packed to its right edge
+  lv_obj_set_flex_flow(_status_icons, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(_status_icons, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(_status_icons, 7, 0);
 
   _toast = lv_obj_create(lv_layer_top());
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
@@ -519,23 +525,39 @@ void UITask::refreshStatusBar() {
     case battery::VOLTAGE: snprintf(level, sizeof(level), " %u.%02u V", mv / 1000, (mv % 1000) / 10); break;
     default: break;
   }
-  bool muted = false;
-#ifdef PIN_BUZZER
-  muted = _buzzer.isQuiet();
-#endif
-  lv_label_set_text_fmt(_status_icons, "%s%s%s%s%s", muted ? LV_SYMBOL_MUTE "  " : "",
-                        _prefs && _prefs->client_repeat ? LV_SYMBOL_LOOP "  " : "",
-                        hasConnection() ? LV_SYMBOL_BLUETOOTH "  " : "", batt, level);
-  // GPS: green with a fix, muted while on and searching, absent when off.
+  lv_label_set_text_fmt(_status_batt, "%s%s", batt, level);
+
+  // Status icons, as the original's status bar (ui-new): Bluetooth (bright
+  // when the app is connected), GPS (green with a fix), the alarm, mute, then
+  // the modes that keep running in the background -- auto-advert, trail, live
+  // share, repeater, arrival alert -- in the accent colour. Right to left in
+  // that order, next to the battery.
+  struct Icon { const char* sym; uint32_t col; };
+  Icon icons[10];
+  int n = 0;
+  if (isSerialEnabled()) icons[n++] = { LV_SYMBOL_BLUETOOTH, hasConnection() ? theme::TEXT : theme::TEXT_MUTED };
   int32_t lat, lon;
   bool fix = _core->course.currentLocation(lat, lon);
-  if (_core->gpsEnabled() || fix) {
-    lv_obj_set_style_text_color(_status_gps, lv_color_hex(fix ? theme::OK : theme::TEXT_MUTED), 0);
-    lv_obj_remove_flag(_status_gps, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_align_to(_status_gps, _status_icons, LV_ALIGN_OUT_LEFT_MID, -8, 0);
-  } else {
-    lv_obj_add_flag(_status_gps, LV_OBJ_FLAG_HIDDEN);
+  if (_core->gpsEnabled() || fix) icons[n++] = { LV_SYMBOL_GPS, fix ? theme::OK : theme::TEXT_MUTED };
+  if (_prefs && _prefs->alarm_on) icons[n++] = { LV_SYMBOL_BELL, theme::TEXT_MUTED };
+#ifdef PIN_BUZZER
+  if (_buzzer.isQuiet()) icons[n++] = { LV_SYMBOL_MUTE, theme::TEXT_MUTED };
+#endif
+  if (_prefs && _prefs->advert_auto_interval_sec > 0) icons[n++] = { UI_SYMBOL_RADIO, theme::ACCENT };
+  if (_core->trail.isActive()) icons[n++] = { UI_SYMBOL_ROUTE, theme::ACCENT };
+  if (_prefs && _prefs->loc_share_enabled) icons[n++] = { UI_SYMBOL_PIN, theme::ACCENT };
+  if (_prefs && _prefs->client_repeat) icons[n++] = { LV_SYMBOL_LOOP, theme::ACCENT };
+  if (_prefs && _prefs->locator_enabled && _prefs->locator_has_target) icons[n++] = { UI_SYMBOL_FLAG, theme::ACCENT };
+  char sig[48];
+  int o = 0;
+  for (int i = 0; i < n && o < (int)sizeof(sig) - 12; i++) o += snprintf(sig + o, sizeof(sig) - o, "%s%lx", icons[i].sym, (unsigned long)icons[i].col);
+  sig[o] = '\0';
+  if (strcmp(sig, _status_sig) != 0) {   // rebuilt only when something changed
+    strcpy(_status_sig, sig);
+    lv_obj_clean(_status_icons);
+    for (int i = n - 1; i >= 0; i--) label(_status_icons, icons[i].sym, THEME_FONT_SMALL, icons[i].col);
   }
+  lv_obj_align_to(_status_icons, _status_batt, LV_ALIGN_OUT_LEFT_MID, -8, 0);
 }
 
 void UITask::setGps(bool on) {
@@ -641,11 +663,14 @@ void UITask::back() {
     case SCR_CHANNEL_EDIT: showChats(); break;
     case SCR_BOT:      if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_FAVS:     if (_nav_overlay) navClosePopup(); else showHome(); break;
-    case SCR_DIAG:     if (_nav_overlay) navClosePopup(); else showSettings(); break;
+    case SCR_DIAG:     if (_nav_overlay) navClosePopup(); else showHome(); break;
+    case SCR_ADMIN_PICK: showHome(); break;
     case SCR_COMPASS:  showHome(); break;
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
-    case SCR_SETTINGS_NAV: showSettings(); break;
+    case SCR_SETTINGS_NAV:   // the map's options go back to the map
+      if (_settings_page == settings::PG_NAV) openMap(true); else showSettings();
+      break;
     case SCR_QUICK:    // back to Messages & contacts' bottom, where the row is
       if (_nav_overlay) { navClosePopup(); break; }
       showSchemaSettings(settings::PG_MESSAGES);
@@ -666,7 +691,7 @@ void UITask::back() {
     case SCR_REPEATER:
       if (radioPopupOpen()) radioCloseFreq();
       else if (_nav_overlay) navClosePopup();
-      else showSettings();
+      else showHome();
       break;
     case SCR_SCOPES:   // back to the Radio screen's bottom, where Scopes is
       if (_nav_overlay) { navClosePopup(); break; }
@@ -675,7 +700,8 @@ void UITask::back() {
       break;
     case SCR_CHATS:    if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_NEARBY:
-      if (_scan_overlay) closeScanPopup();
+      if (_nav_overlay) navClosePopup();   // the advert popup
+      else if (_scan_overlay) closeScanPopup();
       else showHome();
       break;
     case SCR_NODE:     // back to where the node was picked: map, the list, or the scan popup over it
@@ -708,6 +734,8 @@ static void onOpenBot(lv_event_t* e);     // BotScreen.h
 static void onOpenFavourites(lv_event_t* e);   // DeviceScreen.h
 static void onOpenCompass(lv_event_t* e);   // CompassScreen.h
 static void onOpenDiag(lv_event_t* e);      // DiagScreen.h
+static void onOpenRepeater(lv_event_t* e);  // RepeaterScreen.h
+static void onOpenAdminPick(lv_event_t* e); // AdminScreen.h
 static void onNodeName(lv_event_t* e);
 static void onPowerRow(lv_event_t* e);
 
@@ -725,6 +753,11 @@ static const App APPS[] = {
   { UI_SYMBOL_COMPASS,  "Compass",  onOpenCompass,  false },
   { UI_SYMBOL_CLOCK,    "Clock",    onOpenClock,    false },
   { LV_SYMBOL_CHARGE,   "Bot",      onOpenBot,      false },
+  // Page 3: the device and the network (the map's tools and Nearby's advert
+  // are in those screens, not tiles of their own)
+  { LV_SYMBOL_LOOP,     "Repeater", onOpenRepeater, false },
+  { UI_SYMBOL_KEY,      "Admin",    onOpenAdminPick, false },
+  { UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,  false },
 };
 static const int COUNT = sizeof(APPS) / sizeof(APPS[0]);
 static const int PER_PAGE = 4;
@@ -1104,6 +1137,7 @@ enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV,
 static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
 static void onNearbyScan(lv_event_t* e) { (void)e; s_ui->startNearbyScan(); }
+static void onAdvertRow(lv_event_t* e);   // QuickScreen.h
 static void onNearbyRow(lv_event_t* e)  { s_ui->openNode((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onScanRow(lv_event_t* e)    { s_ui->openScanNode((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onScanClose(lv_event_t* e)  { (void)e; s_ui->closeScanPopup(); }
@@ -1135,9 +1169,10 @@ void UITask::buildNearby() {
   lv_obj_t* body = newScreen("Nearby", true);
   lv_obj_set_style_pad_row(body, 4, 0);
   if (_header) {
-    headerButton(_header, LV_SYMBOL_REFRESH " Scan", onNearbyScan, 4, NULL);
-    lv_obj_set_width(headerButton(_header, "", onNearbySort, 84, &_nearby_sort_lbl), 62);   // fits "Recent" / "Dist"
-    headerButton(_header, UI_SYMBOL_MAP, onOpenNodesMap, 152, NULL);   // the Nodes map
+    headerButton(_header, LV_SYMBOL_REFRESH, onNearbyScan, 4, NULL);   // scan
+    lv_obj_set_width(headerButton(_header, "", onNearbySort, 46, &_nearby_sort_lbl), 62);   // fits "Recent" / "Dist"
+    headerButton(_header, UI_SYMBOL_MAP, onOpenNodesMap, 114, NULL);   // the Nodes map
+    headerButton(_header, UI_SYMBOL_RADIO, onAdvertRow, 156, NULL);    // send advert, auto-advert
   }
 
   // Type filter chips
@@ -2056,7 +2091,6 @@ static void onSchemaDropdown(lv_event_t* e) {
 }
 static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
-static void onAdvertRow(lv_event_t* e);   // QuickScreen.h
 static void onOpenQuickMsgs(lv_event_t* e);
 static void bluetoothRow(lv_obj_t* body);
 static void onVolumeSlider(lv_event_t* e) {
@@ -2113,10 +2147,32 @@ void UITask::buildSchemaSettings() {
   lv_obj_t* body = newScreen(settings::pageTitle(_settings_page), true);
   _prune_lbl = nullptr;
   _prune_armed_ms = 0;
+  schemaRows(body, _settings_page);
+  if (_settings_page == settings::PG_MESSAGES) {   // the action that goes with "Contact expiry"
+    lv_obj_t* b = lv_button_create(body);
+    lv_obj_set_size(b, LV_PCT(100), 38);
+    lv_obj_set_style_shadow_width(b, 0, 0);
+    lv_obj_set_style_radius(b, theme::RADIUS, 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
+    lv_obj_add_event_cb(b, onPruneContacts, LV_EVENT_CLICKED, NULL);
+    _prune_lbl = label(b, LV_SYMBOL_TRASH "  Remove inactive contacts now", THEME_FONT_BODY, theme::TEXT);
+    lv_obj_center(_prune_lbl);
+  }
+  if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
+  if (_settings_page == settings::PG_MESSAGES) {
+    sectionTitle(body, "QUICK MESSAGES");
+    char sub[48];
+    snprintf(sub, sizeof(sub), "%d of %d set  -  sent with one tap", msgtext::quickUsed(_prefs), msgtext::QUICK_COUNT);
+    listRow(body, LV_SYMBOL_EDIT "  Quick messages", sub, onOpenQuickMsgs, NULL);
+  }
+}
+
+// A page's schema rows under their section titles (Settings pages and the tools' options).
+void UITask::schemaRows(lv_obj_t* body, uint8_t page) {
   uint8_t sec = 0xFF;
   for (int i = 0; i < settings::COUNT; i++) {
     const settings::Setting& st = settings::ALL[i];
-    if (settings::sectionPage(st.section) != _settings_page) continue;
+    if (settings::sectionPage(st.section) != page) continue;
     if (st.section != sec) {
       sec = st.section;
       sectionTitle(body, settings::sectionTitle(sec));
@@ -2187,23 +2243,6 @@ void UITask::buildSchemaSettings() {
     lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(dd, onSchemaDropdown, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
   }
-  if (_settings_page == settings::PG_MESSAGES) {   // the action that goes with "Contact expiry"
-    lv_obj_t* b = lv_button_create(body);
-    lv_obj_set_size(b, LV_PCT(100), 38);
-    lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_radius(b, theme::RADIUS, 0);
-    lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
-    lv_obj_add_event_cb(b, onPruneContacts, LV_EVENT_CLICKED, NULL);
-    _prune_lbl = label(b, LV_SYMBOL_TRASH "  Remove inactive contacts now", THEME_FONT_BODY, theme::TEXT);
-    lv_obj_center(_prune_lbl);
-  }
-  if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
-  if (_settings_page == settings::PG_MESSAGES) {
-    sectionTitle(body, "QUICK MESSAGES");
-    char sub[48];
-    snprintf(sub, sizeof(sub), "%d of %d set  -  sent with one tap", msgtext::quickUsed(_prefs), msgtext::QUICK_COUNT);
-    listRow(body, LV_SYMBOL_EDIT "  Quick messages", sub, onOpenQuickMsgs, NULL);
-  }
 }
 
 void UITask::setSchemaValue(int idx, int v) {
@@ -2226,46 +2265,40 @@ void UITask::showSettings() {
 }
 
 static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
-static void onOpenRepeater(lv_event_t* e);   // RepeaterScreen.h
-static void repeaterSummary(const NodePrefs* p, char* b, int n);
 
 void UITask::buildSettings() {
+  // The order of the original (ui-new): display, sound, radio, system,
+  // keyboard, contacts and messages. Tools have their own Home tiles.
   lv_obj_t* body = newScreen("Settings", true);
-  sectionTitle(body, "NODE");
-  listRow(body, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
-  listRow(body, UI_SYMBOL_RADIO "  Send advert", "Let other nodes see you now", onAdvertRow, NULL);
-  sectionTitle(body, "CONNECTIVITY");
-  bluetoothRow(body);
-  wifiRow(body);
   if (_prefs) {
-    char sub[48];
+    sectionTitle(body, "DISPLAY");
+    listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Screen, battery, time, units",
+            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_DEVICE);
+    sectionTitle(body, "SOUND");
+    char sub[48], vol[12];
+    settings::optVolume(_prefs->buzzer_volume, vol, sizeof(vol), *_prefs);
+    snprintf(sub, sizeof(sub), "%s, %s  -  alerts, melodies", soundctl::modeLabel(soundctl::mode(_prefs)), vol);
+    listRow(body, LV_SYMBOL_VOLUME_MAX "  Sound", sub, onOpenSchemaPage, (void*)(uintptr_t)settings::PG_SOUND);
+    sectionTitle(body, "RADIO");
     int pi = radioctl::currentPreset(_prefs);
     const char* pn = "Custom"; float f, b; uint8_t sf, cr;
     if (pi >= 0) radioctl::presetAt(_prefs, pi, pn, f, b, sf, cr);
     snprintf(sub, sizeof(sub), "%s  -  %.3f MHz, %d dBm", pn, _prefs->freq, _prefs->tx_power_dbm);
     listRow(body, UI_SYMBOL_RADIO "  Radio", sub, onOpenRadio, NULL);
-    repeaterSummary(_prefs, sub, sizeof(sub));
-    listRow(body, LV_SYMBOL_LOOP "  Repeater", sub, onOpenRepeater, NULL);
+  } else {
+    sectionTitle(body, "RADIO");
   }
-  if (_prefs) {   // the same NodePrefs switches as ui-new's Home GPS toggle / Live share / Locator screens
-    sectionTitle(body, "NAVIGATION");
-    if (_core->gpsAvailable()) {
-      lv_obj_t* sw = switchRow(body, "GPS", "For maps and sharing", nullptr);
-      if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
-      lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
-    }
-    listRow(body, UI_SYMBOL_COMPASS "  Trail, live share, alerts", "Trail, sharing, alerts",
-            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_NAV);
-    sectionTitle(body, "DEVICE");
-    listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Screen, battery, GPS, time",
-            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_DEVICE);
-    listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resend, expiry, sorting",
-            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
-    char sub[48], vol[12];
-    settings::optVolume(_prefs->buzzer_volume, vol, sizeof(vol), *_prefs);
-    snprintf(sub, sizeof(sub), "%s, %s  -  alerts, melodies", soundctl::modeLabel(soundctl::mode(_prefs)), vol);
-    listRow(body, LV_SYMBOL_VOLUME_MAX "  Sound", sub, onOpenSchemaPage, (void*)(uintptr_t)settings::PG_SOUND);
+  bluetoothRow(body);
+  wifiRow(body);
+  sectionTitle(body, "SYSTEM");
+  listRow(body, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
+  if (_core->gpsAvailable()) {
+    lv_obj_t* sw = switchRow(body, "GPS", "For maps and sharing", nullptr);
+    if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
   }
+  listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
+  listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
   sectionTitle(body, "KEYBOARD");
   uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
   uint8_t alt_a  = _prefs ? _prefs->keyboard_alt_alphabet : 0;
@@ -2278,10 +2311,11 @@ void UITask::buildSettings() {
                              alt_a == main_a ? 0 : alt_a + 1);
   label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
-  sectionTitle(body, "SYSTEM");
-  listRow(body, UI_SYMBOL_CHART "  Diagnostics", "Packets, memory, firmware", onOpenDiag, NULL);
-  listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
-  listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
+  if (_prefs) {
+    sectionTitle(body, "CONTACTS & MESSAGES");
+    listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resend, expiry, quick messages",
+            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
+  }
 
   sectionTitle(body, "ABOUT");
   char about[200], built[24] = "";

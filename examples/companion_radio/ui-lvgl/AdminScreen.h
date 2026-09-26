@@ -1,7 +1,7 @@
 #pragma once
-// Remote admin of a repeater / room server (node detail > Admin) -- ui-new's
-// Tools > Admin. The session (login with the saved password, CLI round trips,
-// timeouts, field table) is the UI Core's AdminSession; this draws it:
+// Remote admin of a repeater / room server (node detail > Admin, or the Home
+// tile's list) -- ui-new's Tools > Admin. The session (login with the saved
+// password, CLI round trips, timeouts, field table) is the UI Core's AdminSession; this draws it:
 // password entry, tabs of fields, and a popup per field -- a switch, a
 // -/+ stepper, a row of choices (SF / bandwidth / coding rate), or a text
 // field with the keyboard (text, frequency, custom command); replies in a popup.
@@ -62,12 +62,58 @@ static void onAdminChoice(lv_event_t* e) {
 static void onAdminPwKb(lv_event_t* e) { s_ui->adminLogin(lv_event_get_code(e) == LV_EVENT_READY); }
 static void onAdminTextKb(lv_event_t* e) { s_ui->adminTextDone(lv_event_get_code(e) == LV_EVENT_READY); }
 static void onAdminCancelWait(lv_event_t* e) { (void)e; s_ui->adminCancelWait(); }
+static void onOpenAdminPick(lv_event_t* e) { (void)e; s_ui->showAdminPick(); }
+static void onAdminPickRow(lv_event_t* e)  { s_ui->adminPick((int)(uintptr_t)lv_event_get_user_data(e)); }
+
+namespace adminview {
+static const int PICK_MAX = 64;
+static uint8_t (*s_pick)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(PICK_MAX);
+}
+
+// Home > Admin: every repeater and room server, favourites first (ui-new's
+// Tools > Admin picker); the session is the same as from node detail.
+void UITask::showAdminPick() {
+  _screen = SCR_ADMIN_PICK;
+  buildAdminPick();
+}
+
+void UITask::buildAdminPick() {
+  lv_obj_t* body = newScreen("Admin", true);
+  int rows = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    for (int i = 0; i < the_mesh.getNumContacts() && rows < adminview::PICK_MAX; i++) {
+      ContactInfo c;
+      if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c)) continue;
+      if (c.type != ADV_TYPE_REPEATER && c.type != ADV_TYPE_ROOM) continue;
+      bool fav = contactctl::favourite(c);
+      if (fav != (pass == 0)) continue;
+      if (!rows) sectionTitle(body, "LOG IN TO");
+      char name[48];
+      snprintf(name, sizeof(name), "%s%s", fav ? UI_SYMBOL_STAR "  " : "", c.name);
+      memcpy(adminview::s_pick[rows], c.id.pub_key, PUB_KEY_SIZE);
+      listRow(body, name, c.type == ADV_TYPE_ROOM ? "Room server" : "Repeater", onAdminPickRow, (void*)(uintptr_t)rows);
+      rows++;
+    }
+  }
+  if (!rows) {
+    lv_obj_t* t = label(body, "No repeaters or room servers yet. They show up here once their advert is heard.",
+                        THEME_FONT_BODY, theme::TEXT_MUTED);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(t, LV_PCT(100));
+  }
+}
+
+void UITask::adminPick(int row) {
+  if (row < 0 || row >= adminview::PICK_MAX) return;
+  openAdmin(adminview::s_pick[row]);
+}
 
 // Node detail > Admin.
 void UITask::openAdmin(const uint8_t* pub_key) {
   ContactInfo ci;
   if (!MessageHistory::contactByPrefix(pub_key, ci)) return;
   _core->admin.start(ci);
+  _admin_from_pick = _screen == SCR_ADMIN_PICK;
   adminview::s_tab = admin::TAB_SYSTEM;
   _screen = SCR_ADMIN;
   buildAdmin();
@@ -76,6 +122,7 @@ void UITask::openAdmin(const uint8_t* pub_key) {
 void UITask::adminLeave() {
   _core->admin.end();
   navClosePopup();
+  if (_admin_from_pick) { showAdminPick(); return; }
   _screen = SCR_NODE;
   buildNode();
 }
