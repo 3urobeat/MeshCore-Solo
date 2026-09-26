@@ -247,8 +247,9 @@ User list, second batch (2026-09-26):
       line of counts, errors on one line, only the network's name.
 - [ ] Mentions: highlight @[nick] in message text (a coloured chip in
       place of the raw "@[...]" markup), our own name stronger.
-- [ ] Splash: "MeshCore Solo" with the upstream version and ours, all in
-      the MeshCore title font.
+- [x] Splash: "MeshCore Solo" with the upstream version and ours, all in
+      the MeshCore title font (the wordmark's letters plus l, v, d, digits,
+      '.', '-' drawn to match; Noto for a line with anything else).
 - [ ] Emoji, ideally the full range (glyphs could live on the SD card).
 - [ ] Tap-to-wake toggle.
 - [ ] Favourites as their own screen in the menu rather than a tile.
