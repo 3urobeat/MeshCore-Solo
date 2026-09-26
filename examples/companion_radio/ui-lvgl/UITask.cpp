@@ -6,6 +6,43 @@
   #include <esp_heap_caps.h>
 #endif
 #include <new>
+#include <stdarg.h>
+
+// Flags: LVGL draws text one codepoint at a time, so a flag (a pair of regional
+// indicator letters) would show as two letter tiles. Every label and span of
+// this UI (all of it is this one file and the headers it includes) goes through
+// these, which swap each pair for the codepoint fonts/ui_emoji.c keeps the
+// flag's image under. Display only: what's stored and sent stays as it was.
+extern "C" char* ui_emoji_flags(const char* s);
+static void ui_label_set_text(lv_obj_t* o, const char* t) {
+  char* f = t ? ui_emoji_flags(t) : nullptr;   // t == NULL: LVGL's "redraw the current text"
+  lv_label_set_text(o, f ? f : t);
+  lv_free(f);
+}
+static void ui_label_set_text_fmt(lv_obj_t* o, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+static void ui_label_set_text_fmt(lv_obj_t* o, const char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  char buf[160];
+  int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  if (n < (int)sizeof(buf)) { ui_label_set_text(o, buf); return; }
+  char* big = (char*)lv_malloc(n + 1);
+  if (!big) return;
+  va_start(ap, fmt);
+  vsnprintf(big, n + 1, fmt, ap);
+  va_end(ap);
+  ui_label_set_text(o, big);
+  lv_free(big);
+}
+static void ui_span_set_text(lv_span_t* s, const char* t) {
+  char* f = ui_emoji_flags(t);
+  lv_span_set_text(s, f ? f : t);
+  lv_free(f);
+}
+#define lv_label_set_text ui_label_set_text
+#define lv_label_set_text_fmt ui_label_set_text_fmt
+#define lv_span_set_text ui_span_set_text
 
 // A zeroed buffer of `n` T in PSRAM when the board has it: internal RAM is what
 // BLE, WiFi and TLS need. Allocated once (at startup or first use), never freed.
@@ -135,6 +172,23 @@ static void stylePrimary(lv_obj_t* b) {
 }
 
 // Unread badge: amber pill with a count, on the right edge of `parent`.
+// "@[nick]" -> "@nick" in place, for one-line text (previews, quotes) where
+// the bubble's highlight doesn't reach.
+static void plainMentions(char* t) {
+  char* w = t;
+  for (const char* r = t; *r;) {
+    const char* close = r[0] == '@' && r[1] == '[' ? strchr(r + 2, ']') : nullptr;
+    if (close && close - r <= 34) {
+      *w++ = '@';
+      for (const char* q = r + 2; q < close;) *w++ = *q++;
+      r = close + 1;
+    } else {
+      *w++ = *r++;
+    }
+  }
+  *w = '\0';
+}
+
 static void badge(lv_obj_t* parent, int n, bool overflow) {
   if (n <= 0) return;
   lv_obj_t* b = lv_obj_create(parent);
@@ -1179,6 +1233,7 @@ void UITask::buildChats() {
       if (n > 0) {
         const ChHistEntry& e = _core->history.chAtPos(_core->history.histEntryForChannel(i, 0));
         snprintf(sub, sizeof(sub), "%s", e.text);
+        plainMentions(sub);
       }
       lv_obj_t* row = listRow(body, title, sub[0] ? sub : NULL, onOpenChannel, (void*)(uintptr_t)i);
       lv_obj_add_event_cb(row, onChanRowHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)i);
@@ -1214,6 +1269,7 @@ void UITask::buildChats() {
     if (known && contactctl::notif(_prefs, c.id.pub_key) == contactctl::NOTIF_MUTED) strncat(name, "  " UI_SYMBOL_MUTE, sizeof(name) - strlen(name) - 1);
     char sub[64];
     snprintf(sub, sizeof(sub), "%s%s", e.outgoing ? "Me: " : "", e.text);
+    plainMentions(sub);
     lv_obj_t* row = listRow(body, name, sub, onOpenDMRow, (void*)(uintptr_t)rows);
     if (known) lv_obj_add_event_cb(row, onDMRowHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)rows);
     badge(row, _core->dmUnread(e.prefix), _core->dmUnreadOverflow(e.prefix));
@@ -1990,6 +2046,59 @@ static void msgLocButton(lv_obj_t* parent, const char* text, int idx, bool save,
   lv_obj_center(label(b, text, THEME_FONT_SMALL, accent ? theme::BG : theme::TEXT));
 }
 
+// A message's text, wrapped at `max_w` and shrunk to fit. "@[nick]" mentions
+// (how a reply names who it answers) show as "@nick" in the accent -- in the
+// text colour on our own amber bubbles -- and underlined when the nick is
+// ours (*mentions_me set). Plain text stays a label.
+static lv_obj_t* msgText(lv_obj_t* parent, const char* text, bool own, int max_w, bool* mentions_me) {
+  *mentions_me = false;
+  if (!strstr(text, "@[")) {
+    lv_obj_t* t = label(parent, text, THEME_FONT_BODY, theme::TEXT);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_max_width(t, max_w, 0);
+    lv_obj_set_width(t, LV_SIZE_CONTENT);
+    return t;
+  }
+  lv_obj_t* sg = lv_spangroup_create(parent);
+  lv_obj_remove_flag(sg, LV_OBJ_FLAG_CLICKABLE);   // a hold still reaches the bubble (its menu)
+  lv_obj_set_style_text_font(sg, THEME_FONT_BODY, 0);
+  lv_obj_set_style_text_color(sg, lv_color_hex(theme::TEXT), 0);
+  lv_spangroup_set_mode(sg, LV_SPAN_MODE_BREAK);
+  const char* me = the_mesh.getNodeName();
+  char part[MAX_TEXT_LEN + 1];
+  const char* p = text;
+  while (*p) {
+    const char* at = strstr(p, "@[");
+    const char* close = at ? strchr(at + 2, ']') : nullptr;
+    if (at && (!close || close - at > 34)) close = nullptr;   // not a mention: a nick is <= 31 chars
+    const char* end = at && close ? at : p + strlen(p);
+    if (at && !close) end = at + 2;   // "@[" alone: plain, carry on after it
+    if (end > p) {
+      size_t n = end - p < (ptrdiff_t)sizeof(part) ? end - p : sizeof(part) - 1;
+      memcpy(part, p, n);
+      part[n] = '\0';
+      lv_span_set_text(lv_spangroup_new_span(sg), part);
+    }
+    if (!at || !close) { p = end; continue; }
+    size_t n = close - (at + 2);
+    part[0] = '@';
+    memcpy(part + 1, at + 2, n);
+    part[n + 1] = '\0';
+    bool mine = strlen(me) == n && strncasecmp(me, at + 2, n) == 0;
+    lv_span_t* sp = lv_spangroup_new_span(sg);
+    lv_span_set_text(sp, part);
+    lv_style_t* st = lv_span_get_style(sp);
+    lv_style_set_text_color(st, lv_color_hex(own ? theme::TEXT : theme::ACCENT));
+    if (mine) { lv_style_set_text_decor(st, LV_TEXT_DECOR_UNDERLINE); *mentions_me = true; }
+    p = close + 1;
+  }
+  lv_spangroup_refr_mode(sg);
+  uint32_t w = lv_spangroup_get_expand_width(sg, 0);
+  lv_obj_set_width(sg, w > (uint32_t)max_w ? max_w : (int32_t)w + 1);
+  lv_obj_set_height(sg, LV_SIZE_CONTENT);
+  return sg;
+}
+
 // One message bubble. Own messages right-aligned in amber, others left.
 // loc_idx >= 0: the text carries a position (s_msg_locs[loc_idx]).
 static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
@@ -2042,10 +2151,12 @@ static void bubble(lv_obj_t* list, const char* from, const char* text, bool own,
     label(hdr, from, THEME_FONT_SMALL, theme::ACCENT);   // names are <= 31 chars: fits the bubble
     if (meta_in_header) label(hdr, meta, THEME_FONT_SMALL, theme::TEXT_MUTED);
   }
-  lv_obj_t* t = label(b, text, THEME_FONT_BODY, theme::TEXT);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_max_width(t, 238, 0);
-  lv_obj_set_width(t, LV_SIZE_CONTENT);
+  bool mentions_me;
+  msgText(b, text, own, 238, &mentions_me);
+  if (mentions_me && !own) {   // someone answering us: the bubble outlined
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(theme::ACCENT), 0);
+  }
 
   if (loc_idx >= 0) {   // position: navigate there / keep it as a waypoint
     lv_obj_t* acts = lv_obj_create(b);
@@ -2605,9 +2716,10 @@ void UITask::buildSettings() {
   }
 
   sectionTitle(body, "ABOUT");
-  char about[200], built[24] = "";
+  char about[300], built[24] = "";
   if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) snprintf(built, sizeof(built), " (%s)", FIRMWARE_BUILD_DATE);
-  snprintf(about, sizeof(about), "%s\nFirmware %s%s\n\nMap data: %s", the_mesh.getNodeName(), FIRMWARE_VERSION, built,
+  snprintf(about, sizeof(about), "%s\nFirmware %s%s\n\nMap data: %s\nEmoji: Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC\xE2\x80\x91" "BY 4.0)",
+           the_mesh.getNodeName(), FIRMWARE_VERSION, built,
            (lvport::mountStorage() && mapview::s_provider->available()) ? mapview::s_provider->attribution()
                                                                          : "\xC2\xA9 OpenStreetMap contributors");
   lv_obj_t* a = label(body, about, THEME_FONT_SMALL, theme::TEXT);

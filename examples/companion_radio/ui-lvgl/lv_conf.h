@@ -28,16 +28,24 @@
 
 // Fonts: generated Noto Sans (European Latin, Greek, Cyrillic + LV_SYMBOL_*),
 // see fonts/generate.sh. LVGL's built-in Montserrat (ASCII only) is off.
+// Each text font falls back to colour emoji (fonts/ui_emoji.c, Twemoji).
 #define LV_FONT_MONTSERRAT_14   0
 #define LV_FONT_CUSTOM_DECLARE  LV_FONT_DECLARE(ui_font_12) LV_FONT_DECLARE(ui_font_14) \
                                 LV_FONT_DECLARE(ui_font_16) LV_FONT_DECLARE(ui_font_20) \
                                 LV_FONT_DECLARE(ui_font_40) \
-                                LV_FONT_DECLARE(ui_icons_14)
+                                LV_FONT_DECLARE(ui_icons_14) \
+                                LV_FONT_DECLARE(ui_emoji_12) LV_FONT_DECLARE(ui_emoji_14) \
+                                LV_FONT_DECLARE(ui_emoji_16) LV_FONT_DECLARE(ui_emoji_20)
+// Image glyphs (the emoji) are drawn only with this on; lv_imgfont itself is unused.
+#define LV_USE_IMGFONT          1
 #define LV_FONT_DEFAULT         &ui_font_14
 #define LV_USE_FONT_COMPRESSED  0      // fonts are generated uncompressed: no per-glyph decompression on every draw
 
 // PNG decoder for raster map tiles (map/TileProvider.h calls lodepng directly).
 #define LV_USE_LODEPNG          1
+
+// Spans: message text with @[nick] mentions picked out (UITask.cpp msgText).
+#define LV_USE_SPAN             1
 
 #define LV_USE_THEME_DEFAULT    1
 #define LV_THEME_DEFAULT_DARK   1
@@ -45,7 +53,6 @@
 // Not needed by the frontend (smaller build).
 #define LV_USE_CHART            0
 #define LV_USE_CALENDAR         0
-#define LV_USE_SPAN             0
 #define LV_USE_TABLE            0
 #define LV_USE_SCALE            0
 #define LV_USE_LOTTIE           0

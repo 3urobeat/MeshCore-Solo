@@ -883,4 +883,6 @@ void UITask::mapDownloadTick() {
 #if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
 // Sim page / tests: a saved WiFi network without going through Settings > WiFi.
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_wifi_save(const char* ssid, const char* pass) { lvport::saveWifi(ssid, pass); }
+// ...and this device's name (a test mentions it).
+extern "C" EMSCRIPTEN_KEEPALIVE const char* sim_node_name() { return the_mesh.getNodeName(); }
 #endif

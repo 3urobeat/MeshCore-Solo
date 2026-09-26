@@ -5,7 +5,8 @@
 # Czech, Slovak, Hungarian, Romanian ș/ț, Baltic, Turkish, Nordic, Icelandic,
 # Maltese, Welsh ŵ/ŷ/ẁ…, German ẞ), Greek, Cyrillic (+ supplement: Ukrainian,
 # Belarusian, Serbian, Macedonian, Bulgarian…), typographic punctuation,
-# currency (€ ₴ ₽ …) and №, plus LVGL's LV_SYMBOL_* icons.
+# currency (€ ₴ ₽ …) and №, plus LVGL's LV_SYMBOL_* icons; emoji fall
+# back to colour Twemoji images (emoji.py -> ui_emoji_data.c, ui_emoji.c).
 #
 # Needs node (npx fetches lv_font_conv) and curl. Run from anywhere:
 #   examples/companion_radio/ui-lvgl/fonts/generate.sh
@@ -41,7 +42,10 @@ gen() {   # size weight ranges name
     --font "$CACHE/fa.woff" -r "$SYMS" \
     --format lvgl --lv-include lvgl.h --lv-font-name "$4" -o "$HERE/$4.c"
 }
-for s in 12 14 16 20; do gen "$s" Medium "$TEXT" "ui_font_$s"; done
+for s in 12 14 16 20; do
+  gen "$s" Medium "$TEXT" "ui_font_$s"
+  sed -i.bak "s/\.fallback = NULL,/.fallback = \&ui_emoji_$s,/" "$HERE/ui_font_$s.c" && rm "$HERE/ui_font_$s.c.bak"
+done
 # Clock: digits, colon, dash, dot, space only.
 $CONV --bpp 4 --size 40 --no-compress --font "$CACHE/NotoSans-SemiBold.ttf" -r "0x20,0x2D-0x2E,0x30-0x3A" \
   --format lvgl --lv-include lvgl.h --lv-font-name ui_font_40 -o "$HERE/ui_font_40.c"
@@ -54,4 +58,9 @@ $CONV --bpp 4 --size 14 --no-compress --font "$CACHE/ui-icons.ttf" -r "$ICONS" \
   --format lvgl --lv-include lvgl.h --lv-font-name ui_icons_14 -o "$HERE/ui_icons_14.c"
 sed -i.bak -e 's/\.line_height = [0-9]*,/.line_height = 18,/' -e 's/\.base_line = [0-9]*,/.base_line = 4,/' \
   -e 's/\.fallback = NULL,/.fallback = \&ui_font_12,/' "$HERE/ui_icons_14.c" && rm "$HERE/ui_icons_14.c.bak"
+# Colour emoji the text fonts fall back to (ui_emoji.c): Twemoji 15.1, CC-BY 4.0.
+# Needs python3 with Pillow.
+TW="$CACHE/twemoji-15.1.0"
+[ -d "$TW" ] || curl -sSL https://codeload.github.com/jdecked/twemoji/tar.gz/refs/tags/v15.1.0 | tar xz -C "$CACHE" twemoji-15.1.0/assets/72x72
+python3 "$HERE/emoji.py" "$TW/assets/72x72" "$HERE/ui_emoji_data.c"
 echo "done:$(ls "$HERE"/ui_font_*.c | wc -l) fonts"

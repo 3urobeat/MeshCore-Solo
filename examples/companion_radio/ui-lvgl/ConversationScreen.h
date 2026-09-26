@@ -303,7 +303,10 @@ void UITask::messageMenu(int idx) {
   }
 
   // The message itself, quoted short, and when.
-  lv_obj_t* q = label(panel, body, THEME_FONT_SMALL, theme::TEXT);
+  char quote[MAX_TEXT_LEN + 1];
+  snprintf(quote, sizeof(quote), "%s", body);
+  plainMentions(quote);
+  lv_obj_t* q = label(panel, quote, THEME_FONT_SMALL, theme::TEXT);
   lv_label_set_long_mode(q, LV_LABEL_LONG_DOT);
   lv_obj_set_width(q, LV_PCT(100));
   lv_obj_set_style_max_height(q, 34, 0);   // two lines

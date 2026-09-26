@@ -247,12 +247,18 @@ User list, second batch (2026-09-26):
 - [x] Map download popup runs off the screen; take the WiFi settings out
       of it (one place: Settings > WiFi). Compact: a progress bar, one
       line of counts, errors on one line, only the network's name.
-- [ ] Mentions: highlight @[nick] in message text (a coloured chip in
-      place of the raw "@[...]" markup), our own name stronger.
+- [x] Mentions: "@[nick]" shows as "@nick" in the accent colour (a span);
+      our own name underlined and its bubble outlined. Previews and the
+      message popup's quote show "@nick" too.
 - [x] Splash: "MeshCore Solo" with the upstream version and ours, all in
       the MeshCore title font (the wordmark's letters plus l, v, d, digits,
       '.', '-' drawn to match; Noto for a line with anything else).
-- [ ] Emoji, ideally the full range (glyphs could live on the SD card).
+- [x] Emoji: every single-codepoint emoji plus all flags, colour Twemoji
+      at 16 px baked into flash (~1.2 MB; fonts/emoji.py -> ui_emoji_data.c),
+      the text fonts' fallback. Flags are swapped for one private codepoint
+      before text reaches a label. Other sequences (skin tones, ZWJ) draw as
+      their parts. Credit in Settings > About. Later: an emoji picker on the
+      keyboard.
 - [x] Tap-to-wake toggle (Settings > Display & power > WAKE, NVS, on by
       default; off: only the top button wakes it).
 - [x] Favourites as their own screen in the menu rather than a tile: a
