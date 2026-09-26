@@ -52,10 +52,10 @@ static lv_obj_t* actionButton(lv_obj_t* acts, const char* text, lv_event_cb_t cb
 
 static void onConvAction(lv_event_t* e) { s_ui->conversationAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onConvMelody(lv_event_t* e) {
-  s_ui->conversationMelody((int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->conversationMelody(choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onConvNotif(lv_event_t* e) {
-  s_ui->conversationNotif((int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->conversationNotif(choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onMsgAction(lv_event_t* e) { s_ui->messageAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onRoomLoginKb(lv_event_t* e) { s_ui->roomLoginDone(lv_event_get_code(e) == LV_EVENT_READY); }
@@ -161,13 +161,10 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
   lv_obj_t* panel = navPopupPanel(ci.name, false);
   bool room = ci.type == ADV_TYPE_ROOM;
 
-  if (!room) {   // alerts: three segments (a dropdown's list runs off screen this low)
-    static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
-    lv_obj_t* row = settingRow(panel, "Alerts", NULL);
-    radioview::rowSegmented(row, NOTIF, contactctl::notif(_prefs, ci.id.pub_key), 200, onConvNotif, 0);
-    static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
-    row = settingRow(panel, "Sound", NULL);
-    radioview::rowSegmented(row, MELODY, contactctl::melody(_prefs, ci.id.pub_key), 200, onConvMelody, 0);
+  if (!room) {
+    lv_obj_t* g = group(panel, nullptr);
+    choiceRow(g, "Alerts", nullptr, "Default\nMuted\nAlways", contactctl::notif(_prefs, ci.id.pub_key), onConvNotif);
+    choiceRow(g, "Sound", nullptr, "Default\nMelody 1\nMelody 2", contactctl::melody(_prefs, ci.id.pub_key), onConvMelody);
   } else {
     bool in = _core->rooms.isLoggedIn(ci.id.pub_key);
     lv_obj_t* st = label(panel, in ? LV_SYMBOL_OK "  Logged in: you can post"

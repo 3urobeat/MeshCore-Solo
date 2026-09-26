@@ -92,7 +92,7 @@ static void onAlarmSwitch(lv_event_t* e) {
   s_ui->setAlarm(2, lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED) ? 1 : 0);
 }
 static void onAlarmRepeat(lv_event_t* e) {
-  s_ui->setAlarm(3, (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->setAlarm(3, choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onTimerRoller(lv_event_t* e) {
   int v = (int)lv_roller_get_selected((lv_obj_t*)lv_event_get_target(e));
@@ -160,17 +160,12 @@ void UITask::buildClock() {
     if (_prefs->alarm_on) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, onAlarmSwitch, LV_EVENT_VALUE_CHANGED, NULL);
     label(col, "Repeat", THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_obj_t* dd = lv_dropdown_create(col);
     char opts[48];
     int o = 0;
     for (uint8_t i = 0; i < NodePrefs::ALARM_REPEAT_COUNT; i++)
       o += snprintf(opts + o, sizeof(opts) - o, "%s%s", i ? "\n" : "", i ? NodePrefs::alarmRepeatLabel(i) : "Once");
-    lv_dropdown_set_options(dd, opts);
-    lv_dropdown_set_selected(dd, NodePrefs::alarmRepeatIdxForMask(_prefs->alarm_repeat_mask));
+    lv_obj_t* dd = choiceCreate(col, opts, NodePrefs::alarmRepeatIdxForMask(_prefs->alarm_repeat_mask), "Repeat");
     lv_obj_set_width(dd, 112);
-    lv_obj_t* list = lv_dropdown_get_list(dd);   // opens upwards: tighter so all four fit under the status bar
-    lv_obj_set_style_pad_ver(list, 4, 0);
-    lv_obj_set_style_text_line_space(list, 12, 0);
     lv_obj_add_event_cb(dd, onAlarmRepeat, LV_EVENT_VALUE_CHANGED, NULL);
     bool synced = rtc_clock.getCurrentTime() > 1000000000UL;
     label(body, synced ? "Rings at this local time (Settings time zone)." : "The clock isn't set yet: the alarm waits for a time sync.",

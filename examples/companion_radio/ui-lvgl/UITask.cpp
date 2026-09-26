@@ -150,24 +150,6 @@ static lv_obj_t* dimOverlay(lv_obj_t* parent) {
   return o;
 }
 
-// A settings row: the label left (a muted hint under it, cut at `hint_w`),
-// room on the right for a switch / dropdown / slider.
-static lv_obj_t* settingRow(lv_obj_t* parent, const char* text, const char* hint, int hint_w = 150) {
-  lv_obj_t* row = lv_obj_create(parent);
-  styleSurface(row, theme::SURFACE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
-  lv_obj_set_style_radius(row, theme::RADIUS, 0);
-  lv_obj_align(label(row, text, THEME_FONT_BODY, theme::TEXT), LV_ALIGN_TOP_LEFT, theme::PAD, hint ? 5 : 13);
-  if (hint) {
-    lv_obj_t* h = label(row, hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
-    lv_obj_set_size(h, hint_w, 15);   // fixed height: cut, don't wrap onto the label
-    lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
-  }
-  return row;
-}
-
 // ── Info cards ──
 // Label / value rows on a card (Diagnostics, GPS, node detail, About): the
 // label small and muted on the left, the value on the right -- wrapping,
@@ -214,6 +196,7 @@ static lv_obj_t* infoLine(lv_obj_t* card) {   // one row's box, the hairline abo
   lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
   lv_obj_set_style_pad_ver(r, 5, 0);
+  if (lv_obj_has_flag(card, LV_OBJ_FLAG_USER_1)) lv_obj_set_style_pad_hor(r, theme::PAD, 0);   // in a group()
   if (lv_obj_get_index(r) > 0) {
     lv_obj_set_style_border_side(r, LV_BORDER_SIDE_TOP, 0);
     lv_obj_set_style_border_width(r, 1, 0);
@@ -252,6 +235,8 @@ static lv_obj_t* infoNote(lv_obj_t* card, const char* key, const char* text) {
   return t;
 }
 
+static lv_obj_t* sectionTitle(lv_obj_t* parent, const char* text);
+
 static void infoSet(lv_obj_t* value, const char* text) {
   lv_obj_t* row = lv_obj_get_parent(value);
   if (!text || !text[0]) { lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN); return; }
@@ -268,6 +253,322 @@ static lv_obj_t* flexBox(lv_obj_t* parent, lv_flex_flow_t flow) {
   lv_obj_set_flex_flow(b, flow);
   return b;
 }
+
+// ── Settings kit ──
+// Every settings page is built from the same few pieces: group() -- a section
+// title and the card its rows sit on, hairlines between them -- and rows on
+// it: settingRow() (label, hint under it, a control on the right: switch,
+// choice, slider, segmented), listRow() (opens something: a chevron),
+// actionRow() (does something now) and groupNote() (one line under a card).
+// Rows built outside a group keep the older look: a card of their own.
+
+static inline bool isGroup(lv_obj_t* o) { return o && lv_obj_has_flag(o, LV_OBJ_FLAG_USER_1); }
+
+static lv_obj_t* group(lv_obj_t* parent, const char* title) {
+  if (title) sectionTitle(parent, title);
+  lv_obj_t* c = infoCard(parent);
+  lv_obj_set_style_pad_hor(c, 0, 0);   // rows pad themselves: a pressed row lights edge to edge
+  lv_obj_set_style_clip_corner(c, true, 0);
+  lv_obj_add_flag(c, LV_OBJ_FLAG_USER_1);
+  return c;
+}
+
+static lv_obj_t* groupNote(lv_obj_t* parent, const char* text) {
+  lv_obj_t* l = label(parent, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  lv_obj_set_style_pad_hor(l, theme::PAD, 0);
+  return l;
+}
+
+// A group row's box: full width, at least a touch target tall, a flex row
+// with the text column growing and whatever follows it on the right.
+static lv_obj_t* groupLine(lv_obj_t* card, bool tappable) {
+  lv_obj_t* r = infoLine(card);
+  lv_obj_set_style_pad_hor(r, theme::PAD, 0);
+  lv_obj_set_style_pad_ver(r, 6, 0);
+  lv_obj_set_style_min_height(r, theme::ROW_H, 0);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(r, 8, 0);
+  if (tappable) {
+    lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(r, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_STATE_PRESSED);
+  }
+  return r;
+}
+
+// The label (and the hint under it, wrapping) filling a group row's left side.
+static lv_obj_t* groupText(lv_obj_t* row, const char* text, const char* hint, uint32_t col = theme::TEXT) {
+  lv_obj_t* t = flexBox(row, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_width(t, 1);
+  lv_obj_set_flex_grow(t, 1);
+  lv_obj_set_style_pad_row(t, 1, 0);
+  // The row's touch-target height lives here: a row's own min height comes
+  // after its flex layout, which then sits everything at the top.
+  lv_obj_set_style_min_height(t, theme::ROW_H - 12, 0);
+  lv_obj_set_flex_align(t, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_t* l = label(t, text, THEME_FONT_BODY, col);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  if (hint) {
+    lv_obj_t* h = label(t, hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(h, LV_PCT(100));
+  }
+  lv_obj_set_user_data(row, l);   // rowTitle()
+  return l;
+}
+
+// The title label of a settingRow() / listRow(), to recolour or rename it.
+static lv_obj_t* rowTitle(lv_obj_t* row) { return (lv_obj_t*)lv_obj_get_user_data(row); }
+
+// A settings row: the label left (a muted hint under it, cut at `hint_w`),
+// room on the right for a switch / dropdown / slider.
+static lv_obj_t* settingRow(lv_obj_t* parent, const char* text, const char* hint, int hint_w = 150) {
+  if (isGroup(parent)) {
+    lv_obj_t* row = groupLine(parent, false);
+    groupText(row, text, hint);
+    return row;
+  }
+  lv_obj_t* row = lv_obj_create(parent);
+  styleSurface(row, theme::SURFACE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
+  lv_obj_set_style_radius(row, theme::RADIUS, 0);
+  lv_obj_t* t = label(row, text, THEME_FONT_BODY, theme::TEXT);
+  lv_obj_align(t, LV_ALIGN_TOP_LEFT, theme::PAD, hint ? 5 : 13);
+  lv_obj_set_user_data(row, t);
+  if (hint) {
+    lv_obj_t* h = label(row, hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(h, hint_w, 15);   // fixed height: cut, don't wrap onto the label
+    lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, theme::PAD, -5);
+  }
+  return row;
+}
+
+// Does something at once (Reboot, Delete ...): its text in `col`, no chevron.
+// Returns the label, for a confirm-by-second-tap text.
+static lv_obj_t* actionRow(lv_obj_t* card, const char* text, lv_event_cb_t cb, void* user,
+                           uint32_t col = theme::TEXT) {
+  lv_obj_t* r = groupLine(card, true);
+  lv_obj_t* l = groupText(r, text, nullptr, col);
+  lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, user);
+  return l;
+}
+
+// ── Choice: a value picked from a list ──
+// In place of a dropdown: the value and a chevron; a tap opens the options
+// over the screen, and a pick sends LV_EVENT_VALUE_CHANGED like a dropdown.
+struct Choice {
+  char* opts;          // "\n"-separated, owned
+  uint16_t sel, count;
+  char title[32];
+  lv_obj_t* value;
+};
+static lv_obj_t* s_pick_overlay = nullptr;
+static lv_obj_t* s_pick_target = nullptr;
+
+static Choice* choiceOf(lv_obj_t* c) { return (Choice*)lv_obj_get_user_data(c); }
+
+// Option `i` of a "\n"-list, into buf.
+static const char* choiceItem(const Choice* ch, int i, char* buf, size_t n) {
+  const char* p = ch->opts;
+  for (int k = 0; k < i && p; k++) { p = strchr(p, '\n'); if (p) p++; }
+  if (!p) { buf[0] = '\0'; return buf; }
+  const char* e = strchr(p, '\n');
+  size_t len = e ? (size_t)(e - p) : strlen(p);
+  if (len >= n) len = n - 1;
+  memcpy(buf, p, len);
+  buf[len] = '\0';
+  return buf;
+}
+
+static void choiceShow(lv_obj_t* c) {
+  Choice* ch = choiceOf(c);
+  char v[48];
+  lv_label_set_text(ch->value, choiceItem(ch, ch->sel, v, sizeof(v)));
+}
+
+static void choiceSetOptions(lv_obj_t* c, const char* opts) {
+  Choice* ch = choiceOf(c);
+  lv_free(ch->opts);
+  size_t n = strlen(opts);
+  ch->opts = (char*)lv_malloc(n + 1);
+  memcpy(ch->opts, opts, n + 1);
+  ch->count = 1;
+  for (const char* p = opts; *p; p++) if (*p == '\n') ch->count++;
+  if (ch->sel >= ch->count) ch->sel = 0;
+  choiceShow(c);
+}
+
+static int choiceSelected(lv_obj_t* c) { return choiceOf(c)->sel; }
+static void choiceSetSelected(lv_obj_t* c, int i) {
+  Choice* ch = choiceOf(c);
+  if (i < 0 || i >= ch->count) return;
+  ch->sel = (uint16_t)i;
+  choiceShow(c);
+}
+
+static void pickerClose() {
+  if (s_pick_overlay) lv_obj_delete_async(s_pick_overlay);
+  s_pick_overlay = s_pick_target = nullptr;
+}
+
+static void onPickOption(lv_event_t* e) {
+  lv_obj_t* c = s_pick_target;
+  pickerClose();
+  if (!c) return;
+  choiceSetSelected(c, (int)(uintptr_t)lv_event_get_user_data(e));
+  lv_obj_send_event(c, LV_EVENT_VALUE_CHANGED, NULL);   // may rebuild the screen: c is gone after this
+}
+
+static void pickerOpen(lv_obj_t* c) {
+  Choice* ch = choiceOf(c);
+  pickerClose();
+  s_pick_target = c;
+  s_pick_overlay = dimOverlay(lv_layer_top());
+  lv_obj_add_event_cb(s_pick_overlay, [](lv_event_t* e) {   // a tap beside the list: nothing changes
+    if (lv_event_get_target(e) == lv_event_get_current_target(e)) pickerClose();
+  }, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* panel = lv_obj_create(s_pick_overlay);
+  styleSurface(panel, theme::BG);
+  lv_obj_set_width(panel, lv_display_get_horizontal_resolution(NULL) - 48);
+  lv_obj_set_height(panel, LV_SIZE_CONTENT);
+  lv_obj_set_style_max_height(panel, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 16, 0);
+  lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
+  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(panel, 1, 0);
+  lv_obj_set_style_pad_all(panel, 6, 0);
+  lv_obj_set_style_pad_row(panel, 4, 0);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t* t = label(panel, ch->title, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_set_style_pad_hor(t, 4, 0);
+  lv_obj_t* card = group(panel, nullptr);
+  lv_obj_t* sel_row = nullptr;
+  for (int i = 0; i < ch->count; i++) {
+    char v[48];
+    bool cur = i == ch->sel;
+    lv_obj_t* r = groupLine(card, true);
+    lv_obj_set_style_min_height(r, 38, 0);
+    groupText(r, choiceItem(ch, i, v, sizeof(v)), nullptr, cur ? theme::ACCENT : theme::TEXT);
+    if (cur) { label(r, LV_SYMBOL_OK, THEME_FONT_BODY, theme::ACCENT); sel_row = r; }
+    lv_obj_add_event_cb(r, onPickOption, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+  }
+  anim::popup(s_pick_overlay);
+  if (sel_row) { lv_obj_update_layout(panel); lv_obj_scroll_to_view_recursive(sel_row, LV_ANIM_OFF); }
+}
+
+// A choice: in a group row the value is bare text (accent) and a chevron;
+// elsewhere it sits on a small surface of its own.
+static lv_obj_t* choiceCreate(lv_obj_t* parent, const char* opts, int sel, const char* title) {
+  lv_obj_t* c = lv_obj_create(parent);
+  lv_obj_remove_style_all(c);
+  lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(c, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);   // END + SIZE_CONTENT mis-sizes
+  lv_obj_set_style_pad_column(c, 6, 0);
+  lv_obj_set_ext_click_area(c, 10);
+  lv_obj_set_style_opa(c, LV_OPA_60, LV_STATE_PRESSED);
+  if (!isGroup(lv_obj_get_parent(parent))) {
+    lv_obj_set_style_bg_color(c, lv_color_hex(theme::SURFACE_2), 0);
+    lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(c, theme::RADIUS_SM, 0);
+    lv_obj_set_style_pad_hor(c, 10, 0);
+    lv_obj_set_style_pad_ver(c, 8, 0);
+  }
+  Choice* ch = (Choice*)lv_malloc(sizeof(Choice));
+  memset(ch, 0, sizeof(*ch));
+  snprintf(ch->title, sizeof(ch->title), "%s", title ? title : "");
+  ch->value = label(c, "", THEME_FONT_BODY, theme::ACCENT);
+  lv_obj_set_style_max_width(ch->value, 140, 0);   // a long value wraps (LONG_DOT mis-sizes with SIZE_CONTENT)
+  lv_obj_set_style_text_align(ch->value, LV_TEXT_ALIGN_RIGHT, 0);
+  label(c, LV_SYMBOL_DOWN, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_set_user_data(c, ch);
+  ch->sel = sel < 0 ? 0 : (uint16_t)sel;
+  choiceSetOptions(c, opts);
+  lv_obj_add_event_cb(c, [](lv_event_t* e) { pickerOpen((lv_obj_t*)lv_event_get_current_target(e)); },
+                      LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(c, [](lv_event_t* e) {
+    lv_obj_t* o = (lv_obj_t*)lv_event_get_current_target(e);
+    if (s_pick_target == o) pickerClose();
+    Choice* ch = choiceOf(o);
+    lv_free(ch->opts);
+    lv_free(ch);
+  }, LV_EVENT_DELETE, NULL);
+  return c;
+}
+
+
+// One settings row: label left, a choice right.
+static lv_obj_t* choiceRow(lv_obj_t* parent, const char* text, const char* hint, const char* options, int sel,
+                           lv_event_cb_t cb, void* user = nullptr) {
+  lv_obj_t* row = settingRow(parent, text, hint);
+  lv_obj_t* c = choiceCreate(row, options, sel, text);
+  lv_obj_align(c, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_add_event_cb(c, cb, LV_EVENT_VALUE_CHANGED, user);
+  return c;
+}
+
+// A value typed in a popup (frequency, name ...): shown as a choice is, with
+// a pencil; the tap is the caller's.
+static lv_obj_t* rowValue(lv_obj_t* row, const char* text, lv_event_cb_t cb, void* user = nullptr) {
+  lv_obj_t* c = flexBox(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(c, 6, 0);
+  lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_ext_click_area(c, 10);
+  lv_obj_set_style_opa(c, LV_OPA_60, LV_STATE_PRESSED);
+  label(c, text, THEME_FONT_BODY, theme::ACCENT);
+  label(c, LV_SYMBOL_EDIT, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, user);
+  return c;
+}
+
+// A tick on a listRow() (the one in use), left of its chevron.
+static void rowCheck(lv_obj_t* row) {
+  lv_obj_t* l = label(row, LV_SYMBOL_OK, THEME_FONT_BODY, theme::ACCENT);
+  if (isGroup(lv_obj_get_parent(row))) lv_obj_move_to_index(l, (int32_t)lv_obj_get_child_count(row) - 2);
+  else lv_obj_align(l, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+}
+
+// The subtitle label of a listRow() / settingRow() with one, to update it.
+static lv_obj_t* rowSub(lv_obj_t* row) {
+  if (isGroup(lv_obj_get_parent(row))) return lv_obj_get_child(lv_obj_get_child(row, 0), 1);
+  return lv_obj_get_child(row, 1);
+}
+
+// Settings pages: the schema's, then this UI's own. Display, Power and Time
+// split the schema's "Display & power" page (shared with L1, left as it is)
+// into what their titles say.
+enum : uint8_t { PG_KEYBOARD = settings::PG_COUNT, PG_ABOUT, PG_DISPLAY, PG_POWER, PG_TIME, PG_ALL };
+
+// A schema setting by its NodePrefs field; -1 if there's none.
+static int settingIdx(uint16_t offset) {
+  for (int i = 0; i < settings::COUNT; i++) if (settings::ALL[i].offset == offset) return i;
+  return -1;
+}
+#define SETTING(field) settingIdx(offsetof(NodePrefs, field))
+
+// A setting's current value as its choice shows it ("UTC+2", "3.4 V" ...).
+static const char* settingText(const NodePrefs& p, int idx, char* buf, int n) {
+  buf[0] = '\0';
+  if (idx < 0) return buf;
+  const settings::Setting& st = settings::ALL[idx];
+  uint8_t v = settings::get(p, st);
+  if (st.option) st.option(v, buf, n, p);
+  else snprintf(buf, n, "%s", v ? "On" : "Off");
+  return buf;
+}
+static lv_obj_t* s_sec_card[settings::SEC_COUNT];   // schemaRows()' groups, by section
+static bool s_opts_from_map = false;                // Map options opened from the map: back returns there
+static int32_t s_settings_y = 0;                    // Settings' scroll, kept while a page of it is open
 
 // A one-of-N choice: a row (or grid, with "\n" in the map) of checkable
 // buttons, `sel` checked (-1: none). `item` is the unchecked button colour —
@@ -929,6 +1230,8 @@ static void onBack(lv_event_t* e) { (void)e; s_ui->back(); }
 lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _home_clock = _home_date = _home_unread = nullptr;
   _thread_list = _compose_ta = _keyboard = nullptr;
+  if (_shown_screen == SCR_SETTINGS && _body) s_settings_y = lv_obj_get_scroll_y(_body);
+  pickerClose();
   _header = _body = nullptr;
   _nearby_list = _nearby_status = _nearby_sort_lbl = _nearby_chips = nullptr;
   _node_info = _node_ping = _node_delete_lbl = nullptr;
@@ -1022,7 +1325,7 @@ void UITask::back() {
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV:   // the map's options go back to the map
-      if (_settings_page == settings::PG_NAV) openMap(true); else showSettings();
+      if (_settings_page == settings::PG_NAV && s_opts_from_map) openMap(true); else showSettings();
       break;
     case SCR_QUICK:    // back to Messages & contacts' bottom, where the row is
       if (_nav_overlay) { navClosePopup(); break; }
@@ -1322,8 +1625,16 @@ static void onChatFilter(lv_event_t* e);
 enum : uint8_t { CF_CHANNELS, CF_ROOMS, CF_CONTACTS };   // favourites-only filters
 
 // One tappable list row: title, optional muted subtitle, optional badge.
+// In a group(): a flat row, the subtitle wrapping, a chevron on the right.
 static lv_obj_t* listRow(lv_obj_t* parent, const char* title, const char* sub,
                          lv_event_cb_t cb, void* user) {
+  if (isGroup(parent)) {
+    lv_obj_t* row = groupLine(parent, true);
+    groupText(row, title, sub);
+    label(row, LV_SYMBOL_RIGHT, THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, user);
+    return row;
+  }
   lv_obj_t* row = lv_button_create(parent);
   lv_obj_set_size(row, LV_PCT(100), theme::ROW_H);
   lv_obj_set_style_bg_color(row, lv_color_hex(theme::SURFACE), 0);
@@ -1336,6 +1647,7 @@ static lv_obj_t* listRow(lv_obj_t* parent, const char* title, const char* sub,
   lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
   lv_obj_set_width(t, 230);
   lv_obj_align(t, LV_ALIGN_TOP_LEFT, theme::PAD, sub ? 5 : 13);
+  lv_obj_set_user_data(row, t);
   if (sub) {
     lv_obj_t* s = label(row, sub, THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_label_set_long_mode(s, LV_LABEL_LONG_DOT);
@@ -1754,7 +2066,7 @@ void UITask::refreshNearbyList() {
     snprintf(sub, sizeof(sub), "%s%s%s%s", kind, e.is_live ? "  -  live" : "",
              (e.dist_km >= 0.0f && age[0]) ? "  -  " : "", (e.dist_km >= 0.0f && age[0]) ? age : "");
     lv_obj_t* row = listRow(_nearby_list, title, sub, onNearbyRow, (void*)(uintptr_t)i);
-    if (e.fav) lv_obj_set_style_text_color(lv_obj_get_child(row, 0), lv_color_hex(theme::ACCENT), 0);
+    if (e.fav) lv_obj_set_style_text_color(rowTitle(row), lv_color_hex(theme::ACCENT), 0);
     if (right[0]) {
       lv_obj_t* r = label(row, right, THEME_FONT_SMALL, e.is_live ? theme::OK : theme::TEXT_MUTED);
       lv_obj_align(r, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
@@ -2531,19 +2843,7 @@ static lv_obj_t* s_kb_alt_dd = nullptr;
 
 static void onKeyboardAlphabet(lv_event_t* e) {
   (void)e;
-  s_ui->setKeyboardAlphabets(lv_dropdown_get_selected(s_kb_main_dd), lv_dropdown_get_selected(s_kb_alt_dd));
-}
-
-// One settings row: label left, dropdown right.
-static lv_obj_t* dropdownRow(lv_obj_t* parent, const char* text, const char* options, int sel) {
-  lv_obj_t* row = settingRow(parent, text, NULL);
-  lv_obj_t* dd = lv_dropdown_create(row);
-  lv_dropdown_set_options_static(dd, options);
-  lv_dropdown_set_selected(dd, sel);
-  lv_obj_set_width(dd, 130);
-  lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_add_event_cb(dd, onKeyboardAlphabet, LV_EVENT_VALUE_CHANGED, NULL);
-  return dd;
+  s_ui->setKeyboardAlphabets(choiceSelected(s_kb_main_dd), choiceSelected(s_kb_alt_dd));
 }
 
 // A preference toggle (0/1 byte in NodePrefs), saved on change.
@@ -2578,7 +2878,7 @@ static void onSchemaSwitch(lv_event_t* e) {
 }
 static void onSchemaDropdown(lv_event_t* e) {
   s_ui->setSchemaValue((int)(uintptr_t)lv_event_get_user_data(e),
-                       (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+                       choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
@@ -2590,9 +2890,11 @@ static void onVolumeSlider(lv_event_t* e) {
   s_ui->setSoundVolume((int)lv_slider_get_value((lv_obj_t*)lv_event_get_target(e)));
 }
 
+
 void UITask::showSchemaSettings(int page) {
+  if (page == settings::PG_NAV && !_nav_back) s_opts_from_map = _screen == SCR_MAP;
   _screen = SCR_SETTINGS_NAV;
-  _settings_page = (uint8_t)(page < settings::PG_COUNT ? page : 0);
+  _settings_page = (uint8_t)(page < PG_ALL ? page : 0);
   buildSchemaSettings();
 }
 
@@ -2646,99 +2948,146 @@ void UITask::setTapWake(bool on) {
 }
 
 void UITask::buildSchemaSettings() {
-  lv_obj_t* body = newScreen(settings::pageTitle(_settings_page), true);
+  static const char* const OWN[] = { "Keyboard", "About", "Display", "Power", "Time" };
+  const char* title = _settings_page >= PG_KEYBOARD ? OWN[_settings_page - PG_KEYBOARD] : settings::pageTitle(_settings_page);
+  lv_obj_t* body = newScreen(title, true);
   _prune_lbl = nullptr;
   _prune_armed_ms = 0;
+  switch (_settings_page) {
+    case PG_KEYBOARD: buildKeyboardPage(body); return;
+    case PG_ABOUT:    buildAboutPage(body); return;
+    case PG_DISPLAY: {
+      lv_obj_t* g = group(body, "SCREEN");
+      schemaRow(g, SETTING(display_brightness));
+      schemaRow(g, SETTING(auto_off_secs));
+      schemaRow(g, SETTING(msg_wake_screen_off));
+      lv_obj_t* tw = switchRow(g, "Tap to wake", "Off: only the top button wakes it", nullptr);   // in NVS
+      if (_tap_wake) lv_obj_add_state(tw, LV_STATE_CHECKED);
+      lv_obj_add_event_cb(tw, onTapWake, LV_EVENT_VALUE_CHANGED, NULL);
+      g = group(body, "LOCK");
+      schemaRow(g, SETTING(auto_lock));
+      listRow(g, "Screen PIN", _pin[0] ? "On  -  asked when the screen wakes" : "Off", onPinSetup, NULL);
+      accentRow(group(body, "LOOK"));   // DeviceScreen.h
+      return;
+    }
+    case PG_POWER: {
+      lv_obj_t* g = group(body, "BATTERY");
+      schemaRow(g, SETTING(batt_display_mode));
+      schemaRow(g, SETTING(low_batt_mv));
+      g = group(body, "GPS");
+      schemaRow(g, SETTING(gps_interval));
+      return;
+    }
+    case PG_TIME: {
+      lv_obj_t* g = group(body, nullptr);
+      for (int i = 0; i < settings::COUNT; i++) if (settings::ALL[i].section == settings::SEC_TIME) schemaRow(g, i);
+      return;
+    }
+  }
   schemaRows(body, _settings_page);
-  if (_settings_page == settings::PG_MESSAGES) {   // the action that goes with "Contact expiry"
-    lv_obj_t* b = lv_button_create(body);
-    lv_obj_set_size(b, LV_PCT(100), 38);
-    lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_radius(b, theme::RADIUS, 0);
-    lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
-    lv_obj_add_event_cb(b, onPruneContacts, LV_EVENT_CLICKED, NULL);
-    _prune_lbl = label(b, LV_SYMBOL_TRASH "  Remove inactive contacts now", THEME_FONT_BODY, theme::TEXT);
-    lv_obj_center(_prune_lbl);
-  }
-  if (_settings_page == settings::PG_DEVICE) {   // after Lock screen's section, in NVS not the schema
-    sectionTitle(body, "WAKE");
-    lv_obj_t* tw = switchRow(body, "Tap to wake", "Off: only the top button turns it on", nullptr);
-    if (_tap_wake) lv_obj_add_state(tw, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(tw, onTapWake, LV_EVENT_VALUE_CHANGED, NULL);
-    sectionTitle(body, "SECURITY");
-    listRow(body, LV_SYMBOL_EYE_CLOSE "  Screen PIN", _pin[0] ? "On  -  asked when the screen wakes" : "Off",
-            onPinSetup, NULL);
-    sectionTitle(body, "LOOK");
-    accentRow(body);   // DeviceScreen.h
-  }
   if (_settings_page == settings::PG_SOUND) buildSoundRows(body, false);   // the melodies
   if (_settings_page == settings::PG_MESSAGES) {
-    sectionTitle(body, "QUICK MESSAGES");
+    lv_obj_t* c = s_sec_card[settings::SEC_CONTACTS];   // the action that goes with "Contact expiry"
+    if (c) _prune_lbl = actionRow(c, LV_SYMBOL_TRASH "  Remove inactive contacts now", onPruneContacts, NULL, theme::FAIL);
     char sub[48];
     snprintf(sub, sizeof(sub), "%d of %d set  -  sent with one tap", msgtext::quickUsed(_prefs), msgtext::QUICK_COUNT);
-    listRow(body, LV_SYMBOL_EDIT "  Quick messages", sub, onOpenQuickMsgs, NULL);
+    listRow(s_sec_card[settings::SEC_MESSAGES], "Quick messages", sub, onOpenQuickMsgs, NULL);
   }
 }
 
-// A page's schema rows under their section titles (Settings pages and the tools' options).
+// Settings > Keyboard: the two scripts the keyboard switches between.
+void UITask::buildKeyboardPage(lv_obj_t* body) {
+  uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
+  uint8_t alt_a  = _prefs ? _prefs->keyboard_alt_alphabet : 0;
+  if (main_a >= NodePrefs::KB_ALPHABET_COUNT) main_a = 0;
+  if (alt_a >= NodePrefs::KB_ALPHABET_COUNT) alt_a = main_a;
+  lv_obj_t* g = group(body, "SCRIPTS");
+  // Order matches NodePrefs::KB_ALPHABET_* (Latin, Cyrillic, Greek).
+  s_kb_main_dd = choiceRow(g, "Main", nullptr, "Latin\nCyrillic\nGreek", main_a, onKeyboardAlphabet);
+  // "None" = no second script (stored as alt == main, as ui-new does).
+  s_kb_alt_dd  = choiceRow(g, "Additional", "The globe key switches to it", "None\nLatin\nCyrillic\nGreek",
+                           alt_a == main_a ? 0 : alt_a + 1, onKeyboardAlphabet);
+  groupNote(body, "Hold a letter for accents and other variants.");
+}
+
+// Settings > About: this node, the firmware, credits.
+void UITask::buildAboutPage(lv_obj_t* body) {
+  lv_obj_t* about = infoCard(body);
+  infoRow(about, "Node", the_mesh.getNodeName());
+  infoRow(about, "Firmware", FIRMWARE_VERSION);
+  if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) infoRow(about, "Built", FIRMWARE_BUILD_DATE);
+  sectionTitle(body, "CREDITS");
+  lv_obj_t* cr = infoCard(body);
+  infoNote(cr, "Map data", creditText((lvport::mountStorage() && mapview::s_provider->available())
+                                          ? mapview::s_provider->attribution() : "\xC2\xA9 OpenStreetMap contributors"));
+  infoNote(cr, "Emoji", creditText("Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC-BY\xC2\xA0" "4.0)"));
+}
+
+// A page's schema rows, one group per section (Settings pages and the tools'
+// options). Each section's card is kept in s_sec_card for rows added after.
+
 void UITask::schemaRows(lv_obj_t* body, uint8_t page) {
   uint8_t sec = 0xFF;
+  lv_obj_t* card = nullptr;
+  for (lv_obj_t*& c : s_sec_card) c = nullptr;
   for (int i = 0; i < settings::COUNT; i++) {
     const settings::Setting& st = settings::ALL[i];
     if (settings::sectionPage(st.section) != page) continue;
     if (st.section != sec) {
       sec = st.section;
-      sectionTitle(body, settings::sectionTitle(sec));
-      if (sec == settings::SEC_SOUND) buildSoundRows(body, true);   // On / Off / Auto
+      card = s_sec_card[sec] = group(body, settings::sectionTitle(sec));
+      if (sec == settings::SEC_SOUND) buildSoundRows(card, true);   // On / Off / Auto
     }
-    uint8_t v = settings::get(*_prefs, st);
-    if (st.offset == offsetof(NodePrefs, buzzer_volume)) {   // a five-step slider, heard on release
-      lv_obj_t* row = settingRow(body, st.label, NULL);
-      lv_obj_t* sl = lv_slider_create(row);
-      lv_slider_set_range(sl, 0, 4);
-      lv_slider_set_value(sl, v, LV_ANIM_OFF);
-      lv_obj_set_size(sl, 170, 10);
-      lv_obj_align(sl, LV_ALIGN_RIGHT_MID, -18, 0);
-      lv_obj_set_ext_click_area(sl, 14);
-      lv_obj_add_event_cb(sl, onVolumeSlider, LV_EVENT_RELEASED, NULL);
-      continue;
-    }
-    if (st.offset == offsetof(NodePrefs, display_brightness)) {   // a slider here instead of five steps
-      lv_obj_t* row = settingRow(body, st.label, NULL);
-      lv_obj_t* sl = lv_slider_create(row);
-      lv_slider_set_range(sl, 5, 100);
-      uint8_t pct = _prefs->display_brightness_pct ? _prefs->display_brightness_pct
-                                                   : (uint8_t)(_prefs->display_brightness * 25 > 5 ? _prefs->display_brightness * 25 : 5);
-      lv_slider_set_value(sl, pct, LV_ANIM_OFF);
-      lv_obj_set_size(sl, 170, 10);
-      lv_obj_align(sl, LV_ALIGN_RIGHT_MID, -18, 0);
-      lv_obj_set_ext_click_area(sl, 14);
-      lv_obj_add_event_cb(sl, onBrightnessSlider, LV_EVENT_VALUE_CHANGED, NULL);
-      lv_obj_add_event_cb(sl, onBrightnessSlider, LV_EVENT_RELEASED, NULL);
-      continue;
-    }
-    if (!st.option) {
-      lv_obj_t* sw = switchRow(body, st.label, st.hint, nullptr);
-      if (v) lv_obj_add_state(sw, LV_STATE_CHECKED);
-      lv_obj_add_event_cb(sw, onSchemaSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
-      continue;
-    }
-    char opts[160];
-    int o = 0;
-    for (uint8_t k = 0; k < st.count && o < (int)sizeof(opts) - 16; k++) {
-      if (k) opts[o++] = '\n';
-      st.option(k, opts + o, sizeof(opts) - o, *_prefs);
-      o += strlen(opts + o);
-    }
-    opts[o] = '\0';
-    lv_obj_t* row = settingRow(body, st.label, st.hint, 176);
-    lv_obj_t* dd = lv_dropdown_create(row);
-    lv_dropdown_set_options(dd, opts);
-    lv_dropdown_set_selected(dd, v);
-    lv_obj_set_width(dd, 112);
-    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_add_event_cb(dd, onSchemaDropdown, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
+    schemaRow(card, i);
   }
+}
+
+// One schema setting as a row of `card`: a switch, a choice, or (brightness,
+// volume) a slider.
+void UITask::schemaRow(lv_obj_t* card, int i) {
+  if (i < 0 || i >= settings::COUNT) return;
+  const settings::Setting& st = settings::ALL[i];
+  uint8_t v = settings::get(*_prefs, st);
+  if (st.offset == offsetof(NodePrefs, buzzer_volume)) {   // a five-step slider, heard on release
+    lv_obj_t* row = settingRow(card, st.label, NULL);
+    lv_obj_t* sl = lv_slider_create(row);
+    lv_slider_set_range(sl, 0, 4);
+    lv_slider_set_value(sl, v, LV_ANIM_OFF);
+    lv_obj_set_size(sl, 150, 8);
+    lv_obj_set_style_margin_right(sl, 8, 0);
+    lv_obj_set_ext_click_area(sl, 14);
+    lv_obj_add_event_cb(sl, onVolumeSlider, LV_EVENT_RELEASED, NULL);
+    return;
+  }
+  if (st.offset == offsetof(NodePrefs, display_brightness)) {   // a slider here instead of five steps
+    lv_obj_t* row = settingRow(card, st.label, NULL);
+    lv_obj_t* sl = lv_slider_create(row);
+    lv_slider_set_range(sl, 5, 100);
+    uint8_t pct = _prefs->display_brightness_pct ? _prefs->display_brightness_pct
+                                                 : (uint8_t)(_prefs->display_brightness * 25 > 5 ? _prefs->display_brightness * 25 : 5);
+    lv_slider_set_value(sl, pct, LV_ANIM_OFF);
+    lv_obj_set_size(sl, 150, 8);
+    lv_obj_set_style_margin_right(sl, 8, 0);
+    lv_obj_set_ext_click_area(sl, 14);
+    lv_obj_add_event_cb(sl, onBrightnessSlider, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(sl, onBrightnessSlider, LV_EVENT_RELEASED, NULL);
+    return;
+  }
+  if (!st.option) {
+    lv_obj_t* sw = switchRow(card, st.label, st.hint, nullptr);
+    if (v) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, onSchemaSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
+    return;
+  }
+  char opts[160];
+  int o = 0;
+  for (uint8_t k = 0; k < st.count && o < (int)sizeof(opts) - 16; k++) {
+    if (k) opts[o++] = '\n';
+    st.option(k, opts + o, sizeof(opts) - o, *_prefs);
+    o += strlen(opts + o);
+  }
+  opts[o] = '\0';
+  choiceRow(card, st.label, st.hint, opts, v, onSchemaDropdown, (void*)(uintptr_t)i);
 }
 
 void UITask::setSchemaValue(int idx, int v) {
@@ -2747,7 +3096,7 @@ void UITask::setSchemaValue(int idx, int v) {
   settings::set(*_prefs, st, (uint8_t)v);
   if (st.changed) st.changed(*_core);
   the_mesh.savePrefs();
-  if (st.offset == offsetof(NodePrefs, units_imperial)) {   // other labels depend on it
+  if (st.offset == offsetof(NodePrefs, units_imperial) && _screen == SCR_SETTINGS_NAV) {   // other labels depend on it
     lv_obj_t* body = _body;
     int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
     buildSchemaSettings();
@@ -2763,68 +3112,77 @@ void UITask::showSettings() {
 static void onOpenRadio(lv_event_t* e);   // RadioScreen.h
 static void onOpenStorage(lv_event_t* e); // StorageScreen.h
 
+// Settings: groups of rows, each opening a page (chevron) or switching
+// something on the spot. What the app is for first, the system last.
 void UITask::buildSettings() {
-  // The order of the original (ui-new): display, sound, radio, system,
-  // keyboard, contacts and messages. Tools have their own Home tiles.
+  bool restore = _nav_back;   // back from one of its pages: where it was
   lv_obj_t* body = newScreen("Settings", true);
+  char sub[48];
+  lv_obj_t* g;
+  char v1[24], v2[24];
   if (_prefs) {
-    sectionTitle(body, "DISPLAY");
-    listRow(body, LV_SYMBOL_EYE_OPEN "  Display & power", "Screen, battery, time, units",
-            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_DEVICE);
-    sectionTitle(body, "SOUND");
-    char sub[48], vol[12];
+    g = group(body, "DEVICE");
+    listRow(g, LV_SYMBOL_EYE_OPEN "  Display", "Brightness, screen off, lock, colour",
+            onOpenSchemaPage, (void*)(uintptr_t)PG_DISPLAY);
+    snprintf(sub, sizeof(sub), "Shutdown %s  -  GPS: %s", settingText(*_prefs, SETTING(low_batt_mv), v1, sizeof(v1)),
+             settingText(*_prefs, SETTING(gps_interval), v2, sizeof(v2)));
+    listRow(g, LV_SYMBOL_BATTERY_FULL "  Power", sub, onOpenSchemaPage, (void*)(uintptr_t)PG_POWER);
+    char vol[12];
     settings::optVolume(_prefs->buzzer_volume, vol, sizeof(vol), *_prefs);
-    snprintf(sub, sizeof(sub), "%s, %s  -  alerts, melodies", soundctl::modeLabel(soundctl::mode(_prefs)), vol);
-    listRow(body, LV_SYMBOL_VOLUME_MAX "  Sound", sub, onOpenSchemaPage, (void*)(uintptr_t)settings::PG_SOUND);
-    sectionTitle(body, "RADIO");
+    snprintf(sub, sizeof(sub), "%s, %s", soundctl::modeLabel(soundctl::mode(_prefs)), vol);
+    listRow(g, LV_SYMBOL_VOLUME_MAX "  Sound", sub, onOpenSchemaPage, (void*)(uintptr_t)settings::PG_SOUND);
+    static const char* const SCRIPT[] = { "Latin", "Cyrillic", "Greek" };
+    uint8_t ma = _prefs->keyboard_main_alphabet % NodePrefs::KB_ALPHABET_COUNT;
+    uint8_t aa = _prefs->keyboard_alt_alphabet % NodePrefs::KB_ALPHABET_COUNT;
+    snprintf(sub, sizeof(sub), aa == ma ? "%s" : "%s + %s", SCRIPT[ma], SCRIPT[aa]);
+    listRow(g, LV_SYMBOL_KEYBOARD "  Keyboard", sub, onOpenSchemaPage, (void*)(uintptr_t)PG_KEYBOARD);
+    listRow(g, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resend, expiry, quick messages",
+            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
+  }
+
+  g = group(body, "CONNECTIONS");
+  if (_prefs) {
     int pi = radioctl::currentPreset(_prefs);
     const char* pn = "Custom"; float f, b; uint8_t sf, cr;
     if (pi >= 0) radioctl::presetAt(_prefs, pi, pn, f, b, sf, cr);
     snprintf(sub, sizeof(sub), "%s  -  %.3f MHz, %d dBm", pn, _prefs->freq, _prefs->tx_power_dbm);
-    listRow(body, UI_SYMBOL_RADIO "  Radio", sub, onOpenRadio, NULL);
-  } else {
-    sectionTitle(body, "RADIO");
+    listRow(g, UI_SYMBOL_RADIO "  Radio", sub, onOpenRadio, NULL);
   }
-  bluetoothRow(body);
-  wifiRow(body);
-  sectionTitle(body, "SYSTEM");
-  listRow(body, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
-  listRow(body, LV_SYMBOL_DOWNLOAD "  Firmware update", FIRMWARE_VERSION, onOpenOta, NULL);
-  if (_core->gpsAvailable()) {
-    lv_obj_t* sw = switchRow(body, "GPS", "For maps and sharing", nullptr);
+  bluetoothRow(g);
+  wifiRow(g);
+  if (_core->gpsAvailable()) {   // as WiFi: the switch turns it on / off, the row opens its details
+    lv_obj_t* sw = switchRow(g, LV_SYMBOL_GPS "  GPS", "Tap for satellites and signal", nullptr);
     if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
-    listRow(body, LV_SYMBOL_GPS "  GPS details", "Satellites, signal, sky view", onOpenGpsFromSettings, NULL);
+    lv_obj_t* row = lv_obj_get_parent(sw);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(row, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(row, [](lv_event_t* e) {
+      if (lv_event_get_target(e) == lv_event_get_current_target(e)) onOpenGpsFromSettings(e);   // not the switch
+    }, LV_EVENT_CLICKED, NULL);
   }
-  listRow(body, LV_SYMBOL_SD_CARD "  Storage", "SD card, message history", onOpenStorage, NULL);
-  listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
-  listRow(body, LV_SYMBOL_POWER "  Power off", NULL, onPowerRow, (void*)(uintptr_t)0);
-  sectionTitle(body, "KEYBOARD");
-  uint8_t main_a = _prefs ? _prefs->keyboard_main_alphabet : 0;
-  uint8_t alt_a  = _prefs ? _prefs->keyboard_alt_alphabet : 0;
-  if (main_a >= NodePrefs::KB_ALPHABET_COUNT) main_a = 0;
-  if (alt_a >= NodePrefs::KB_ALPHABET_COUNT) alt_a = main_a;
-  // Order matches NodePrefs::KB_ALPHABET_* (Latin, Cyrillic, Greek).
-  s_kb_main_dd = dropdownRow(body, "Main", "Latin\nCyrillic\nGreek", main_a);
-  // "None" = no second script (stored as alt == main, as ui-new does).
-  s_kb_alt_dd  = dropdownRow(body, "Additional", "None\nLatin\nCyrillic\nGreek",
-                             alt_a == main_a ? 0 : alt_a + 1);
-  label(body, "Hold a letter for accents and other variants.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
+  g = group(body, "MAP & DATA");
+  if (_prefs) listRow(g, UI_SYMBOL_MAP "  Map", "Trail, live sharing, arrival alert",
+                      onOpenSchemaPage, (void*)(uintptr_t)settings::PG_NAV);
+  listRow(g, LV_SYMBOL_SD_CARD "  Storage", "SD card, message history", onOpenStorage, NULL);
+
+  g = group(body, "SYSTEM");
+  listRow(g, LV_SYMBOL_EDIT "  Name", the_mesh.getNodeName(), onNodeName, NULL);
   if (_prefs) {
-    sectionTitle(body, "CONTACTS & MESSAGES");
-    listRow(body, LV_SYMBOL_ENVELOPE "  Messages & contacts", "Resend, expiry, quick messages",
-            onOpenSchemaPage, (void*)(uintptr_t)settings::PG_MESSAGES);
+    snprintf(sub, sizeof(sub), "%s, %s", settingText(*_prefs, SETTING(tz_offset_hours), v1, sizeof(v1)),
+             _prefs->clock_12h ? "12 h" : "24 h");
+    listRow(g, UI_SYMBOL_CLOCK "  Time", sub, onOpenSchemaPage, (void*)(uintptr_t)PG_TIME);
+    schemaRow(g, SETTING(units_imperial));
   }
+  listRow(g, LV_SYMBOL_DOWNLOAD "  Firmware update", FIRMWARE_VERSION, onOpenOta, NULL);
+  listRow(g, LV_SYMBOL_LIST "  About", "Node, firmware, credits", onOpenSchemaPage, (void*)(uintptr_t)PG_ABOUT);
 
-  sectionTitle(body, "ABOUT");
-  lv_obj_t* about = infoCard(body);
-  infoRow(about, "Node", the_mesh.getNodeName());
-  infoRow(about, "Firmware", FIRMWARE_VERSION);
-  if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) infoRow(about, "Built", FIRMWARE_BUILD_DATE);
-  infoNote(about, "Map data", creditText((lvport::mountStorage() && mapview::s_provider->available())
-                                             ? mapview::s_provider->attribution() : "\xC2\xA9 OpenStreetMap contributors"));
-  infoNote(about, "Emoji", creditText("Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC-BY\xC2\xA0" "4.0)"));
+  g = group(body, nullptr);
+  actionRow(g, LV_SYMBOL_REFRESH "  Reboot", onPowerRow, (void*)(uintptr_t)1);
+  actionRow(g, LV_SYMBOL_POWER "  Power off", onPowerRow, (void*)(uintptr_t)0, theme::FAIL);
+  if (restore) { lv_obj_update_layout(body); lv_obj_scroll_to_y(body, s_settings_y, LV_ANIM_OFF); }
 }
 
 void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
@@ -2860,5 +3218,25 @@ extern "C" EMSCRIPTEN_KEEPALIVE void sim_open(const char* name) {
     { "quick", &UITask::showQuickMsgs },
   };
   for (auto& s : SCREENS) if (!strcmp(s.n, name)) { (s_ui->*s.fn)(); return; }
+  if (!strncmp(name, "page", 4)) { s_ui->showSchemaSettings(atoi(name + 4)); return; }
+  if (!strcmp(name, "map")) { s_ui->openMap(true); return; }
+  if (!strcmp(name, "maptools")) { s_ui->navToolsPopup(); return; }
+  if (!strcmp(name, "advert")) { s_ui->advertPopup(); return; }
+}
+// Scrolls the screen's (or a popup's) main list by dy; returns what was left to scroll.
+static void dbgScrollable(lv_obj_t* o, lv_obj_t*& best, int& h) {
+  if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) || lv_obj_check_type(o, &lv_roller_class) || lv_obj_check_type(o, &lv_dropdownlist_class)) return;
+  int v = lv_obj_get_scroll_bottom(o) + lv_obj_get_scroll_y(o);
+  if (lv_obj_has_flag(o, LV_OBJ_FLAG_SCROLLABLE) && v > h) { h = v; best = o; }
+  for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) dbgScrollable(lv_obj_get_child(o, i), best, h);
+}
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_scroll(int dy) {
+  lv_obj_t* o = nullptr; int h = 10;
+  dbgScrollable(lv_layer_top(), o, h);
+  if (!o) dbgScrollable(lv_screen_active(), o, h);
+  if (!o) return -1;
+  int left = lv_obj_get_scroll_bottom(o);
+  lv_obj_scroll_by(o, 0, -(dy < left ? dy : left), LV_ANIM_OFF);
+  return left;
 }
 #endif

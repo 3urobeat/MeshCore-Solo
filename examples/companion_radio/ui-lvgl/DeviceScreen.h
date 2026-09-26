@@ -407,15 +407,12 @@ void UITask::pinRowRefresh() {
 static void onAccent(lv_event_t* e) { s_ui->setAccent((int)(uintptr_t)lv_event_get_user_data(e)); }
 
 // A row of colour swatches; the current one ringed.
-void UITask::accentRow(lv_obj_t* body) {
-  lv_obj_t* card = lv_obj_create(body);
-  styleSurface(card, theme::SURFACE);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(card, theme::RADIUS, 0);
-  lv_obj_set_style_pad_all(card, theme::PAD, 0);
-  lv_obj_set_style_pad_row(card, 8, 0);
+void UITask::accentRow(lv_obj_t* body) {   // a row of a group: the label over the swatches
+  lv_obj_t* card = groupLine(body, false);
   lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_row(card, 8, 0);
+  lv_obj_set_style_pad_bottom(card, 10, 0);
   label(card, "Accent colour", THEME_FONT_BODY, theme::TEXT);
   lv_obj_t* row = lv_obj_create(card);
   lv_obj_remove_style_all(row);

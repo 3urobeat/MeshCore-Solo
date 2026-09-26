@@ -107,17 +107,15 @@ void UITask::showQuickMsgs() {
 void UITask::buildQuickMsgs() {
   using namespace qview;
   lv_obj_t* body = newScreen("Quick messages", true);
-  lv_obj_t* t = label(body, "Sent from a chat's \"+\"; placeholders are filled in.",
-                      THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
+  lv_obj_t* g = group(body, nullptr);
   for (int i = 0; i < msgtext::QUICK_COUNT; i++) {
     const char* q = msgtext::quick(_prefs, i);
     char title[msgtext::QUICK_LEN + 8];
     snprintf(title, sizeof(title), "%d   %s", i + 1, q[0] ? q : "(empty)");
-    lv_obj_t* row = listRow(body, title, NULL, onQuickSlot, (void*)(uintptr_t)i);
-    if (!q[0]) lv_obj_set_style_text_color(lv_obj_get_child(row, 0), lv_color_hex(theme::TEXT_MUTED), 0);
+    lv_obj_t* row = listRow(g, title, NULL, onQuickSlot, (void*)(uintptr_t)i);
+    if (!q[0]) lv_obj_set_style_text_color(rowTitle(row), lv_color_hex(theme::TEXT_MUTED), 0);
   }
+  groupNote(body, "Sent from a chat's \"+\"; placeholders are filled in.");
 }
 
 // A field and the placeholders over the keyboard (a titled popup doesn't fit
@@ -193,9 +191,9 @@ void UITask::advertPopup() {
   lv_obj_set_flex_grow(list, 1);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, theme::GAP, 0);
-  sectionTitle(list, "SEND NOW");
-  listRow(list, "Zero hop", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
-  listRow(list, "Flood", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
+  lv_obj_t* g = group(list, "SEND NOW");
+  listRow(g, "Zero hop", "Direct range only", onAdvertGo, (void*)(uintptr_t)0);
+  listRow(g, "Flood", "Across the mesh", onAdvertGo, (void*)(uintptr_t)1);
   schemaRows(list, settings::PG_ADVERT);
 }
 

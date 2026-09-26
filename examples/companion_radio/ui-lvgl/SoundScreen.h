@@ -133,7 +133,7 @@ static void onMelMatrix(lv_event_t* e) {
                   (int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onMelBpm(lv_event_t* e) {
-  s_ui->melodySet(MS_BPM, (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->melodySet(MS_BPM, choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onMelAction(lv_event_t* e) { s_ui->melodyAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onMelPlay(lv_event_t* e) { (void)e; s_ui->melodyAction(MA_PLAY); }
@@ -272,19 +272,16 @@ void UITask::buildSoundRows(lv_obj_t* body, bool top) {
     radioview::rowSegmented(row, MODES, soundctl::mode(_prefs), 150, onSoundMode, 0);
     return;
   }
-  sectionTitle(body, "MELODIES");
+  lv_obj_t* g = group(body, "MELODIES");
   for (int slot = 0; slot < 2; slot++) {
     soundctl::Melody m;
     soundctl::load(_prefs, slot, m);
     char sub[40];
     if (m.len) snprintf(sub, sizeof(sub), "%d note%s, %u BPM", m.len, m.len == 1 ? "" : "s", soundctl::bpm(m.bpm_idx));
     else snprintf(sub, sizeof(sub), "Empty  -  tap to compose");
-    listRow(body, slot ? LV_SYMBOL_AUDIO "  Melody 2" : LV_SYMBOL_AUDIO "  Melody 1", sub, onMelodyRow, (void*)(uintptr_t)slot);
+    listRow(g, slot ? "Melody 2" : "Melody 1", sub, onMelodyRow, (void*)(uintptr_t)slot);
   }
-  lv_obj_t* t = label(body, "Per chat: hold it in Chats for its options.",
-                      THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
+  groupNote(body, "Per chat: hold it in Chats for its options.");
 }
 
 // ── Melody editor ─────────────────────────────────────────────────────────────
@@ -312,11 +309,8 @@ void UITask::buildMelodies() {
   lv_obj_t* top = flexRow(body);
   lv_obj_t* slots = segmented(top, SLOTS, s_slot, 150, 32);
   lv_obj_add_event_cb(slots, onMelSlot, LV_EVENT_VALUE_CHANGED, NULL);
-  s_bpm = lv_dropdown_create(top);
-  lv_dropdown_set_options_static(s_bpm, "60 BPM\n90 BPM\n120 BPM\n150 BPM\n180 BPM");
-  lv_dropdown_set_selected(s_bpm, s_mel.bpm_idx);
+  s_bpm = choiceCreate(top, "60 BPM\n90 BPM\n120 BPM\n150 BPM\n180 BPM", s_mel.bpm_idx, "Tempo");
   lv_obj_set_size(s_bpm, 102, 32);
-  lv_obj_set_style_pad_ver(s_bpm, 6, 0);
   lv_obj_add_event_cb(s_bpm, onMelBpm, LV_EVENT_VALUE_CHANGED, NULL);
   smallButton(top, LV_SYMBOL_PLUS, MA_ADD);   // (fits: 150 + 102 + 40 + gaps)
 
@@ -377,7 +371,7 @@ void UITask::melodySlot(int slot) {
   s_slot = slot == 1 ? 1 : 0;
   soundctl::load(_prefs, s_slot, s_mel);
   s_sel = 0;
-  if (s_bpm) lv_dropdown_set_selected(s_bpm, s_mel.bpm_idx);
+  if (s_bpm) choiceSetSelected(s_bpm, s_mel.bpm_idx);
   rebuildStrip();
   syncControls();
   refreshMelody();

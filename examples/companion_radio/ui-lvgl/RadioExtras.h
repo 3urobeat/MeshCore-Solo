@@ -54,27 +54,25 @@ static void onScopeAction(lv_event_t* e)  { s_ui->scopeAction((uint8_t)(uintptr_
 // The Radio screen's lower sections, under the parameters.
 void UITask::buildRadioExtras(lv_obj_t* body) {
   NodePrefs* p = _prefs;
-  sectionTitle(body, "MY PRESETS");
+  lv_obj_t* g = group(body, "MY PRESETS");
   for (int i = 0; i < NodePrefs::USER_RADIO_PRESET_MAX; i++) {
     const NodePrefs::UserRadioPreset& u = p->user_radio_presets[i];
     if (!u.name[0]) continue;
     char sub[48];
     snprintf(sub, sizeof(sub), "%.3f MHz  SF%u  BW%g  4/%u", u.freq, (unsigned)u.sf, (double)u.bw, (unsigned)u.cr);
-    lv_obj_t* row = listRow(body, u.name, sub, onPresetRow, (void*)(uintptr_t)i);
-    if (radioParamsMatchPreset(p->freq, p->bw, p->sf, p->cr, u.freq, u.bw, u.sf, u.cr))
-      lv_obj_align(label(row, LV_SYMBOL_OK, THEME_FONT_BODY, theme::ACCENT), LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+    lv_obj_t* row = listRow(g, u.name, sub, onPresetRow, (void*)(uintptr_t)i);
+    if (radioParamsMatchPreset(p->freq, p->bw, p->sf, p->cr, u.freq, u.bw, u.sf, u.cr)) rowCheck(row);
   }
-  listRow(body, LV_SYMBOL_PLUS "  Save current settings",
-          radioctl::userPresetsFull(p) ? "All 4 used - a new name replaces the oldest" : "As a preset of your own",
-          onPresetSave, NULL);
+  actionRow(g, LV_SYMBOL_PLUS "  Save current settings", onPresetSave, NULL, theme::ACCENT);
+  if (radioctl::userPresetsFull(p)) groupNote(body, "All 4 used - a new name replaces the oldest.");
 
-  sectionTitle(body, "SCOPE");
+  g = group(body, "SCOPE");
   const ScopeList& sl = the_mesh.scopeList();
   char sub[48];
   if (sl.count == 0) snprintf(sub, sizeof(sub), "None set up - messages go everywhere");
   else snprintf(sub, sizeof(sub), "Default: %s  (%u set up)", sl.default_idx ? sl.name(sl.default_idx) : "no scope",
                 (unsigned)sl.count);
-  listRow(body, LV_SYMBOL_LIST "  Scopes", sub, onOpenScopes, NULL);
+  listRow(g, "Scopes", sub, onOpenScopes, NULL);
 }
 
 // ── My presets ────────────────────────────────────────────────────────────────
@@ -184,14 +182,15 @@ void UITask::buildScopes() {
   lv_obj_t* body = newScreen("Scopes", true);
   const ScopeList& sl = the_mesh.scopeList();
   if (_header && sl.count < ScopeList::MAX_SCOPE_ENTRIES) headerButton(_header, LV_SYMBOL_PLUS " Add", onScopeAdd, 4, NULL);
-  radiox::note(body, "A scope keeps messages within a region's repeaters. The default one is used for direct messages "
-                     "and relaying; each channel picks its own in its options.");
+  lv_obj_t* g = group(body, nullptr);
   for (uint8_t i = 0; i <= sl.count; i++) {
     bool def = i == sl.default_idx;
     const char* sub = def ? "Default" : i == 0 ? "Reaches every repeater" : nullptr;
-    lv_obj_t* row = listRow(body, i == 0 ? "*  (no scope)" : sl.name(i), sub, onScopeRow, (void*)(uintptr_t)i);
-    if (def) lv_obj_align(label(row, LV_SYMBOL_OK, THEME_FONT_BODY, theme::ACCENT), LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+    lv_obj_t* row = listRow(g, i == 0 ? "*  (no scope)" : sl.name(i), sub, onScopeRow, (void*)(uintptr_t)i);
+    if (def) rowCheck(row);
   }
+  groupNote(body, "A scope keeps messages within a region's repeaters. The default is used for direct messages "
+                  "and relaying; each channel picks its own in its options.");
 }
 
 void UITask::scopeMenu(int idx) {

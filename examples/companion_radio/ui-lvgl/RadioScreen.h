@@ -23,16 +23,39 @@ static bool s_freq_rpt = false;         // the entry is for the repeater profile
 static const int OPTS_LEN = 1024;
 static char* s_opts = psramBuf<char>(OPTS_LEN);   // dropdown options (LVGL copies them)
 
-// Label + optional hint on the left of a settings row; the control goes on the right.
-
+// A choice at the right of a settings row (its label titles the picker).
 static lv_obj_t* rowDropdown(lv_obj_t* row, const char* opts, int sel, int width, lv_event_cb_t cb, uintptr_t which) {
-  lv_obj_t* dd = lv_dropdown_create(row);
-  lv_dropdown_set_options(dd, opts);
-  if (sel >= 0) lv_dropdown_set_selected(dd, sel);
-  lv_obj_set_width(dd, width);
-  lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_add_event_cb(dd, cb, LV_EVENT_VALUE_CHANGED, (void*)which);
-  return dd;
+  (void)width;
+  lv_obj_t* t = rowTitle(row);
+  lv_obj_t* c = choiceCreate(row, opts, sel, t ? lv_label_get_text(t) : "");
+  lv_obj_align(c, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_add_event_cb(c, cb, LV_EVENT_VALUE_CHANGED, (void*)which);
+  return c;
+}
+
+// The LoRa parameters, as Radio and the repeater's own profile both set them:
+// preset (0 = "Custom"), frequency (typed in a popup), SF, bandwidth, coding
+// rate. `ids` are the radioSet / repeaterSet codes for preset, SF, BW, CR.
+static void paramRows(lv_obj_t* g, const NodePrefs* p, int preset, float freq, uint8_t sf_v, float bw_v, uint8_t cr_v,
+                      lv_event_cb_t cb, const uint8_t ids[4], lv_event_cb_t freq_cb, const char* sf_hint) {
+  int o = snprintf(s_opts, OPTS_LEN, "Custom");
+  const char* name; float f, b; uint8_t sf, cr;
+  for (int i = 0; radioctl::presetAt(p, i, name, f, b, sf, cr) && o < OPTS_LEN - 24; i++)
+    o += snprintf(s_opts + o, OPTS_LEN - o, "\n%s", name);
+  rowDropdown(settingRow(g, "Preset", nullptr), s_opts, preset + 1, 0, cb, ids[0]);
+  char fs[16];
+  snprintf(fs, sizeof(fs), "%.3f MHz", freq);
+  rowValue(settingRow(g, "Frequency", nullptr), fs, freq_cb);
+  o = 0;
+  for (int v = 5; v <= 12; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n%d" : "%d", v);
+  rowDropdown(settingRow(g, "Spreading factor", sf_hint), s_opts, sf_v >= 5 && sf_v <= 12 ? sf_v - 5 : 0, 0, cb, ids[1]);
+  o = 0;
+  for (int i = 0; i < LORA_BW_OPT_COUNT; i++)
+    o += snprintf(s_opts + o, OPTS_LEN - o, "%s%g kHz", i ? "\n" : "", (double)LORA_BW_OPTS[i]);
+  rowDropdown(settingRow(g, "Bandwidth", nullptr), s_opts, nearestBwIndex(bw_v), 0, cb, ids[2]);
+  o = 0;
+  for (int v = 5; v <= 8; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n4/%d" : "4/%d", v);
+  rowDropdown(settingRow(g, "Coding rate", nullptr), s_opts, cr_v >= 5 && cr_v <= 8 ? cr_v - 5 : 0, 0, cb, ids[3]);
 }
 
 // A few choices side by side at the right of a row (a dropdown's list can run
@@ -47,7 +70,7 @@ static lv_obj_t* rowSegmented(lv_obj_t* row, const char** map, int sel, int widt
 }  // namespace radioview
 
 static void onRadioDropdown(lv_event_t* e) {
-  s_ui->radioSet((int)(uintptr_t)lv_event_get_user_data(e), (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->radioSet((int)(uintptr_t)lv_event_get_user_data(e), choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onRadioSwitch(lv_event_t* e) {
   s_ui->radioSet((int)(uintptr_t)lv_event_get_user_data(e),
@@ -68,59 +91,22 @@ void UITask::buildRadio() {
   s_overlay = s_ta = nullptr;
   NodePrefs* p = _prefs;
 
-  // Preset: "Custom" first (current params match none), then the list.
-  int o = snprintf(s_opts, OPTS_LEN, "Custom");
-  const char* name; float f, b; uint8_t sf, cr;
-  for (int i = 0; radioctl::presetAt(p, i, name, f, b, sf, cr) && o < OPTS_LEN - 24; i++)
-    o += snprintf(s_opts + o, OPTS_LEN - o, "\n%s", name);
-  lv_obj_t* row = settingRow(body, "Preset", nullptr);
-  lv_obj_t* dd = rowDropdown(row, s_opts, radioctl::currentPreset(p) + 1, 200, onRadioDropdown, R_PRESET);
-  lv_dropdown_set_dir(dd, LV_DIR_BOTTOM);
+  lv_obj_t* g = group(body, "LORA");
+  static const uint8_t IDS[4] = { R_PRESET, R_SF, R_BW, R_CR };
+  paramRows(g, p, radioctl::currentPreset(p), p->freq, p->sf, p->bw, p->cr, onRadioDropdown, IDS, onRadioFreq,
+            "Higher = longer range");
+  groupNote(body, "Everyone you talk to needs the same settings.");
 
-  // Frequency: tap to type it.
-  row = settingRow(body, "Frequency", "MHz");
-  lv_obj_t* fb = lv_button_create(row);
-  lv_obj_set_size(fb, 120, 34);
-  lv_obj_align(fb, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_set_style_shadow_width(fb, 0, 0);
-  lv_obj_set_style_radius(fb, theme::RADIUS, 0);
-  lv_obj_set_style_bg_color(fb, lv_color_hex(theme::SURFACE_2), 0);
-  lv_obj_add_event_cb(fb, onRadioFreq, LV_EVENT_CLICKED, NULL);
-  char fs[16];
-  snprintf(fs, sizeof(fs), "%.3f", p->freq);
-  lv_obj_center(label(fb, fs, THEME_FONT_BODY, theme::TEXT));
-
-  o = 0;
-  for (int v = 5; v <= 12; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n%d" : "%d", v);
-  rowDropdown(settingRow(body, "Spreading factor", "Higher = longer range"), s_opts,
-              p->sf >= 5 && p->sf <= 12 ? p->sf - 5 : 0, 90, onRadioDropdown, R_SF);
-  o = 0;
-  for (int i = 0; i < LORA_BW_OPT_COUNT; i++)
-    o += snprintf(s_opts + o, OPTS_LEN - o, "%s%g kHz", i ? "\n" : "", (double)LORA_BW_OPTS[i]);
-  rowDropdown(settingRow(body, "Bandwidth", nullptr), s_opts, nearestBwIndex(p->bw), 130, onRadioDropdown, R_BW);
-  o = 0;
-  for (int v = 5; v <= 8; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > 5 ? "\n4/%d" : "4/%d", v);
-  rowDropdown(settingRow(body, "Coding rate", nullptr), s_opts, p->cr >= 5 && p->cr <= 8 ? p->cr - 5 : 0, 90,
-              onRadioDropdown, R_CR);
-
-  sectionTitle(body, "TRANSMIT");
-  o = 0;
+  g = group(body, "TRANSMIT");
+  int o = 0;
   for (int v = TX_MIN; v <= TX_MAX; v++) o += snprintf(s_opts + o, OPTS_LEN - o, v > TX_MIN ? "\n%d dBm" : "%d dBm", v);
   int tx = p->tx_power_dbm < TX_MIN ? TX_MIN : p->tx_power_dbm > TX_MAX ? TX_MAX : p->tx_power_dbm;
-  rowDropdown(settingRow(body, "TX power", p->tx_apc ? "Ceiling for auto power" : nullptr), s_opts, tx - TX_MIN, 110,
+  rowDropdown(settingRow(g, "TX power", p->tx_apc ? "Ceiling for auto power" : nullptr), s_opts, tx - TX_MIN, 0,
               onRadioDropdown, R_TX);
-  row = settingRow(body, "Auto power", p->client_repeat ? "Off while repeating" : "Lowers power on good links");
-  lv_obj_t* sw = lv_switch_create(row);
-  lv_obj_set_size(sw, 46, 24);
-  lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+  lv_obj_t* sw = switchRow(g, "Auto power", p->client_repeat ? "Off while repeating" : "Lowers power on good links", nullptr);
   if (p->tx_apc) lv_obj_add_state(sw, LV_STATE_CHECKED);
   if (p->client_repeat) lv_obj_add_state(sw, LV_STATE_DISABLED);
   lv_obj_add_event_cb(sw, onRadioSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)R_APC);
-
-  lv_obj_t* note = label(body, "Everyone you talk to needs the same settings.",
-                         THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(note, LV_PCT(100));
 
   buildRadioExtras(body);   // my presets, scopes (RadioExtras.h)
 }

@@ -271,6 +271,9 @@ private:
   void buildSettings();
   void buildSchemaSettings();
   void schemaRows(lv_obj_t* body, uint8_t page);
+  void schemaRow(lv_obj_t* card, int idx);
+  void buildKeyboardPage(lv_obj_t* body);
+  void buildAboutPage(lv_obj_t* body);
   void buildAdminPick();
   void buildOta();
   void refreshOta();

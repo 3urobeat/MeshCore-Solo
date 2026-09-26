@@ -878,7 +878,7 @@ static void onLiveTiles(lv_event_t* e) {
 }
 static void onNavTool(lv_event_t* e)        { s_ui->navToolAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNavShareTarget(lv_event_t* e) {
-  s_ui->navSetShareTarget((int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->navSetShareTarget(choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 
 static lv_obj_t* toolRow(lv_obj_t* parent) {
@@ -950,18 +950,7 @@ void UITask::navToolsPopup() {
     o += snprintf(opts + o, sizeof(opts) - o, "%s" UI_SYMBOL_STAR " %s", o ? "\n" : "", c.name);
     favs++;
   }
-  lv_obj_t* tr = lv_obj_create(list);
-  styleSurface(tr, theme::SURFACE);
-  lv_obj_remove_flag(tr, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(tr, LV_PCT(100), 40);
-  lv_obj_set_style_radius(tr, theme::RADIUS, 0);
-  lv_obj_align(label(tr, "Send to", THEME_FONT_BODY, theme::TEXT), LV_ALIGN_LEFT_MID, theme::PAD, 0);
-  lv_obj_t* dd = lv_dropdown_create(tr);
-  lv_dropdown_set_options(dd, o ? opts : "(no channels)");
-  lv_dropdown_set_selected(dd, sel);
-  lv_obj_set_width(dd, 170);
-  lv_obj_align(dd, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_add_event_cb(dd, onNavShareTarget, LV_EVENT_VALUE_CHANGED, NULL);
+  choiceRow(group(list, nullptr), "Send to", nullptr, o ? opts : "(no channels)", sel, onNavShareTarget);
   r = toolRow(list);
   _nav_share_btn = toolButton(r, "", navmap::TL_SHARE_TOGGLE, true);
   toolButton(r, LV_SYMBOL_UPLOAD " Send once", navmap::TL_SHARE_ONCE, false);
@@ -974,14 +963,12 @@ void UITask::navToolsPopup() {
   else snprintf(al, sizeof(al), "Off");
   label(list, al, THEME_FONT_SMALL, theme::TEXT);
 
-  sectionTitle(list, "MAP");
-  lv_obj_t* lsw = switchRow(list, "Live tiles", "Load missing tiles over WiFi", nullptr);
+  lv_obj_t* g = group(list, "MAP");
+  lv_obj_t* lsw = switchRow(g, "Live tiles", "Load missing tiles over WiFi", nullptr);
   if (lvport::liveTiles()) lv_obj_add_state(lsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(lsw, onLiveTiles, LV_EVENT_VALUE_CHANGED, NULL);
-  r = toolRow(list);
-  toolButton(r, LV_SYMBOL_DOWNLOAD " Download this area", navmap::TL_DOWNLOAD, false);
-  r = toolRow(list);
-  toolButton(r, LV_SYMBOL_SETTINGS " Options: trail, sharing, alert", navmap::TL_OPTIONS, false);
+  listRow(g, "Download this area", "For use offline", onNavTool, (void*)(uintptr_t)navmap::TL_DOWNLOAD);
+  listRow(g, "Map options", "Trail, live sharing, arrival alert", onNavTool, (void*)(uintptr_t)navmap::TL_OPTIONS);
 
   _nav_reset_armed_ms = 0;
   refreshNavTools();

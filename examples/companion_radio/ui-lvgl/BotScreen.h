@@ -90,11 +90,12 @@ void UITask::buildBot() {
   lv_obj_add_event_cb(tabs, onBotTab, LV_EVENT_VALUE_CHANGED, NULL);
 
   lv_obj_t* list = scrollList(body);
+  lv_obj_t* g = group(list, nullptr);
 
   for (int i = 0; i < botcfg::rowCount(s_tab); i++) {
     const botcfg::Row& r = botcfg::row(s_tab, i);
     uint8_t* fl = botcfg::flag(p, r.kind);
-    lv_obj_t* row = settingRow(list, r.label, fl || botcfg::isHour(r.kind) ? r.hint : nullptr);
+    lv_obj_t* row = settingRow(g, r.label, fl || botcfg::isHour(r.kind) ? r.hint : nullptr);
     if (fl && r.kind == botcfg::DM_SCOPE) {
       static const char* SCOPE[] = { "All", "Fav", "" };
       lv_obj_t* seg = segmented(row, SCOPE, *fl ? 1 : 0, 110, 32);
@@ -120,11 +121,12 @@ void UITask::buildBot() {
     else snprintf(val, sizeof(val), "%02d:00", botcfg::hour(p, r.kind));
     lv_obj_t* v = label(row, val, THEME_FONT_BODY, theme::ACCENT);
     lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(v, botcfg::isHour(r.kind) ? 80 : 190);   // fixed: LONG_DOT needs a width
+    lv_obj_set_width(v, botcfg::isHour(r.kind) ? 60 : 150);   // fixed: LONG_DOT needs a width
     lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(v, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
+    label(row, LV_SYMBOL_RIGHT, THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(row, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_add_event_cb(row, onBotRow, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
   }
 }

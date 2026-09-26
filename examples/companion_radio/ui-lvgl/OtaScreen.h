@@ -204,10 +204,8 @@ void UITask::buildOta() {
   _ota_btn_lbl = label(b, "", THEME_FONT_BODY, theme::TEXT);
   lv_obj_center(_ota_btn_lbl);
   stylePrimary(b);
-  lv_obj_t* h = label(body, "From github.com/" OTA_REPO " releases, over WiFi. About a minute; keep the device "
-                            "charged. Settings, contacts and messages are kept.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(h, LV_PCT(100));
+  groupNote(body, "From github.com/" OTA_REPO " releases, over WiFi. About a minute; keep the device "
+                  "charged. Settings, contacts and messages are kept.");
   refreshOta();
 }
 

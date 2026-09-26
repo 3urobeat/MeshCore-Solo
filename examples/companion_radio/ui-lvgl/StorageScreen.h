@@ -131,23 +131,19 @@ static uint64_t treeBytes(const char* root, int depth = 0) {
   return sum;
 }
 
-// A bar with "x free of y" under it.
-static lv_obj_t* usageBar(lv_obj_t* parent, lv_obj_t** lbl) {
-  lv_obj_t* card = lv_obj_create(parent);
-  styleSurface(card, theme::SURFACE);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(card, theme::RADIUS, 0);
-  lv_obj_set_style_pad_all(card, theme::PAD, 0);
-  lv_obj_set_style_pad_row(card, 6, 0);
-  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-  lv_obj_t* bar = lv_bar_create(card);
+// A group row: a bar with "x used of y" under it.
+static lv_obj_t* usageBar(lv_obj_t* g, lv_obj_t** lbl) {
+  lv_obj_t* row = infoLine(g);
+  lv_obj_set_style_pad_ver(row, 10, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(row, 6, 0);
+  lv_obj_t* bar = lv_bar_create(row);
   lv_obj_set_size(bar, LV_PCT(100), 10);
   lv_bar_set_range(bar, 0, 1000);
   lv_obj_set_style_bg_color(bar, lv_color_hex(theme::BG), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(bar, lv_color_hex(theme::ACCENT), LV_PART_INDICATOR);
-  *lbl = label(card, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  *lbl = label(row, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
   return bar;
 }
 
@@ -181,11 +177,11 @@ static void refreshSizes() {
 
 static void onOpenStorage(lv_event_t* e) { (void)e; s_ui->showStorage(); }
 static void onHistKeep(lv_event_t* e) {
-  s_ui->storageKeep((int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->storageKeep((int)choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onHistClear(lv_event_t* e) { (void)e; s_ui->storageClearHistory(); }
 static void onLiveCap(lv_event_t* e) {
-  s_ui->storageLiveCap((int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
+  s_ui->storageLiveCap((int)choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onLiveClear(lv_event_t* e) { (void)e; s_ui->storageClearLive(); }
 
@@ -201,22 +197,21 @@ void UITask::buildStorage() {
   memset(s_cat_val, 0, sizeof(s_cat_val));
   s_clear_armed_ms = 0;
 
-  sectionTitle(body, "SD CARD");
+  lv_obj_t* g = group(body, "SD CARD");
   if (!lvport::mountStorage()) {
-    label(body, "No SD card.", THEME_FONT_BODY, theme::TEXT_MUTED);
+    infoRow(g, "Card", "None", theme::TEXT_MUTED);
   } else {
-    s_sd_bar = usageBar(body, &s_sd_lbl);
+    s_sd_bar = usageBar(g, &s_sd_lbl);
     lv_label_set_text(s_sd_lbl, "Reading the card...");
-    lv_obj_t* cats = infoCard(body);   // what takes the space
-    for (int c = 0; c < C_COUNT; c++) s_cat_val[c] = infoRow(cats, CAT_NAME[c], "...", theme::ACCENT);
-    s_status = infoRow(cats, "Files", "");
+    for (int c = 0; c < C_COUNT; c++) s_cat_val[c] = infoRow(g, CAT_NAME[c], "...", theme::ACCENT);   // what takes the space
+    s_status = infoRow(g, "Files", "");
     s_sd_read = false;   // read in pollStorage(): the first read of a big card takes a moment
     startWalk();
   }
 
-  sectionTitle(body, "DEVICE");
+  g = group(body, "DEVICE");
   lv_obj_t* flbl;
-  lv_obj_t* fbar = usageBar(body, &flbl);
+  lv_obj_t* fbar = usageBar(g, &flbl);
   uint64_t ft = 0, fu = 0;
   if (lvport::flashInfo(ft, fu)) {
     if (fu == 0) fu = treeBytes(lvport::FLASH_ROOT);   // the sim only counts files
@@ -224,37 +219,25 @@ void UITask::buildStorage() {
   } else {
     lv_label_set_text(flbl, "Not available");
   }
-  label(body, "Contacts, channels, settings, saved trail, waypoints.", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  groupNote(body, "Contacts, channels, settings, saved trail, waypoints.");
 
-  sectionTitle(body, "MESSAGES");
+  g = group(body, "MESSAGES");
   int keep_idx = histstore::KEEP_DEFAULT;
   for (int i = 0; i < histstore::KEEP_COUNT; i++) if (histstore::KEEP[i] == s_archive.keep()) keep_idx = i;
-  lv_obj_t* dd = dropdownRow(body, "Kept per chat", histstore::KEEP_OPTS, keep_idx);
-  lv_obj_remove_event_cb(dd, onKeyboardAlphabet);
-  lv_obj_add_event_cb(dd, onHistKeep, LV_EVENT_VALUE_CHANGED, NULL);
-  char note[96];
-  snprintf(note, sizeof(note), "Each channel and contact keeps its newest ones on the card (%u KB per 100).",
+  char hint[48];
+  snprintf(hint, sizeof(hint), "Newest on the card, %u KB per 100",
            (unsigned)((sizeof(ChHistEntry) * 100 + 512) / 1024));
-  lv_obj_t* n = label(body, note, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(n, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(n, LV_PCT(100));
-  lv_obj_t* row = listRow(body, LV_SYMBOL_TRASH "  Delete message history", "Every chat, on the card and in memory",
-                          onHistClear, NULL);
-  s_clear_lbl = lv_obj_get_child(row, 0);
+  choiceRow(g, "Kept per chat", hint, histstore::KEEP_OPTS, keep_idx, onHistKeep);
+  s_clear_lbl = actionRow(g, LV_SYMBOL_TRASH "  Delete message history", onHistClear, NULL, theme::FAIL);
 
-  sectionTitle(body, "LIVE MAP TILES");
+  g = group(body, "LIVE MAP TILES");
   int cap_idx = mapview::LIVE_CAP_DEFAULT;
   for (int i = 0; i < mapview::LIVE_CAP_COUNT; i++)
     if (((uint64_t)mapview::LIVE_CAP_MB[i] << 20) == mapview::s_live_cache.limit()) cap_idx = i;
-  lv_obj_t* cd = dropdownRow(body, "Keep up to", mapview::LIVE_CAP_OPTS, cap_idx);
-  lv_obj_remove_event_cb(cd, onKeyboardAlphabet);
-  lv_obj_add_event_cb(cd, onLiveCap, LV_EVENT_VALUE_CHANGED, NULL);
-  s_live_info = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(s_live_info, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_live_info, LV_PCT(100));
-  lv_obj_t* lrow = listRow(body, LV_SYMBOL_TRASH "  Delete live map tiles", "Downloaded maps stay",
-                           onLiveClear, NULL);
-  s_live_lbl = lv_obj_get_child(lrow, 0);
+  s_live_info = infoRow(g, "Fetched while browsing", "");
+  choiceRow(g, "Keep up to", "Past it, the oldest go first", mapview::LIVE_CAP_OPTS, cap_idx, onLiveCap);
+  s_live_lbl = actionRow(g, LV_SYMBOL_TRASH "  Delete live map tiles", onLiveClear, NULL, theme::FAIL);
+  groupNote(body, "Downloaded areas stay.");
   s_live_armed_ms = 0;
   s_shown_ms = 0;
 }
@@ -289,8 +272,7 @@ void UITask::pollStorage() {
     char b[16], t[96];
     fmtBytes(b, sizeof(b), mapview::s_live_cache.bytes());
     if (mapview::s_live_cache.clearing()) snprintf(t, sizeof(t), "Deleting... %lu left", (unsigned long)mapview::s_live_cache.count());
-    else snprintf(t, sizeof(t), "Fetched while browsing online: %lu tiles, %s. Past the limit, the oldest go first.",
-                  (unsigned long)mapview::s_live_cache.count(), b);
+    else snprintf(t, sizeof(t), "%lu tiles, %s", (unsigned long)mapview::s_live_cache.count(), b);
     lv_label_set_text(s_live_info, t);
   }
   if (s_live_armed_ms && millis() - s_live_armed_ms > 4000) {

@@ -39,11 +39,7 @@ static void clearForm() {
 static void onChanAction(lv_event_t* e) { s_ui->channelAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onChanDropdown(lv_event_t* e) {
   s_ui->channelSet((uint8_t)(uintptr_t)lv_event_get_user_data(e),
-                   (int)lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e)));
-}
-static void onChanSegment(lv_event_t* e) {   // user data: C_NOTIF / C_MELODY
-  s_ui->channelSet((uint8_t)(uintptr_t)lv_event_get_user_data(e),
-                   (int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e)));
+                   choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onChanRowHold(lv_event_t* e) {
   lv_indev_wait_release(lv_indev_active());   // the hold isn't also a tap that opens the channel
@@ -79,22 +75,18 @@ void UITask::channelMenu(int idx) {
   snprintf(title, sizeof(title), "%s", ch.name);   // as named: "#" marks a hashtag channel
   lv_obj_t* panel = navPopupPanel(title, false);
 
-  // Notifications: three segments in the row (a dropdown's list ran off the
-  // bottom of the screen from a popup this low).
-  static const char* NOTIF[] = { "Default", "Muted", "Always", "" };
-  static const char* MELODY[] = { "Default", "Melody 1", "Melody 2", "" };
-  lv_obj_t* row = settingRow(panel, "Alerts", NULL);
-  radioview::rowSegmented(row, NOTIF, chanctl::notif(_prefs, idx), 200, onChanSegment, C_NOTIF);
-  row = settingRow(panel, "Sound", NULL);
-  radioview::rowSegmented(row, MELODY, chanctl::melody(_prefs, idx), 200, onChanSegment, C_MELODY);
+  lv_obj_t* g = group(panel, nullptr);
+  choiceRow(g, "Alerts", nullptr, "Default\nMuted\nAlways", chanctl::notif(_prefs, idx), onChanDropdown,
+            (void*)(uintptr_t)C_NOTIF);
+  choiceRow(g, "Sound", nullptr, "Default\nMelody 1\nMelody 2", chanctl::melody(_prefs, idx), onChanDropdown,
+            (void*)(uintptr_t)C_MELODY);
   const ScopeList& sl = the_mesh.scopeList();
   if (sl.count > 0) {   // only once regions are set up (Settings in the app)
-    row = settingRow(panel, "Scope", "Region it's sent in");
     int o = 0;
     for (uint8_t i = 0; i <= sl.count && o < (int)sizeof(s_scope_opts) - 24; i++)
       o += snprintf(s_scope_opts + o, sizeof(s_scope_opts) - o, "%s%s", i ? "\n" : "", sl.name(i));
-    lv_obj_t* dd = radioview::rowDropdown(row, s_scope_opts, chanctl::scope(_prefs, idx), 112, onChanDropdown, C_SCOPE);
-    lv_obj_set_style_max_height(lv_dropdown_get_list(dd), 100, 0);   // stays on screen; scrolls if long
+    choiceRow(g, "Scope", "Region it's sent in", s_scope_opts, chanctl::scope(_prefs, idx), onChanDropdown,
+              (void*)(uintptr_t)C_SCOPE);
   }
 
   lv_obj_t* acts = lv_obj_create(panel);
