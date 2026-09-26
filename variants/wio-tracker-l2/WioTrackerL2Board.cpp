@@ -194,11 +194,18 @@ int16_t WioTrackerL2Board::adsReadRaw() {
   return raw < 0 ? 0 : raw;
 }
 
+// A failed or zero ADS1115 read (the I2C bus busy or the ADC not answering)
+// keeps the last good value instead of reporting 0 mV -- that read as 0 % in
+// the status bar and could trip the low-battery shutdown. Retried once first.
 uint16_t WioTrackerL2Board::getBattMilliVolts() {
   if (!expander_ok) return 0;  // BAT_ADC_EN rail never came up
 
-  int16_t raw = adsReadRaw();
-  if (raw < 0) return 0;
-
-  return (uint16_t)(raw * ADS_MV_PER_LSB);
+  for (int attempt = 0; attempt < 2; attempt++) {
+    int16_t raw = adsReadRaw();
+    if (raw > 0) {
+      batt_mv_last = (uint16_t)(raw * ADS_MV_PER_LSB);
+      return batt_mv_last;
+    }
+  }
+  return batt_mv_last;
 }

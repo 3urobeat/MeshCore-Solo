@@ -93,6 +93,7 @@ private:
   bool expander_ok = false;
   bool aw_ok = false;              // AW35615 USB-C controller responded at probe
   uint8_t wake_btn_baseline = 0;   // idle level of P00, captured at init
+  uint16_t batt_mv_last = 0;       // last good battery reading (a failed read keeps it)
 
   int expReadInputs();   // 16-bit input register pair, -1 on error
 
