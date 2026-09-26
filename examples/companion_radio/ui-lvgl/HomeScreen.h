@@ -1,0 +1,572 @@
+#pragma once
+// Home, laid out like a phone's: pages side by side, swiped between, dots
+// underneath. From the left:
+//   favourites   -- the 3x2 card of favourite chats (DeviceScreen.h)
+//   clock        -- where Home opens and the side button returns: the time
+//                   (tap: Clock), the date, and three telemetry fields the
+//                   user picks (hold one), as on L1 (NodePrefs::dashboard_fields)
+//   map          -- a minimap round your position, framing anyone sharing
+//                   theirs and the target; tap for the Navigation map
+//   apps         -- the tools, 3x2 to a page
+//
+// Single-TU fragment: included by ui-lvgl/UITask.cpp after NavMap.h (the
+// minimap draws with the map's tile cache).
+
+#include <helpers/sensors/LPPDataHelpers.h>
+
+namespace home {
+
+enum : int { FAVS, CLOCK, MAP, APPS };   // pages; APPS and after: the apps, PER_PAGE each
+
+struct App { const char* icon; const char* text; lv_event_cb_t cb; bool unread; };
+static const App APP_LIST[] = {
+  { LV_SYMBOL_ENVELOPE, "Messages",    onOpenChats,     true  },
+  { UI_SYMBOL_USERS,    "Nodes",       onOpenNearby,    false },
+  { LV_SYMBOL_SETTINGS, "Settings",    onOpenSettings,  false },
+  { UI_SYMBOL_COMPASS,  "Compass",     onOpenCompass,   false },
+  { UI_SYMBOL_CLOCK,    "Clock",       onOpenClock,     false },
+  { LV_SYMBOL_GPS,      "GPS",         onOpenGps,       false },
+  { LV_SYMBOL_CHARGE,   "Bot",         onOpenBot,       false },
+  { LV_SYMBOL_LOOP,     "Repeater",    onOpenRepeater,  false },
+  { UI_SYMBOL_KEY,      "Admin",       onOpenAdminPick, false },
+  { UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,      false },
+};
+static const int APP_COUNT = sizeof(APP_LIST) / sizeof(APP_LIST[0]);
+static const int PER_PAGE = 6;
+static const int PAGES = APPS + (APP_COUNT + PER_PAGE - 1) / PER_PAGE;
+
+static lv_obj_t* s_page_box = nullptr;   // the current page's content
+static lv_obj_t* s_dots = nullptr;
+static int s_page = CLOCK;   // kept across rebuilds (the home screen is rebuilt on return)
+static int s_unread_sig = -1;   // unread total the favourites / apps page was drawn with
+
+// A horizontal swipe anywhere on Home turns the page, tracked from the touch
+// itself: LVGL's gesture detector drops a slow swipe (its sum resets on every
+// read without movement). Tapping a dot also goes to that page.
+static bool     s_touching = false, s_swiped = false;
+static lv_point_t s_start;
+static const int SWIPE_PX = 40;
+static void onDot(lv_event_t* e) { s_ui->setHomePage((int)(uintptr_t)lv_event_get_user_data(e)); }
+
+// ── Telemetry fields ──
+// The values of NodePrefs::dashboard_fields, numbered as L1 has them (the
+// prefs are shared): battery, sensors on the bus, position, counts.
+enum : uint8_t { F_NONE, F_BATT_V, F_TEMP, F_HUM, F_PRES, F_GPS, F_ALT, F_LUX, F_CO2, F_NODES, F_MSGS,
+                 F_BATT_PCT, F_SATS, F_ALT_GPS, F_COUNT };
+static const char* const FIELD_NAME[F_COUNT] = {
+  "None", "Battery (V)", "Temperature", "Humidity", "Pressure", "Position", "Altitude (sensor)",
+  "Light", "CO2", "Contacts", "Unread", "Battery (%)", "Satellites", "Altitude (GPS)",
+};
+static const int FIELDS = 3;
+static lv_obj_t* s_field_val[FIELDS];
+static lv_obj_t* s_field_pick[FIELDS];   // hidden choices: holding a field opens its picker
+static CayenneLPP s_lpp(160);
+static uint32_t s_lpp_ms = 0;
+
+static void onFieldHold(lv_event_t* e) {
+  lv_indev_wait_release(lv_indev_active());   // the hold isn't also a tap
+  pickerOpen(s_field_pick[(int)(uintptr_t)lv_event_get_user_data(e)]);
+}
+static void onFieldPicked(lv_event_t* e) {
+  s_ui->homeFieldSet((int)(uintptr_t)lv_event_get_user_data(e), choiceSelected((lv_obj_t*)lv_event_get_target(e)));
+}
+static void onClockTap(lv_event_t* e) { (void)e; s_ui->showClock(); }
+
+// ── Minimap ──
+// The map's tiles (its cache, one decode per loop pass) in a small view:
+// centred on you, zoomed out until whoever shares a position and the target
+// fit too. Re-framed every few seconds while the page is up.
+namespace mini {
+static const int COLS = 3, ROWS = 2;   // 256 px tiles over a ~300 x 170 view at any offset
+static const int MAX_Z = 16, SOLO_Z = 15, MARGIN = 24;
+static lv_obj_t* s_area = nullptr;
+static lv_obj_t* s_cells[COLS * ROWS];
+static lv_obj_t* s_imgs[COLS * ROWS];
+static lv_obj_t* s_hint = nullptr;
+static lv_obj_t* s_caption = nullptr;
+static const int MAX_PTS = LiveTrackStore::CAPACITY + 2;
+struct Pt { int32_t lat, lon; lv_obj_t* obj; };
+static Pt s_pts[MAX_PTS];   // [0] you, then the target, then live shares
+static int s_npts = 0;
+static int s_z = mapview::DEFAULT_Z;
+static double s_cx = 0, s_cy = 0;   // centre, in tiles at s_z
+static bool s_pending = false;
+static uint32_t s_next_fit_ms = 0;
+
+static void onTap(lv_event_t* e) { (void)e; s_ui->openMap(true); }
+
+static lv_obj_t* dot(int d, uint32_t col, uint32_t border) {
+  lv_obj_t* o = lv_obj_create(s_area);
+  lv_obj_remove_style_all(o);
+  lv_obj_set_size(o, d, d);
+  lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(o, lv_color_hex(col), 0);
+  lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(o, lv_color_hex(border), 0);
+  lv_obj_set_style_border_width(o, 2, 0);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+  return o;
+}
+}  // namespace mini
+
+}  // namespace home
+
+// Home tile: an app or a favourite, icon over name, a badge for unread.
+static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, lv_event_cb_t cb, int badge_n) {
+  int w = (lv_display_get_horizontal_resolution(NULL) - 2 * theme::PAD - 2 * theme::GAP) / 3;
+  lv_obj_t* b = lv_button_create(parent);
+  lv_obj_set_size(b, w, 76);
+  lv_obj_set_style_pad_all(b, 4, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_align(label(b, icon, THEME_FONT_LARGE, theme::ACCENT), LV_ALIGN_TOP_MID, 0, 10);
+  lv_obj_t* n = label(b, text, THEME_FONT_SMALL, theme::TEXT);
+  lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_width(n, w - 10);
+  lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -8);
+  badge(b, badge_n, false);
+  return b;
+}
+
+void UITask::showHome() {
+  _screen = SCR_HOME;
+  _share_text[0] = '\0';   // a share not sent to anyone
+  buildHome();
+  refreshHome();
+}
+
+// The side button: back to the clock page, from wherever.
+void UITask::goHome() {
+  if (_nav_overlay) navClosePopup();
+  pickerClose();
+  int was = home::s_page;
+  home::s_page = home::CLOCK;
+  if (_screen == SCR_HOME) {   // another page: the clock fades up in its place
+    if (was == home::CLOCK) return;
+    setHomePage(home::CLOCK);
+    if (home::s_page_box) anim::fadeIn(home::s_page_box);
+    return;
+  }
+  _fade_next = true;   // from a screen: Home dissolves in over it
+  showHome();
+}
+
+void UITask::buildHome() {
+  lv_obj_t* body = newScreen(NULL, false);
+  lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);   // a drag is a page swipe, not a scroll
+  lv_obj_set_style_pad_bottom(body, 26, 0);           // the dots
+  home::s_page_box = lv_obj_create(body);
+  styleSurface(home::s_page_box, theme::BG);
+  lv_obj_remove_flag(home::s_page_box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(home::s_page_box, LV_PCT(100));
+  lv_obj_set_flex_grow(home::s_page_box, 1);
+
+  home::s_dots = lv_obj_create(body);
+  lv_obj_remove_style_all(home::s_dots);
+  lv_obj_add_flag(home::s_dots, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_set_size(home::s_dots, LV_SIZE_CONTENT, 22);
+  lv_obj_align(home::s_dots, LV_ALIGN_BOTTOM_MID, 0, 22);
+  lv_obj_set_flex_flow(home::s_dots, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(home::s_dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(home::s_dots, 12, 0);
+  for (int p = 0; p < home::PAGES; p++) {
+    lv_obj_t* d = lv_obj_create(home::s_dots);
+    lv_obj_remove_style_all(d);
+    lv_obj_set_size(d, 8, 8);
+    lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+    lv_obj_set_ext_click_area(d, 8);
+    lv_obj_add_flag(d, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(d, home::onDot, LV_EVENT_CLICKED, (void*)(uintptr_t)p);
+  }
+  setHomePage(home::s_page);
+}
+
+// From loop() on Home: turn the page once a press has moved SWIPE_PX sideways.
+void UITask::homeSwipePoll() {
+  lv_indev_t* in = lv_indev_get_next(NULL);
+  if (!in) return;
+  bool down = lv_indev_get_state(in) == LV_INDEV_STATE_PRESSED;
+  lv_point_t p;
+  lv_indev_get_point(in, &p);
+  if (!down) { home::s_touching = false; return; }
+  if (!home::s_touching) { home::s_touching = true; home::s_swiped = false; home::s_start = p; return; }
+  if (home::s_swiped) return;
+  int dx = p.x - home::s_start.x, dy = p.y - home::s_start.y;
+  if (abs(dx) < home::SWIPE_PX || abs(dx) < 2 * abs(dy)) return;
+  home::s_swiped = true;
+  lv_indev_wait_release(in);   // the swipe isn't also a tap on the tile it started on
+  setHomePage(home::s_page + (dx < 0 ? 1 : -1));
+}
+
+void UITask::setHomePage(int page) {
+  using namespace home;
+  if (_screen != SCR_HOME || !s_page_box) return;   // s_page_box went with an older screen
+  if (page < 0 || page >= PAGES) return;
+  int from = s_page;
+  s_page = page;
+  lv_obj_clean(s_page_box);
+  _home_clock = _home_date = _home_unread = nullptr;
+  for (lv_obj_t*& v : s_field_val) v = nullptr;
+  mini::s_area = nullptr;
+  s_unread_sig = unreadTotal();
+  lv_obj_set_layout(s_page_box, LV_LAYOUT_FLEX);
+  lv_obj_set_flex_flow(s_page_box, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_set_flex_align(s_page_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_column(s_page_box, theme::GAP, 0);
+  lv_obj_set_style_pad_row(s_page_box, theme::GAP, 0);
+
+  if (page == FAVS) favGrid(s_page_box);   // DeviceScreen.h
+  else if (page == CLOCK) buildHomeClock(s_page_box);
+  else if (page == MAP) buildHomeMap(s_page_box);
+  else {
+    lv_obj_set_flex_align(s_page_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    int first = (page - APPS) * PER_PAGE;
+    for (int i = first; i < first + PER_PAGE && i < APP_COUNT; i++) {
+      const App& a = APP_LIST[i];
+      homeTile(s_page_box, a.icon, a.text, a.cb, a.unread ? unreadTotal() : 0);
+    }
+  }
+  for (int i = 0; s_dots && i < (int)lv_obj_get_child_count(s_dots); i++)
+    lv_obj_set_style_bg_color(lv_obj_get_child(s_dots, i), lv_color_hex(i == page ? theme::ACCENT : theme::SURFACE_2), 0);
+  if (page != from) anim::slideIn(s_page_box, page > from ? 48 : -48);
+  refreshHome();
+}
+
+// The clock page: time (a tap opens Clock), date, name, the three fields.
+void UITask::buildHomeClock(lv_obj_t* box) {
+  using namespace home;
+  lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(box, 0, 0);
+  lv_obj_t* clk = flexBox(box, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(clk, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(clk, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_opa(clk, LV_OPA_70, LV_STATE_PRESSED);
+  lv_obj_add_event_cb(clk, onClockTap, LV_EVENT_CLICKED, NULL);
+  _home_clock = label(clk, "--:--", THEME_FONT_CLOCK, theme::TEXT);
+  _home_date = label(clk, "", THEME_FONT_BODY, theme::TEXT_MUTED);
+  label(clk, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
+
+  lv_obj_t* row = flexBox(box, LV_FLEX_FLOW_ROW);
+  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_style_pad_column(row, theme::GAP, 0);
+  lv_obj_set_style_pad_top(row, 12, 0);
+  char opts[200];
+  int o = 0;
+  for (int k = 0; k < F_COUNT; k++) o += snprintf(opts + o, sizeof(opts) - o, "%s%s", k ? "\n" : "", FIELD_NAME[k]);
+  for (int i = 0; i < FIELDS; i++) {
+    uint8_t f = _prefs ? _prefs->dashboard_fields[i] : F_NONE;
+    if (f >= F_COUNT) f = F_NONE;
+    lv_obj_t* c = lv_obj_create(row);
+    styleSurface(c, f ? theme::SURFACE : theme::BG);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_height(c, 52);
+    lv_obj_set_flex_grow(c, 1);
+    lv_obj_set_style_radius(c, theme::RADIUS, 0);
+    lv_obj_set_style_bg_color(c, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+    if (!f) {   // empty: an outline to fill
+      lv_obj_set_style_border_color(c, lv_color_hex(theme::SURFACE_2), 0);
+      lv_obj_set_style_border_width(c, 1, 0);
+    }
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(c, 2, 0);
+    s_field_pick[i] = choiceCreate(c, opts, f, "Field on the clock page");
+    lv_obj_add_flag(s_field_pick[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(s_field_pick[i], onFieldPicked, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
+    if (f) {
+      lv_obj_add_event_cb(c, onFieldHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)i);
+      label(c, FIELD_NAME[f], THEME_FONT_SMALL, theme::TEXT_MUTED);
+      s_field_val[i] = label(c, "--", THEME_FONT_TITLE, theme::TEXT);
+    } else {   // a tap is enough on an empty one
+      lv_obj_add_event_cb(c, onFieldHold, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+      label(c, LV_SYMBOL_PLUS, THEME_FONT_BODY, theme::TEXT_MUTED);
+    }
+  }
+}
+
+void UITask::homeFieldSet(int slot, int f) {
+  if (!_prefs || slot < 0 || slot >= home::FIELDS || f < 0 || f >= home::F_COUNT) return;
+  _prefs->dashboard_fields[slot] = (uint8_t)f;
+  the_mesh.savePrefs();
+  setHomePage(home::CLOCK);
+}
+
+// One field's value, as short as fits its card.
+void UITask::homeFieldText(uint8_t f, char* v, int n) {
+  using namespace home;
+  snprintf(v, n, "--");
+  bool imperial = _prefs && _prefs->units_imperial;
+  uint16_t mv = _batt_mv ? _batt_mv : getBattMilliVolts();
+  LocationProvider* loc = _sensors ? _sensors->getLocationProvider() : nullptr;
+  switch (f) {
+    case F_BATT_V:   if (mv) snprintf(v, n, "%u.%02u V", mv / 1000, (mv % 1000) / 10); return;
+    case F_BATT_PCT: if (mv) snprintf(v, n, "%d%%", battery::percent(mv, _prefs ? _prefs->low_batt_mv : 0)); return;
+    case F_NODES:    snprintf(v, n, "%d", the_mesh.getNumContacts()); return;
+    case F_MSGS:     snprintf(v, n, "%d", unreadTotal()); return;
+    case F_SATS:     if (loc && _core->gpsEnabled()) snprintf(v, n, "%ld", (long)loc->satellitesCount()); return;
+    case F_GPS: {
+      int32_t lat, lon;
+      if (_core->course.currentLocation(lat, lon)) snprintf(v, n, "%.3f %.3f", lat / 1e6, lon / 1e6);
+      else snprintf(v, n, "no fix");
+      return;
+    }
+    case F_ALT_GPS:
+      if (loc && loc->isValid()) {
+        float m = loc->getAltitude() / 1000.0f;
+        snprintf(v, n, imperial ? "%.0f ft" : "%.0f m", imperial ? m * 3.28084f : m);
+      } else snprintf(v, n, "no fix");
+      return;
+  }
+  // Sensors on the bus: read every few seconds, not per field.
+  if (_sensors && (s_lpp_ms == 0 || millis() - s_lpp_ms > 5000)) {
+    s_lpp_ms = millis() | 1;
+    s_lpp.reset();
+    _sensors->querySensors(0xFF, s_lpp);
+  }
+  uint8_t want = f == F_TEMP ? LPP_TEMPERATURE : f == F_HUM ? LPP_RELATIVE_HUMIDITY : f == F_PRES ? LPP_BAROMETRIC_PRESSURE
+               : f == F_ALT ? LPP_ALTITUDE : f == F_LUX ? LPP_LUMINOSITY : f == F_CO2 ? LPP_CONCENTRATION : 0;
+  if (!want) return;
+  LPPReader r(s_lpp.getBuffer(), s_lpp.getSize());
+  uint8_t ch, type;
+  while (r.readHeader(ch, type)) {
+    if (type != want) { r.skipData(type); continue; }
+    float x;
+    switch (type) {
+      case LPP_TEMPERATURE:
+        r.readTemperature(x);
+        snprintf(v, n, imperial ? "%.1f \xC2\xB0""F" : "%.1f \xC2\xB0""C", imperial ? x * 9 / 5 + 32 : x);
+        break;
+      case LPP_RELATIVE_HUMIDITY:   r.readRelativeHumidity(x); snprintf(v, n, "%.0f%%", x); break;
+      case LPP_BAROMETRIC_PRESSURE: r.readPressure(x); snprintf(v, n, "%.0f hPa", x); break;
+      case LPP_ALTITUDE:
+        r.readAltitude(x);
+        snprintf(v, n, imperial ? "%.0f ft" : "%.0f m", imperial ? x * 3.28084f : x);
+        break;
+      case LPP_LUMINOSITY:          r.readLuminosity(x); snprintf(v, n, "%.0f lx", x); break;
+      case LPP_CONCENTRATION:       r.readConcentration(x); snprintf(v, n, "%.0f ppm", x); break;
+    }
+    return;
+  }
+}
+
+// ── Minimap page ──
+
+void UITask::buildHomeMap(lv_obj_t* box) {
+  using namespace home::mini;
+  lv_obj_set_layout(box, LV_LAYOUT_NONE);
+  s_area = lv_obj_create(box);
+  styleSurface(s_area, 0x1A1A1E);   // unloaded / missing tiles
+  lv_obj_set_size(s_area, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_radius(s_area, theme::RADIUS, 0);
+  lv_obj_set_style_clip_corner(s_area, true, 0);
+  lv_obj_remove_flag(s_area, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(s_area, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+  lv_obj_add_event_cb(s_area, onTap, LV_EVENT_CLICKED, NULL);
+  for (int i = 0; i < COLS * ROWS; i++) {
+    lv_obj_t* cell = lv_obj_create(s_area);
+    lv_obj_remove_style_all(cell);
+    lv_obj_set_size(cell, mapview::TILE_PX, mapview::TILE_PX);
+    lv_obj_remove_flag(cell, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(cell, LV_OBJ_FLAG_HIDDEN);
+    s_cells[i] = cell;
+    s_imgs[i] = lv_image_create(cell);
+    lv_image_set_pivot(s_imgs[i], 0, 0);
+  }
+  s_npts = 0;
+  s_hint = label(s_area, "", THEME_FONT_SMALL, theme::TEXT);
+  lv_obj_set_style_bg_color(s_hint, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(s_hint, LV_OPA_80, 0);
+  lv_obj_set_style_radius(s_hint, theme::RADIUS_SM, 0);
+  lv_obj_set_style_pad_hor(s_hint, 8, 0);
+  lv_obj_set_style_pad_ver(s_hint, 4, 0);
+  lv_obj_set_style_text_align(s_hint, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_center(s_hint);
+  lv_obj_add_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
+  s_caption = label(s_area, "", THEME_FONT_SMALL, theme::TEXT);   // who's on it
+  lv_obj_set_style_bg_color(s_caption, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(s_caption, LV_OPA_80, 0);
+  lv_obj_set_style_radius(s_caption, theme::RADIUS_SM, 0);
+  lv_obj_set_style_pad_hor(s_caption, 6, 0);
+  lv_obj_set_style_pad_ver(s_caption, 2, 0);
+  lv_obj_align(s_caption, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+  mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
+  lv_obj_update_layout(s_area);
+  homeMapFit();
+  homeMapLayout();
+}
+
+// Picks the points, the centre and the zoom that fits them.
+void UITask::homeMapFit() {
+  using namespace home::mini;
+  if (!s_area) return;
+  for (int i = 0; i < s_npts; i++) if (s_pts[i].obj) lv_obj_delete(s_pts[i].obj);
+  s_npts = 0;
+  int32_t lat, lon;
+  bool me = _core->course.currentLocation(lat, lon);
+  int live = 0;
+  bool target = false;
+  if (me) s_pts[s_npts++] = { lat, lon, dot(14, theme::ACCENT, theme::BG) };
+  if (_core->locator.activeTargetPos(lat, lon)) {
+    target = true;
+    s_pts[s_npts++] = { lat, lon, dot(12, theme::BG, theme::ACCENT) };
+  }
+  const LiveTrackStore& lt = _core->live_share.track();
+  uint32_t now = rtc_clock.getCurrentTime();
+  for (int i = 0; i < LiveTrackStore::CAPACITY && s_npts < MAX_PTS; i++) {
+    if (!lt.isActive(i, now)) continue;
+    const LiveTrackStore::Entry& e = lt.slotAt(i);
+    s_pts[s_npts++] = { e.lat_1e6, e.lon_1e6, dot(12, theme::OK, theme::BG) };
+    live++;
+  }
+  lv_obj_move_foreground(s_hint);
+  lv_obj_move_foreground(s_caption);
+
+  char cap[48];
+  int o = snprintf(cap, sizeof(cap), "%s", me ? "You" : "No position yet");
+  if (live) o += snprintf(cap + o, sizeof(cap) - o, "  " LV_SYMBOL_GPS " %d sharing", live);
+  if (target) snprintf(cap + o, sizeof(cap) - o, "  " UI_SYMBOL_FLAG " target");
+  lv_label_set_text(s_caption, cap);
+
+  if (s_npts == 0) {   // nothing to show: the default view
+    s_z = mapview::DEFAULT_Z;
+    s_cx = mapview::lonToTileX(mapview::DEFAULT_LON, s_z);
+    s_cy = mapview::latToTileY(mapview::DEFAULT_LAT, s_z);
+    return;
+  }
+  // Bounds in world units (tiles at z 0), then the deepest zoom they fit at.
+  double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (int i = 0; i < s_npts; i++) {
+    double x = mapview::lonToTileX(s_pts[i].lon / 1e6, 0), y = mapview::latToTileY(s_pts[i].lat / 1e6, 0);
+    x0 = fmin(x0, x); x1 = fmax(x1, x); y0 = fmin(y0, y); y1 = fmax(y1, y);
+  }
+  int w = lv_obj_get_width(s_area) - 2 * MARGIN, h = lv_obj_get_height(s_area) - 2 * MARGIN - 20;
+  s_z = s_npts == 1 ? SOLO_Z : mapview::MIN_Z;
+  for (int z = MAX_Z; s_npts > 1 && z >= mapview::MIN_Z; z--) {
+    double k = (double)(1 << z) * mapview::TILE_PX;
+    if ((x1 - x0) * k <= w && (y1 - y0) * k <= h) { s_z = z; break; }
+  }
+  s_cx = (x0 + x1) / 2 * (1 << s_z);
+  s_cy = (y0 + y1) / 2 * (1 << s_z);
+}
+
+// Places tiles and points; notes whether a tile still has to be decoded.
+void UITask::homeMapLayout() {
+  using namespace home::mini;
+  if (!s_area) return;
+  int w = lv_obj_get_width(s_area), h = lv_obj_get_height(s_area);
+  double left = s_cx * mapview::TILE_PX - w / 2.0, top = s_cy * mapview::TILE_PX - h / 2.0;
+  int tx0 = (int)floor(left / mapview::TILE_PX), ty0 = (int)floor(top / mapview::TILE_PX);
+  int n = 1 << s_z;
+  s_pending = false;
+  for (int j = 0; j < ROWS; j++) {
+    for (int i = 0; i < COLS; i++) {
+      lv_obj_t* cell = s_cells[j * COLS + i];
+      lv_obj_t* img = s_imgs[j * COLS + i];
+      int tx = tx0 + i, ty = ty0 + j, wx = ((tx % n) + n) % n;
+      int px = (int)lround(tx * (double)mapview::TILE_PX - left), py = (int)lround(ty * (double)mapview::TILE_PX - top);
+      mapview::TileCache::Slot* show = nullptr;
+      int k = 0;
+      if (mapview::s_available && ty >= 0 && ty < n && px < w && py < h) {
+        mapview::TileCache::Slot* s = mapview::s_cache.find(s_z, wx, ty);
+        if (s && s->present) show = s;
+        else if (s) {   // none at this zoom: a coarser one, magnified
+          int wz, ax, ay;
+          show = mapview::ancestorFor(s_z, wx, ty, k, wz, ax, ay);
+          if (!show && wz >= 0) s_pending = true;
+        } else {
+          s_pending = true;
+          show = mapview::cachedAncestor(s_z, wx, ty, k);
+        }
+      }
+      if (!show) { lv_obj_add_flag(cell, LV_OBJ_FLAG_HIDDEN); continue; }
+      if (lv_image_get_src(img) != &show->dsc) lv_image_set_src(img, &show->dsc);
+      lv_image_set_scale(img, LV_SCALE_NONE << k);
+      int m = (1 << k) - 1;
+      lv_obj_set_pos(img, -(wx & m) * mapview::TILE_PX, -(ty & m) * mapview::TILE_PX);
+      lv_obj_set_pos(cell, px, py);
+      lv_obj_remove_flag(cell, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  for (int i = 0; i < s_npts; i++) {
+    double x = mapview::lonToTileX(s_pts[i].lon / 1e6, s_z) * mapview::TILE_PX - left;
+    double y = mapview::latToTileY(s_pts[i].lat / 1e6, s_z) * mapview::TILE_PX - top;
+    int d = lv_obj_get_width(s_pts[i].obj);
+    lv_obj_set_pos(s_pts[i].obj, (int)lround(x) - d / 2, (int)lround(y) - d / 2);
+  }
+  const char* hint = !mapview::s_available ? "No map on the SD card" : nullptr;
+  if (hint) { lv_label_set_text(s_hint, hint); lv_obj_remove_flag(s_hint, LV_OBJ_FLAG_HIDDEN); }
+  else lv_obj_add_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
+}
+
+// From loop() while the map page is up: one tile decode per pass, a re-frame
+// every few seconds.
+void UITask::homeMapLoop() {
+  using namespace home::mini;
+  if (!s_area || home::s_touching) return;
+  if ((int32_t)(millis() - s_next_fit_ms) >= 0) {
+    s_next_fit_ms = millis() + 5000;
+    homeMapFit();
+    homeMapLayout();
+  }
+  if (!s_pending) return;
+  int w = lv_obj_get_width(s_area), h = lv_obj_get_height(s_area);
+  double left = s_cx * mapview::TILE_PX - w / 2.0, top = s_cy * mapview::TILE_PX - h / 2.0;
+  int tx0 = (int)floor(left / mapview::TILE_PX), ty0 = (int)floor(top / mapview::TILE_PX);
+  int n = 1 << s_z;
+  for (int j = 0; j < ROWS; j++) {
+    for (int i = 0; i < COLS; i++) {
+      int tx = tx0 + i, ty = ty0 + j, wx = ((tx % n) + n) % n;
+      int px = (int)lround(tx * (double)mapview::TILE_PX - left), py = (int)lround(ty * (double)mapview::TILE_PX - top);
+      if (ty < 0 || ty >= n || px >= w || py >= h) continue;
+      mapview::TileCache::Slot* s = mapview::s_cache.find(s_z, wx, ty);
+      if (!s) { mapview::s_cache.load(*mapview::s_provider, s_z, wx, ty); homeMapLayout(); return; }
+      if (s->present) continue;
+      int k, wz, ax, ay;
+      if (!mapview::ancestorFor(s_z, wx, ty, k, wz, ax, ay) && wz >= 0) {
+        mapview::s_cache.load(*mapview::s_provider, wz, ax, ay);
+        homeMapLayout();
+        return;
+      }
+    }
+  }
+  homeMapLayout();   // everything looked up
+}
+
+int UITask::unreadTotal() {
+  return _core->dmUnreadTotal() + _core->history.getTotalChannelUnread() + _core->roomUnread();
+}
+
+// Once a second on Home: the clock, the fields; the favourites and apps
+// pages redrawn when the unread count moved (their badges).
+void UITask::refreshHome() {
+  using namespace home;
+  if ((s_page == FAVS || s_page >= APPS) && s_page_box && unreadTotal() != s_unread_sig) {
+    setHomePage(s_page);
+    return;
+  }
+  if (!_home_clock) return;
+  struct tm ti;
+  if (localTime(_prefs, ti)) {
+    char clk[12], date[48];
+    fmtClock(clk, sizeof(clk), ti, _prefs, false, true);
+    fmtDate(date, sizeof(date), ti, _prefs);
+    lv_label_set_text(_home_clock, clk);
+    lv_label_set_text(_home_date, date);
+  } else {
+    lv_label_set_text(_home_clock, "--:--");
+    lv_label_set_text(_home_date, "time not synced");
+  }
+  for (int i = 0; i < FIELDS; i++) {
+    if (!s_field_val[i] || !_prefs) continue;
+    char v[24];
+    homeFieldText(_prefs->dashboard_fields[i], v, sizeof(v));
+    lv_label_set_text(s_field_val[i], v);
+  }
+}

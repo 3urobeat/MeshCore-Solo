@@ -41,6 +41,8 @@ public:
   // ── Navigation (called from LVGL event callbacks) ────────────────────────
   void showHome();
   void setHomePage(int page);
+  void goHome();                   // the side button: Home's clock page
+  void homeFieldSet(int slot, int field);
   void showChats();
   void showContacts();
   void showSettings();
@@ -264,6 +266,12 @@ private:
   // and keyboards go on it, not on the one sliding out).
   lv_obj_t* screen() const { return _scr ? _scr : lv_screen_active(); }
   void buildHome();
+  void buildHomeClock(lv_obj_t* box);
+  void buildHomeMap(lv_obj_t* box);
+  void homeFieldText(uint8_t field, char* buf, int n);
+  void homeMapFit();
+  void homeMapLayout();
+  void homeMapLoop();
   void refreshHome();
   void homeSwipePoll();
   void buildChats();
@@ -393,6 +401,7 @@ private:
   Screen    _shown_screen = SCR_HOME;
   char      _shown_title[32] = "";
   bool      _nav_back = false;       // set by back() around the screen it shows
+  bool      _fade_next = false;      // newScreen() cross-fades the next screen in (the side button)
   lv_obj_t* _scr = nullptr;          // the screen newScreen() built (active once its slide starts)
   static int screenDepth(Screen s);
   bool     _asleep = false;

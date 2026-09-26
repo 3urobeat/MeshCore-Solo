@@ -6,9 +6,9 @@ for what comes next, in order. Tick items off as they land.
 Decisions already made:
 
 - **Buttons:** WAKE (top, expander P00) turns the screen off / on. USER/BOOT
-  (side) goes back; holding it mutes / unmutes the device, also with the
-  screen off; it doesn't wake the screen (a press in a pocket). Later: a
-  click takes you to the main menu page, once the menu is rebuilt.
+  (side) takes you to Home's clock page (a cross-fade); holding it mutes /
+  unmutes the device, also with the screen off; it doesn't wake the screen
+  (a press in a pocket).
 - **Placeholders:** the "+" popup next to a text field is the placeholder UI;
   it must offer every placeholder and appear at every field that sends text.
 - **Message history:** kept on the SD card, about 100 per conversation to
@@ -267,10 +267,14 @@ User list, second batch (2026-09-26):
       before text reaches a label. Other sequences (skin tones, ZWJ) draw as
       their parts. Credit in Settings > About. Later: an emoji picker on the
       keyboard.
-- [x] Tap-to-wake toggle (Settings > Display & power > WAKE, NVS, on by
+- [x] Tap-to-wake toggle (Settings > Display, NVS, on by
       default; off: only the top button wakes it).
 - [x] Favourites as their own screen in the menu rather than a tile: a
       Home card left of the main page (six slots, unread badges).
 - [x] WiFi indicator icon in the status bar: while WiFi is switched on,
       bright when connected, dim otherwise.
-
+- [x] Home rebuilt like a phone's (2026-09-27): favourites | clock with
+      three user-picked telemetry fields (L1's dashboard_fields; tap the
+      clock for Clock) | minimap framing you, live shares and the target
+      (tap: Navigation map) | apps, 3x2 per page. The side button returns
+      to the clock page. Later: pick and reorder the apps.

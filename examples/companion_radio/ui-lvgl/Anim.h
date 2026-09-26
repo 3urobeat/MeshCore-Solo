@@ -11,6 +11,7 @@ namespace anim {
   static const uint32_t PAGE_MS   = 160;   // Home page after a swipe
   static const uint32_t UNLOCK_MS = 260;   // lock screen away
   static const uint32_t SPRING_MS = 200;   // a let-go slider knob back home
+  static const uint32_t FADE_MS   = 280;   // the side button's cross-fade to Home
 
   static void setTy(void* o, int32_t v)  { lv_obj_set_style_translate_y((lv_obj_t*)o, v, 0); }
   static void setTx(void* o, int32_t v)  { lv_obj_set_style_translate_x((lv_obj_t*)o, v, 0); }
@@ -66,6 +67,13 @@ namespace anim {
   static void slideIn(lv_obj_t* o, int32_t dx, uint32_t ms = PAGE_MS) {
     run(o, setTx, dx, 0, ms);
     run(o, setOpa, LV_OPA_40, LV_OPA_COVER, ms);
+  }
+
+  // Content replaced in place without a direction: fades up from nothing.
+  static void fadeIn(lv_obj_t* o, uint32_t ms = FADE_MS) {
+    lv_anim_delete(o, NULL);   // no slide left over from a swipe
+    lv_obj_set_style_translate_x(o, 0, 0);
+    run(o, setOpa, LV_OPA_TRANSP, LV_OPA_COVER, ms);
   }
 
   static void hideDone(lv_anim_t* a) {
