@@ -578,7 +578,9 @@ static int dlZmin(int z) { return z - 4 < 5 ? (z < 5 ? z : 5) : z - 4; }   // a 
 
 void UITask::mapDownloadPopup() {
   if (_dl_overlay) return;
-  if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3 > 17 ? 17 : _map_z + 3;
+  int src_max = mapview::s_dl.sourceMaxZ();
+  if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3;
+  if (_dl_zmax > src_max) _dl_zmax = src_max;   // the server has nothing finer
 
   _dl_overlay = lv_obj_create(screen());
   lv_obj_remove_style_all(_dl_overlay);
@@ -666,7 +668,7 @@ void UITask::mapDownloadClose() {
 void UITask::mapDownloadZmax(int delta) {
   if (mapview::s_dl.active()) return;
   int z = _dl_zmax + delta;
-  if (z < _map_z || z > mapview::MAX_Z) return;
+  if (z < _map_z || z > mapview::MAX_Z || z > mapview::s_dl.sourceMaxZ()) return;
   _dl_zmax = z;
   refreshDownloadPopup();
 }

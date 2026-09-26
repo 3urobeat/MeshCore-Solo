@@ -153,7 +153,9 @@ static void task(void*) {
 
 static bool startTask() {
   s_state = s_job == 1 ? CHECKING : INSTALLING;
-  if (xTaskCreatePinnedToCore(task, "ota", 12288, nullptr, 1, &s_task, 0) != pdPASS) {
+  // Idle priority, as the tile fetch (LvglPort.h): HTTPClient only yields
+  // with delay(0), which at priority 1 starves IDLE0 into a watchdog reset.
+  if (xTaskCreatePinnedToCore(task, "ota", 12288, nullptr, tskIDLE_PRIORITY, &s_task, 0) != pdPASS) {
     s_task = nullptr;
     fail("Out of memory (update task)");
     return false;

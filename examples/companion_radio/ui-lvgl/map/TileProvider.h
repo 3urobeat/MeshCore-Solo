@@ -18,6 +18,18 @@ extern "C" {
 
 namespace mapview {
 
+// OpenTopoMap answers every tile past its last zoom level (17) with the same
+// "no tile" picture. Earlier builds saved it; the provider drops such a file
+// (so the map magnifies the parent instead) and the downloader never writes it.
+static const uint32_t OTM_NOTILE_LEN = 4343, OTM_NOTILE_FNV = 0x0B80D772;
+static bool isNoTilePicture(const uint8_t* d, size_t n) {
+  if (n != OTM_NOTILE_LEN) return false;
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < n; i++) h = (h ^ d[i]) * 16777619u;
+  return h == OTM_NOTILE_FNV;
+}
+
+
 static const int TILE_PX = 256;
 
 class TileProvider {
@@ -101,6 +113,7 @@ private:
     long sz = ftell(f);
     uint8_t* buf = sz > 0 ? readRange(f, 0, (uint32_t)sz) : nullptr;
     fclose(f);
+    if (buf && isNoTilePicture(buf, (size_t)sz)) { lv_free(buf); remove(path); return nullptr; }
     if (buf) len = (uint32_t)sz;
     return buf;
   }

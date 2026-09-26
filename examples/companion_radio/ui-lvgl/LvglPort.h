@@ -327,7 +327,10 @@ static int scanResults(char names[][33], int max) {
 // TLS handshakes and slow servers would stall the mesh loop, so the request
 // runs on its own task; the UI loop polls. The HTTP connection is reused
 // between tiles (keep-alive). Tiles are public pictures, so the TLS peer
-// isn't verified (no CA bundle in flash for this).
+// isn't verified (no CA bundle in flash for this). The task runs at the idle
+// priority: HTTPClient's read loop only yields with delay(0), which never lets
+// a lower-priority task in, so at priority 1 a slow transfer starved IDLE0
+// until the task watchdog reset the device.
 enum { F_IDLE, F_REQUESTED, F_BUSY, F_DONE, F_FAILED };
 static volatile int s_fstate = F_IDLE;
 static volatile int s_fcode = 0;
@@ -416,7 +419,7 @@ static void fetchTask(void*) {
 // memory for the worker task.
 static int fetchStart(const char* url) {
   if (s_fstate != F_IDLE) return 0;
-  if (!s_ftask && xTaskCreatePinnedToCore(fetchTask, "tilefetch", 10240, nullptr, 1, &s_ftask, 0) != pdPASS) {
+  if (!s_ftask && xTaskCreatePinnedToCore(fetchTask, "tilefetch", 10240, nullptr, tskIDLE_PRIORITY, &s_ftask, 0) != pdPASS) {
     s_ftask = nullptr;
     return -1;
   }

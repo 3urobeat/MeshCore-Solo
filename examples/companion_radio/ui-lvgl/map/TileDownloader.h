@@ -13,7 +13,8 @@
 // mesh keeps being serviced during a long download.
 //
 // The server comes from <root>/source.txt (line 1: URL template with {z} {x}
-// {y}, line 2: attribution); without it, OpenTopoMap. Whatever the source,
+// {y}, line 2: attribution, optional line 3: the server's last zoom level,
+// default 19 -- or 17 for OpenTopoMap); without it, OpenTopoMap. Whatever the source,
 // its attribution is written to <root>/attribution.txt for the map to show.
 //
 // Live tiles: while the map is open, single tiles it is missing are fetched
@@ -86,6 +87,8 @@ public:
   uint32_t failed() const   { return _failed; }
   const char* message() const { return _msg; }
   const char* sourceHost() { loadSource(); return _host; }
+  // The server's last zoom level: past it, the map magnifies the parent tile.
+  int sourceMaxZ() { loadSource(); return _src_zmax; }
 
   // Unfinished job from <root>/.job (read once, then tracked in memory).
   bool savedJob(TileArea& a) {
@@ -105,17 +108,20 @@ public:
     if (active()) return false;
     if (_lv_fetching) { lvport::fetchAbandon(); _lv_fetching = false; }   // the job takes the fetcher
     _lv_state = LV_IDLE;
+    loadSource();
     _area = a;
-    _total = countTiles(a);
+    if (_area.zmax > _src_zmax) _area.zmax = _src_zmax;   // the server has nothing finer
+    if (_area.zmin > _area.zmax) { fail("The server has no finer zoom: zoom out"); return false; }
+    _total = countTiles(_area);
     _done = _skipped = _failed = _consec_fail = 0;
+    _retried = false;
     _placeholder_hash = 0; _placeholder_hits = 0;
     _msg[0] = '\0';
     if (_total == 0 || _total > MAX_TILES) { fail("Area too large: use the PC tool"); return false; }
-    loadSource();
     writeAttribution();
-    writeJob(a);
-    _z = a.zmin;
-    tileRange(a, _z, _x0, _y0, _x1, _y1);
+    writeJob(_area);
+    _z = _area.zmin;
+    tileRange(_area, _z, _x0, _y0, _x1, _y1);
     _x = _x0; _y = _y0;
     _fetching = false;
     _state = CONNECTING;
@@ -151,7 +157,7 @@ public:
   int  liveQueued() const { return _live ? _lv_n + (_lv_fetching ? 1 : 0) : 0; }
   // A tile the map is missing (duplicates, recent failures and a full queue ignored).
   void liveRequest(int z, int x, int y) {
-    if (!_live || active()) return;
+    if (!_live || active() || z > _src_zmax) return;   // past the server's zoom: the map magnifies
     if (_lv_fetching && _lv_cur.z == z && _lv_cur.x == x && _lv_cur.y == y) return;
     for (int i = 0; i < _lv_n; i++) if (_lv_q[i].z == z && _lv_q[i].x == x && _lv_q[i].y == y) return;
     for (const LiveTile& f : _lv_failed) if (f.z == z && f.x == x && f.y == y) return;
@@ -184,8 +190,7 @@ public:
         lvport::fetchAbandon();   // hung past every timeout: give up on this tile
         _fetching = false;
         onFailure("Request hung (60 s)");
-        if (_consec_fail >= 8) { finish(FAILED, _msg); return; }
-        advance();
+        afterFailure();
         return;
       }
       _fetching = false;
@@ -193,16 +198,24 @@ public:
         size_t len = 0;
         const uint8_t* data = lvport::fetchData(len);
         if (!looksLikeImage(data, len)) onFailure("Server didn't send a PNG tile");
+        else if (isNoTilePicture(data, len)) { _skipped++; _consec_fail = 0; }   // "no tile here": nothing to keep
         else if (isPlaceholder(data, len)) { lvport::fetchRelease(); finish(FAILED, "Server sends a placeholder (blocked / key?)"); return; }
         else if (!writeTile(_z, _x, _y, data, len)) { lvport::fetchRelease(); finish(FAILED, "Can't write to the SD card"); return; }
         else { _done++; _consec_fail = 0; }
+      } else if (!_retried && r != -403 && r != -401 && r != -404) {
+        // One more try after a pause: a dropped keep-alive connection or a
+        // busy server usually answers the second time.
+        lvport::fetchRelease();
+        _retried = true;
+        _last_start = millis() + 1000;
+        return;
       } else {
         const char* why = lvport::fetchError();
         onFailure(r == -403 || r == -401 ? "Server refused (403)" : why[0] ? why : "Download failed");
       }
       lvport::fetchRelease();
-      if (_consec_fail >= 8) { finish(FAILED, _msg[0] ? _msg : "Server not answering"); return; }
-      advance();
+      if (_consec_fail) afterFailure();
+      else advance();
       return;
     }
 
@@ -213,7 +226,7 @@ public:
       tilePath(path, sizeof(path), _z, _x, _y);
       struct stat st;
       if (stat(path, &st) == 0 && st.st_size > 0) { _skipped++; advance(); continue; }
-      if (millis() - _last_start < 120) return;   // be gentle with the server
+      if ((int32_t)(millis() - _last_start) < 120) return;   // be gentle with the server (a retry waits longer)
       char url[200];
       buildUrl(url, sizeof(url), _z, _x, _y);
       int r = lvport::fetchStart(url);
@@ -231,12 +244,14 @@ private:
   uint8_t  _consec_fail = 0;
   int      _z = 0, _x = 0, _y = 0, _x0 = 0, _y0 = 0, _x1 = 0, _y1 = 0;
   bool     _fetching = false;
+  bool     _retried = false;   // the current tile already failed once
   uint32_t _last_start = 0, _connect_started = 0;
   uint32_t _placeholder_hash = 0;
   uint8_t  _placeholder_hits = 0;
   char     _url_tpl[160] = "";
   char     _attr[96] = "";
   char     _host[48] = "";
+  int      _src_zmax = 17;
   char     _msg[64] = "";
   TileArea _job = {0, 0, 0, 0, 0, 0};
   bool     _has_job = false, _job_checked = false;
@@ -302,7 +317,7 @@ private:
       _lv_fetching = false;
       size_t len = 0;
       const uint8_t* data = r > 0 ? lvport::fetchData(len) : nullptr;
-      if (r > 0 && looksLikeImage(data, len) && writeTile(_lv_cur.z, _lv_cur.x, _lv_cur.y, data, len)) {
+      if (r > 0 && looksLikeImage(data, len) && !isNoTilePicture(data, len) && writeTile(_lv_cur.z, _lv_cur.x, _lv_cur.y, data, len)) {
         _lv_consec_fail = 0;
         if (_lv_done_n < LV_DONE) _lv_done[_lv_done_n++] = _lv_cur;
       } else {
@@ -358,6 +373,22 @@ private:
     return true;
   }
 
+  // A failed tile is skipped -- unless failures come in a row: then the server
+  // (OpenTopoMap is often overloaded) or the network is down, so the same tile
+  // waits 5 s, 10 s, 20 s ... up to a minute, and the download stops only after
+  // about five minutes without a single tile.
+  void afterFailure() {
+    if (_consec_fail >= 12) { finish(FAILED, _msg[0] ? _msg : "Server not answering"); return; }
+    if (_consec_fail < 3) { advance(); return; }
+    _failed--;   // this tile gets tried again, it isn't lost yet
+    uint32_t wait_s = 5u << (_consec_fail - 3);
+    if (wait_s > 60) wait_s = 60;
+    _last_start = millis() + wait_s * 1000;
+    _retried = true;   // no extra quick retry on top of the pause
+    size_t o = strlen(_msg);
+    snprintf(_msg + o, sizeof(_msg) - o, " - retry in %lus", (unsigned long)wait_s);
+  }
+
   void onFailure(const char* m) {
     _failed++;
     _consec_fail++;
@@ -365,6 +396,7 @@ private:
   }
 
   void advance() {
+    _retried = false;
     if (++_y <= _y1) return;
     _y = _y0;
     if (++_x <= _x1) return;
@@ -392,14 +424,17 @@ private:
   void loadSource() {
     snprintf(_url_tpl, sizeof(_url_tpl), "%s", DEFAULT_TILE_URL);
     snprintf(_attr, sizeof(_attr), "%s", DEFAULT_TILE_ATTR);
+    _src_zmax = -1;
     char path[64];
     snprintf(path, sizeof(path), "%s/source.txt", _root);
     if (FILE* f = fopen(path, "r")) {
       char line[160];
       if (fgets(line, sizeof(line), f)) { trim(line); if (strstr(line, "{z}")) snprintf(_url_tpl, sizeof(_url_tpl), "%s", line); }
       if (fgets(line, sizeof(line), f)) { trim(line); if (line[0]) snprintf(_attr, sizeof(_attr), "%s", line); }
+      if (fgets(line, sizeof(line), f)) { int z = atoi(line); if (z >= 1 && z <= 22) _src_zmax = z; }
       fclose(f);
     }
+    if (_src_zmax < 0) _src_zmax = strstr(_url_tpl, "opentopomap.org") ? 17 : 19;
     const char* h = strstr(_url_tpl, "://");
     h = h ? h + 3 : _url_tpl;
     size_t n = strcspn(h, "/");
@@ -426,9 +461,12 @@ private:
   }
 
   // A blocked / key-required server answers every tile with the same picture:
-  // four identical payloads among the first downloads stop the job.
+  // four identical payloads among the first downloads stop the job. Only on a
+  // fresh area (nothing on the card yet -- a resumed one proves the server
+  // works) and only for pictures with some content: plain sea / empty land
+  // tiles are genuinely identical, and compress to a few hundred bytes.
   bool isPlaceholder(const uint8_t* d, size_t n) {
-    if (_done >= 8) return false;
+    if (_done >= 8 || _skipped > 0 || n < 1500) return false;
     uint32_t h = 2166136261u;
     for (size_t i = 0; i < n; i++) h = (h ^ d[i]) * 16777619u;
     if (h == _placeholder_hash) return ++_placeholder_hits >= 3;
