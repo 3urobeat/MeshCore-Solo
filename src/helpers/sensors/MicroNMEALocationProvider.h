@@ -4,6 +4,9 @@
 #include <MicroNMEA.h>
 #include <RTClib.h>
 #include <helpers/RefCountedDigitalPin.h>
+#ifdef GPS_SKYVIEW
+  #include "GpsSky.h"
+#endif
 
 #ifndef GPS_EN
     #ifdef PIN_GPS_EN
@@ -40,6 +43,9 @@
 class MicroNMEALocationProvider : public LocationProvider {
     char _nmeaBuffer[100];
     uint32_t _rx_chars = 0;
+#ifdef GPS_SKYVIEW
+    GpsSky _sky;
+#endif
     MicroNMEA nmea;
     mesh::RTCClock* _clock;
     Stream* _gps_serial;
@@ -77,6 +83,9 @@ public :
     }
 
     void begin() override {
+#ifdef GPS_SKYVIEW
+        _sky.reset();   // restarts the time-to-first-fix clock
+#endif
         claim();
         if (_pin_en != -1) {
             digitalWrite(_pin_en, GPS_EN_ACTIVE);
@@ -126,6 +135,10 @@ public :
     // Bytes read from the receiver so far: still at 0 (or not moving) = no NMEA
     // arriving at all, as opposed to NMEA without a fix (a UI diagnostics row).
     uint32_t rxChars() const { return _rx_chars; }
+#ifdef GPS_SKYVIEW
+    // Satellites in view, signal, DOPs (a GPS status screen).
+    GpsSky& sky() { return _sky; }
+#endif
     long getHDOP() override { return nmea.getHDOP(); }
     bool isValid() override { return nmea.isValid(); }
 
@@ -147,6 +160,9 @@ public :
             Serial.print(c);
             #endif
             nmea.process(c);
+#ifdef GPS_SKYVIEW
+            _sky.feed(c);
+#endif
         }
 
         if (!isValid()) time_valid = 0;

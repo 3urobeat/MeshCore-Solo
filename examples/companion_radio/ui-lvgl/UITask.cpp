@@ -387,6 +387,7 @@ void UITask::loop() {
       if (_screen == SCR_HOME) refreshHome();
       refreshDiag();
       refreshCompass();
+      refreshGps();
     }
     if (locked()) lockPoll();
     else if (_screen == SCR_HOME) homeSwipePoll();
@@ -770,7 +771,7 @@ int UITask::screenDepth(Screen s) {
     case SCR_HOME: return 0;
     case SCR_CHATS: case SCR_NEARBY: case SCR_MAP: case SCR_SETTINGS: case SCR_FAVS:
     case SCR_COMPASS: case SCR_CLOCK: case SCR_BOT: case SCR_REPEATER: case SCR_ADMIN_PICK:
-    case SCR_DIAG: return 1;
+    case SCR_DIAG: case SCR_GPS: return 1;
     case SCR_THREAD: case SCR_CONTACTS: case SCR_CHANNEL_EDIT: case SCR_NODE:
     case SCR_SETTINGS_NAV: case SCR_ADMIN: return 2;
     default: return 3;   // pages under a settings page
@@ -789,6 +790,7 @@ void UITask::back() {
     case SCR_ADMIN_PICK: showHome(); break;
     case SCR_OTA:      otaLeave(); break;
     case SCR_COMPASS:  showHome(); break;
+    case SCR_GPS:      if (_gps_from_settings) showSettings(); else showHome(); break;
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV:   // the map's options go back to the map
@@ -859,6 +861,8 @@ static void onOpenBot(lv_event_t* e);     // BotScreen.h
 static void onOpenFavourites(lv_event_t* e);   // DeviceScreen.h
 static void onOpenCompass(lv_event_t* e);   // CompassScreen.h
 static void onOpenDiag(lv_event_t* e);      // DiagScreen.h
+static void onOpenGps(lv_event_t* e);       // GpsScreen.h
+static void onOpenGpsFromSettings(lv_event_t* e);
 static void onOpenRepeater(lv_event_t* e);  // RepeaterScreen.h
 static void onOpenAdminPick(lv_event_t* e); // AdminScreen.h
 static void onNodeName(lv_event_t* e);
@@ -883,6 +887,7 @@ static const App APPS[] = {
   { LV_SYMBOL_LOOP,     "Repeater", onOpenRepeater, false },
   { UI_SYMBOL_KEY,      "Admin",    onOpenAdminPick, false },
   { UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,  false },
+  { LV_SYMBOL_GPS,      "GPS",      onOpenGps,      false },
 };
 static const int COUNT = sizeof(APPS) / sizeof(APPS[0]);
 static const int PER_PAGE = 4;
@@ -2515,6 +2520,7 @@ void UITask::buildSettings() {
     lv_obj_t* sw = switchRow(body, "GPS", "For maps and sharing", nullptr);
     if (_core->gpsEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, onGpsSwitch, LV_EVENT_VALUE_CHANGED, NULL);
+    listRow(body, LV_SYMBOL_GPS "  GPS details", "Satellites, signal, sky view", onOpenGpsFromSettings, NULL);
   }
   listRow(body, LV_SYMBOL_SD_CARD "  Storage", "SD card, message history", onOpenStorage, NULL);
   listRow(body, LV_SYMBOL_REFRESH "  Reboot", NULL, onPowerRow, (void*)(uintptr_t)1);
@@ -2559,6 +2565,7 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
 #include "DeviceScreen.h"
 #include "DiagScreen.h"
 #include "CompassScreen.h"
+#include "GpsScreen.h"
 #include "RadioExtras.h"
 #include "RepeaterScreen.h"
 #include "SoundScreen.h"

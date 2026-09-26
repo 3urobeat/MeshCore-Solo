@@ -201,7 +201,19 @@ this roadmap is done; the Cardputer follows whatever the spike shows.
       USB plugged in (0x40 reads 0x01). Needed for a charging indicator and
       for skipping the low-battery shutdown on the cable. Find the right
       chip / register (devices on the bus: 0x14, 0x18, 0x21, 0x22, 0x2c,
-      0x34, 0x48, 0x5d). Found 2026-09-26.
+      0x34, 0x48, 0x5d). Found 2026-09-26. Also wanted for a hint on the
+      GPS screen while on the cable (see below).
+- [x] GPS screen (2026-09-26): Home > GPS and Settings > System > GPS
+      details -- sky plot, C/N0 bar per satellite, fix / TTFF / DOPs,
+      per-constellation counts (helpers/sensors/GpsSky.h, -D GPS_SKYVIEW;
+      the sim feeds it made-up NMEA).
+- [x] GPS indoors (2026-09-26): diagnosed with the new GPS screen and raw
+      NMEA logs. On the USB cable (charging) the L76K tracks satellites at
+      25-35 dB-Hz but never decodes navigation data: no UTC in 10 min, no
+      fix in over an hour. On battery, same spot by the window: UTC within
+      seconds, first fix after 377 s. Screen, WiFi, Bluetooth and LoRa TX
+      were ruled out. Cause: noise from USB power / the charger -- a board
+      property, not fixable in firmware. Test GPS on battery.
 
 Ideas to come back to (2026-09-26):
 

@@ -217,6 +217,9 @@ public:
   void navFrameTrail();
   // Settings > Storage (StorageScreen.h)
   void showStorage();
+  void showGps(bool from_settings);
+  void buildGps();
+  void refreshGps();
   void buildStorage();
   void pollStorage();
   void storageKeep(int idx);
@@ -249,7 +252,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)ci; (void)from_picker; }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_FAVS, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE, SCR_GPS };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -371,6 +374,7 @@ private:
   DisplayDriver* _display = nullptr;
   SensorManager* _sensors = nullptr;
   NodePrefs*     _prefs = nullptr;
+  bool _gps_from_settings = false;   // GPS screen: Back returns there (else Home)
   UiCore*        _core = nullptr;
 
   Screen   _screen = SCR_HOME;
