@@ -183,7 +183,28 @@ static lv_obj_t* infoCard(lv_obj_t* parent) {
   lv_obj_set_style_radius(c, theme::RADIUS, 0);
   lv_obj_set_style_pad_hor(c, theme::PAD, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(c, 0, 0);   // the rows' own padding spaces them, around the hairline
   return c;
+}
+
+// A credit line that wraps cleanly: "(c) Name" and "CC-BY-SA" never split.
+static const char* creditText(const char* in) {
+  static char out[160];
+  size_t o = 0;
+  int paren = 0;
+  for (const char* p = in; *p && o + 4 < sizeof(out); p++) {
+    if (*p == '(') paren++;
+    else if (*p == ')' && paren) paren--;
+    if ((uint8_t)p[0] == 0xC2 && (uint8_t)p[1] == 0xA9 && p[2] == ' ') {   // "(c) " -> "(c)" + no-break space
+      memcpy(out + o, "\xC2\xA9\xC2\xA0", 4); o += 4; p += 2;
+    } else if (*p == '-' && paren) {   // licence names: a non-breaking hyphen
+      memcpy(out + o, "\xE2\x80\x91", 3); o += 3;
+    } else {
+      out[o++] = *p;
+    }
+  }
+  out[o] = '\0';
+  return out;
 }
 
 static lv_obj_t* infoLine(lv_obj_t* card) {   // one row's box, the hairline above all but the first
@@ -2801,9 +2822,9 @@ void UITask::buildSettings() {
   infoRow(about, "Node", the_mesh.getNodeName());
   infoRow(about, "Firmware", FIRMWARE_VERSION);
   if (!strstr(FIRMWARE_VERSION, FIRMWARE_BUILD_DATE)) infoRow(about, "Built", FIRMWARE_BUILD_DATE);
-  infoNote(about, "Map data", (lvport::mountStorage() && mapview::s_provider->available())
-                                  ? mapview::s_provider->attribution() : "\xC2\xA9 OpenStreetMap contributors");
-  infoNote(about, "Emoji", "Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC\xE2\x80\x91" "BY\xC2\xA0" "4.0)");
+  infoNote(about, "Map data", creditText((lvport::mountStorage() && mapview::s_provider->available())
+                                             ? mapview::s_provider->attribution() : "\xC2\xA9 OpenStreetMap contributors"));
+  infoNote(about, "Emoji", creditText("Twemoji \xC2\xA9 Twitter, Inc. and contributors (CC-BY\xC2\xA0" "4.0)"));
 }
 
 void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {

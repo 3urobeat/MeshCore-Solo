@@ -168,6 +168,9 @@ void UITask::buildClock() {
     lv_dropdown_set_options(dd, opts);
     lv_dropdown_set_selected(dd, NodePrefs::alarmRepeatIdxForMask(_prefs->alarm_repeat_mask));
     lv_obj_set_width(dd, 112);
+    lv_obj_t* list = lv_dropdown_get_list(dd);   // opens upwards: tighter so all four fit under the status bar
+    lv_obj_set_style_pad_ver(list, 4, 0);
+    lv_obj_set_style_text_line_space(list, 12, 0);
     lv_obj_add_event_cb(dd, onAlarmRepeat, LV_EVENT_VALUE_CHANGED, NULL);
     bool synced = rtc_clock.getCurrentTime() > 1000000000UL;
     label(body, synced ? "Rings at this local time (Settings time zone)." : "The clock isn't set yet: the alarm waits for a time sync.",

@@ -154,7 +154,7 @@ static void onDlZoomPlus(lv_event_t* e)  { (void)e; s_ui->mapDownloadZmax(+1); }
 static void onDlResume(lv_event_t* e)    { (void)e; s_ui->mapDownloadResume(); }
 static void onDlDiscard(lv_event_t* e)   { (void)e; s_ui->mapDownloadDiscard(); }
 static void onNavTools(lv_event_t* e);   // NavMap.h
-static void onMapCredits(lv_event_t* e) { (void)e; s_ui->showToast(mapview::s_provider->attribution(), 4000); }
+static void onMapCredits(lv_event_t* e) { (void)e; s_ui->showToast(creditText(mapview::s_provider->attribution()), 4000); }
 static void onMapMarker(lv_event_t* e) {
   if (mapview::s_drag > 8) return;   // the press was a pan that ended on a marker
   s_ui->mapOpenMarker((int)(uintptr_t)lv_event_get_user_data(e));
