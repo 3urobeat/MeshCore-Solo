@@ -259,9 +259,13 @@ Ideas to come back to (2026-09-26):
       scanline polygons + thick lines drawn into the 256 px tile; behind Map
       tools > Vector map (test), raster where no vector data. Measured on the
       L2: 8-60 ms drawing, SD read ~30 ms per new data file (cached after).
-- [ ] Vector maps next: delta / varint coordinates (smaller files, faster
-      read), labels and POIs (peaks, shelters, springs), contours, a PBF
-      pipeline for regions + download on the device, styling.
+- [x] Vector maps: VT3 (delta / varint points, ~half the size); hiking
+      routes per stretch, the routes sharing it as side-by-side stripes on a
+      white band, less simplified; demanding / alpine paths dotted; labels of
+      named points (places, peaks with height, huts, passes, springs...) as
+      a layer over the tiles, placed by priority. No street names (raster).
+- [ ] Vector maps next: contours, a PBF pipeline for regions + download on
+      the device, styling.
 
 User list, second batch (2026-09-26):
 

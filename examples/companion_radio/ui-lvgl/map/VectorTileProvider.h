@@ -2,7 +2,7 @@
 // Vector map (spike): tiles from tools/maps/osm_vector.py under VECTOR_ROOT,
 // {dz}/{x}/{y}.vt (format VT3) at data zooms 10, 12 and 14, drawn here into the 256x256 RGB565
 // buffer the map asks for -- polygons by scanline (even-odd), lines as quads
-// with round joins. No anti-aliasing, no labels yet. Where there is no vector
+// with round joins. No anti-aliasing; names of points in VectorLabels.h. Where there is no vector
 // data (or below zoom 10) the raster provider draws instead, so the two mix.
 //
 // renderTile() times itself (lastMs()); the map shows it while this provider
@@ -48,6 +48,7 @@ public:
   }
 
   const char* attribution() const override { return _have ? "\xC2\xA9 OpenStreetMap contributors (ODbL)" : _fb.attribution(); }
+  bool hasData() const { return _have; }
   uint32_t lastMs() const { return _last_ms; }
   // The last tile's time split: reading the data, areas, lines (ms).
   void lastSplit(uint32_t& load, uint32_t& fill, uint32_t& line) const { load = _t_load / 1000; fill = _t_fill / 1000; line = _t_line / 1000; }
@@ -130,7 +131,13 @@ private:
   }
 
   // Styles. Widths in px at zoom 14, scaled with the zoom.
-  enum : uint8_t { L_STREAM = 20, L_RIVER = 21, L_PATH = 30, L_TRACK = 31, L_SERVICE = 32, L_TRUNK = 37, L_ROUTE = 50 };
+  enum : uint8_t { L_STREAM = 20, L_RIVER = 21, L_PATH_HARD = 29, L_PATH = 30, L_TRACK = 31, L_SERVICE = 32, L_TRUNK = 37,
+                   L_ROUTE = 50, L_ROUTES = 51 };
+  // Waymark colours of L_ROUTES (index 1.., osm_vector.py PALETTE).
+  static uint16_t routeColour(int i) {
+    static const uint32_t P[] = { 0xE0302A, 0x2A5FE0, 0x2EA043, 0xE8C20E, 0x202020, 0xF08A1C, 0x9040C0, 0xF0F0F0, 0x8B5A2B, 0xD04040 };
+    return rgb(i >= 1 && i <= 10 ? P[i - 1] : 0xD04040);
+  }
   static uint16_t polyColour(uint8_t c) {
     switch (c) {
       case 1: return rgb(0xE6DED6);   // residential
@@ -148,6 +155,7 @@ private:
       case L_STREAM: col = rgb(0x86B6D8); w = 1.0f; return true;
       case L_RIVER:  col = rgb(0x86B6D8); w = 3.0f; return true;
       case L_PATH:   col = rgb(0xA8502A); w = 1.2f; return true;
+      case L_PATH_HARD: col = rgb(0x8A3A1E); w = 1.2f; return true;   // dotted
       case L_TRACK:  col = rgb(0x94683A); w = 1.6f; return true;
       case 32: col = 0xFFFF;          w = 2.2f; return true;   // service
       case 33: col = 0xFFFF;          w = 3.2f; return true;   // minor
@@ -186,21 +194,22 @@ private:
       _end = p;
       _bx = bb[0]; _by = bb[1];
       bool road = cls >= L_SERVICE && cls <= L_TRUNK;
-      bool want = pass == 0 ? (cls < L_SERVICE) : pass == 3 ? cls == L_ROUTE : road;
+      bool want = pass == 0 ? (cls < L_SERVICE) : pass == 3 ? (cls == L_ROUTE || cls == L_ROUTES) : road;
       if (!want) continue;
-      if (_z < 13 && (cls == L_PATH || cls == 7)) continue;   // paths from z13, buildings from z14 (data)
+      if (_z < 13 && (cls == L_PATH || cls == L_PATH_HARD || cls == 7)) continue;   // paths from z13, buildings from z14 (data)
       // Off the drawn tile (with a margin for the widest line): not even read.
       const int32_t M = 12 * 16, S = TILE_PX * 16;
       if (sx(bb[2]) < -M || sx(bb[0]) > S + M || sy(bb[3]) < -M || sy(bb[1]) > S + M) continue;
       uint32_t t0 = micros();
       if (cls < 10) { fillFeature(parts, nparts, polyColour(cls)); _t_fill += micros() - t0; continue; }
+      if (cls == L_ROUTES) { strokeRoutes(parts, nparts, col); _t_line += micros() - t0; continue; }
       uint16_t c;
       float w;
       if (!lineStyle(cls, c, w)) continue;
       w *= zoomScale();
       if (cls == L_ROUTE) { c = col ? col : rgb(0xD04040); w = w < 2.5f ? 2.5f : w; }
       if (pass == 1) { c = rgb(0xB4ACA2); w += 1.6f; }   // casing
-      strokeFeature(parts, nparts, c, w);
+      strokeFeature(parts, nparts, c, w, cls == L_PATH_HARD);
       _t_line += micros() - t0;
     }
   }
@@ -323,11 +332,12 @@ private:
   }
 
   // A thin line: a DDA with a 1 or 2 px pen.
-  void thinSegment(int32_t ax, int32_t ay, int32_t bx, int32_t by, int pen, uint16_t col) {
+  void thinSegment(int32_t ax, int32_t ay, int32_t bx, int32_t by, int pen, uint16_t col, bool dots = false) {
     int32_t dx = bx - ax, dy = by - ay;
     int steps = (vmax(abs(dx), abs(dy)) >> 4) + 1;
     int32_t x = ax << 8, y = ay << 8, ix = (dx << 8) / steps, iy = (dy << 8) / steps;   // 1/16 px << 8
     for (int i = 0; i <= steps; i++, x += ix, y += iy) {
+      if (dots && (_dash++ & 3) >= 2) continue;   // 2 px on, 2 off, carried across segments
       int px = x >> 12, py = y >> 12;
       for (int oy = 0; oy < pen; oy++)
         for (int ox = 0; ox < pen; ox++) {
@@ -337,33 +347,112 @@ private:
     }
   }
 
-  void strokeFeature(const uint8_t* p, int nparts, uint16_t col, float w) {
+  // A part's points (1/16 px) for the stroke, and an offset copy of them.
+  static const int PTS = 2048;
+  int32_t* _pts = nullptr;   // x, y pairs
+  int32_t* _off = nullptr;
+  uint32_t _dash = 0;
+
+  bool reservePts() {
+    if (!_pts) _pts = psramBuf<int32_t>(2 * PTS);
+    if (!_off) _off = psramBuf<int32_t>(2 * PTS);
+    return _pts && _off;
+  }
+
+  // Strokes each part: its points gathered (in runs of PTS), then `fn(n)`.
+  template <typename F> void forParts(const uint8_t* p, int nparts, F fn) {
+    for (int i = 0; i < nparts; i++) {
+      int n = 0;
+      forPoints(p, true, [&](int32_t x, int32_t y, bool) {
+        if (n == PTS) {   // a very long part: draw what's gathered, go on from its end
+          fn(n);
+          _pts[0] = _pts[2 * (n - 1)]; _pts[1] = _pts[2 * (n - 1) + 1];
+          n = 1;
+        }
+        _pts[2 * n] = x; _pts[2 * n + 1] = y;
+        n++;
+      });
+      if (n >= 2) fn(n);
+    }
+  }
+
+  void strokeFeature(const uint8_t* p, int nparts, uint16_t col, float w, bool dots = false) {
+    if (!reservePts()) return;
+    _dash = 0;
+    forParts(p, nparts, [&](int n) { strokePoints(_pts, n, col, w, dots); });
+  }
+
+  // `pts` moved sideways by `off` (1/16 px, + to the left of the direction),
+  // corners mitred (limited, so a hairpin doesn't shoot out) into _off.
+  void offsetPoints(const int32_t* pts, int n, float off) {
+    float pnx = 0, pny = 0;
+    for (int i = 0; i < n; i++) {
+      float nx = 0, ny = 0;   // the next segment's normal
+      if (i + 1 < n) {
+        float dx = pts[2 * i + 2] - pts[2 * i], dy = pts[2 * i + 3] - pts[2 * i + 1], len = sqrtf(dx * dx + dy * dy);
+        if (len > 0) { nx = dy / len; ny = -dx / len; }
+      } else { nx = pnx; ny = pny; }
+      if (i == 0) { pnx = nx; pny = ny; }
+      float mx = pnx + nx, my = pny + ny, m2 = mx * mx + my * my;
+      float ox = nx, oy = ny;
+      if (m2 > 0.01f) {
+        float k = 2.0f / m2;   // mitre: (n1 + n2) / (1 + n1.n2)
+        if (k > 4.0f) k = 4.0f;
+        ox = mx * k; oy = my * k;
+      }
+      _off[2 * i] = pts[2 * i] + (int32_t)(ox * off);
+      _off[2 * i + 1] = pts[2 * i + 1] + (int32_t)(oy * off);
+      pnx = nx; pny = ny;
+    }
+  }
+
+  // Hiking routes along a stretch: a stripe per route, side by side on a
+  // white band, in PALETTE order.
+  void strokeRoutes(const uint8_t* p, int nparts, uint16_t packed) {
+    if (!reservePts()) return;
+    uint16_t cols[4];
+    int k = 0;
+    for (int i = 0; i < 4; i++) {
+      int c = (packed >> (4 * i)) & 15;
+      if (c) cols[k++] = routeColour(c);
+    }
+    if (!k) return;
+    float sw = 2.2f * zoomScale();   // a stripe
+    sw = sw < 1.6f ? 1.6f : sw > 4.5f ? 4.5f : sw;
+    forParts(p, nparts, [&](int n) {
+      strokePoints(_pts, n, 0xFFFF, k * sw + 1.6f, false);
+      for (int i = 0; i < k; i++) {
+        if (k == 1) { strokePoints(_pts, n, cols[0], sw, false); break; }
+        offsetPoints(_pts, n, (i - (k - 1) / 2.0f) * sw * 16);
+        strokePoints(_off, n, cols[i], sw, false);
+      }
+    });
+  }
+
+  void strokePoints(const int32_t* pts, int n, uint16_t col, float w, bool dots) {
     int32_t h = (int32_t)(w * 8);   // half width, 1/16 px
     const int32_t S = TILE_PX * 16;
     bool thin = w < 2.2f;
     int pen = w < 1.8f ? 1 : 2;
-    for (int i = 0; i < nparts; i++) {
-      int32_t ax = 0, ay = 0;
-      forPoints(p, true, [&](int32_t bx, int32_t by, bool first) {
-        if (!first && !(vmax(ax, bx) < -h || vmin(ax, bx) > S + h || vmax(ay, by) < -h || vmin(ay, by) > S + h)) {
-          if (thin) {
-            thinSegment(ax, ay, bx, by, pen, col);
-          } else {
-            float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy);
-            if (len > 0) {
-              int32_t nx = (int32_t)(-dy / len * h), ny = (int32_t)(dx / len * h);
-              _ne = 0;
-              addEdge(ax + nx, ay + ny, bx + nx, by + ny);
-              addEdge(bx + nx, by + ny, bx - nx, by - ny);
-              addEdge(bx - nx, by - ny, ax - nx, ay - ny);
-              addEdge(ax - nx, ay - ny, ax + nx, ay + ny);
-              fillEdges(col);
-            }
-            if (w >= 2.8f) disc(bx, by, h, col);   // round join
-          }
-        }
-        ax = bx; ay = by;
-      });
+    for (int i = 1; i < n; i++) {
+      int32_t ax = pts[2 * i - 2], ay = pts[2 * i - 1], bx = pts[2 * i], by = pts[2 * i + 1];
+      if (vmax(ax, bx) < -h || vmin(ax, bx) > S + h || vmax(ay, by) < -h || vmin(ay, by) > S + h) continue;
+      if (thin) {
+        if (pen == 2) { ax -= 8; ay -= 8; bx -= 8; by -= 8; }   // a 2 px pen centred on the line
+        thinSegment(ax, ay, bx, by, pen, col, dots);
+        continue;
+      }
+      float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy);
+      if (len > 0) {
+        int32_t nx = (int32_t)(-dy / len * h), ny = (int32_t)(dx / len * h);
+        _ne = 0;
+        addEdge(ax + nx, ay + ny, bx + nx, by + ny);
+        addEdge(bx + nx, by + ny, bx - nx, by - ny);
+        addEdge(bx - nx, by - ny, ax - nx, ay - ny);
+        addEdge(ax - nx, ay - ny, ax + nx, ay + ny);
+        fillEdges(col);
+      }
+      if (w >= 2.8f) disc(bx, by, h, col);   // round join
     }
   }
 };

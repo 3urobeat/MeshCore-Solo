@@ -17,6 +17,7 @@
 #include <math.h>
 #include "map/TileProvider.h"
 #include "map/VectorTileProvider.h"
+#include "map/VectorLabels.h"
 #include "map/TileCache.h"
 #include "map/LiveCache.h"
 #include "map/TileDownloader.h"
@@ -313,6 +314,8 @@ void UITask::buildMap() {
     lv_image_set_pivot(_map_tiles[i], 0, 0);   // magnify from the top-left (overzoom)
   }
 
+  mapview::labels::buildLayer(body);   // vector map names, over the tiles, under the markers
+
   // Marker layer: same size as the map, lets presses through to it.
   _map_marks = lv_obj_create(body);
   lv_obj_remove_style_all(_map_marks);
@@ -467,6 +470,9 @@ void UITask::layoutMap() {
     }
   }
 
+  mapview::labels::layout(left, top, w, h, _map_z, have_provider && mapview::s_provider == &mapview::s_vector && mapview::s_vector.hasData(),
+                          _map_nav ? navmap::BAR_H : 0);
+
   // Own position
   int32_t lat, lon;
   if (_core->course.currentLocation(lat, lon)) {
@@ -527,6 +533,7 @@ void UITask::mapLoop() {
   if (!_map_area) return;
   uint32_t since_pan = millis() - mapview::s_last_pan_ms;
   if (since_pan < mapview::PAN_SETTLE_MS) return;   // mid-drag: keep it smooth, decode after
+  if (mapview::labels::loadOne()) { layoutMap(); return; }   // names of the view first: a small file
   int w = lv_obj_get_width(_map_area), h = lv_obj_get_height(_map_area);
   double left = _map_cx * mapview::TILE_PX - w / 2.0, top = _map_cy * mapview::TILE_PX - h / 2.0;
   if (!_map_pending) {   // view complete: when idle, decode the next tile a pan would reveal
