@@ -205,6 +205,7 @@ public:
   void conversationNotif(int v);
   void messageMenu(int idx);
   void messageAction(uint8_t act);
+  void chatFold(int which);
   void toggleChatFilter(uint8_t which);
   // DeviceScreen.h
   void nodeNamePopup();

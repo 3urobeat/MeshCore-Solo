@@ -13,6 +13,9 @@ namespace storeview {
 
 enum Cat : uint8_t { C_MAPS, C_LIVE, C_MSGS, C_TRAILS, C_OTHER, C_COUNT };
 static const char* const CAT_NAME[C_COUNT] = { "Maps", "Live map tiles", "Messages", "Trails (GPX)", "Other" };
+// Each category's colour in the card's bar and on its row; fixed, whatever the accent.
+static const uint32_t CAT_COL[C_COUNT] = { 0x4C8DF6, 0x3CC6D8, 0xE8A33C, 0x6FCF6F, 0xB08AE0 };
+static const uint32_t UNCOUNTED_COL = 0x5A5750;   // in use, not (yet) in a category: the walk, the filesystem
 
 static uint64_t s_bytes[C_COUNT];
 static uint32_t s_files = 0;
@@ -28,7 +31,8 @@ static char    s_path[192];
 
 static bool     s_sd_read = false, s_sd_ok = false;
 static uint64_t s_sd_total = 0, s_sd_used = 0, s_sd_card = 0;
-static lv_obj_t* s_sd_bar = nullptr;
+static lv_obj_t* s_sd_bar = nullptr;           // the card: a bar split by category
+static lv_obj_t* s_seg[C_COUNT + 1];           // its segments, the last one uncounted
 static lv_obj_t* s_sd_lbl = nullptr;
 static lv_obj_t* s_cat_val[C_COUNT];
 static lv_obj_t* s_status = nullptr;
@@ -147,10 +151,70 @@ static lv_obj_t* usageBar(lv_obj_t* g, lv_obj_t** lbl) {
   return bar;
 }
 
+// The card's bar: a track with one segment per category, side by side.
+static lv_obj_t* segmentBar(lv_obj_t* g, lv_obj_t** lbl) {
+  lv_obj_t* row = infoLine(g);
+  lv_obj_set_style_pad_ver(row, 10, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(row, 6, 0);
+  lv_obj_t* bar = lv_obj_create(row);
+  lv_obj_remove_style_all(bar);
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(bar, LV_PCT(100), 10);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(bar, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_clip_corner(bar, true, 0);
+  lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+  for (int c = 0; c <= C_COUNT; c++) {
+    lv_obj_t* sg = lv_obj_create(bar);
+    lv_obj_remove_style_all(sg);
+    lv_obj_remove_flag(sg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(sg, 0, LV_PCT(100));
+    lv_obj_set_style_bg_color(sg, lv_color_hex(c < C_COUNT ? CAT_COL[c] : UNCOUNTED_COL), 0);
+    lv_obj_set_style_bg_opa(sg, LV_OPA_COVER, 0);
+    s_seg[c] = sg;
+  }
+  *lbl = label(row, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  return bar;
+}
+
+// A category row: its colour dot, name, size in its colour.
+static lv_obj_t* catRow(lv_obj_t* g, int c) {
+  lv_obj_t* v = infoRow(g, CAT_NAME[c], "...", CAT_COL[c]);
+  lv_obj_t* d = lv_obj_create(lv_obj_get_parent(v));
+  lv_obj_remove_style_all(d);
+  lv_obj_set_size(d, 10, 10);
+  lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(d, lv_color_hex(CAT_COL[c]), 0);
+  lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+  lv_obj_move_to_index(d, 0);
+  return v;
+}
+
+// Segment widths: each category's share of the card, the rest of `used` grey.
+static void showSegments(uint64_t total, uint64_t used) {
+  if (!s_sd_bar || !total) return;
+  lv_obj_update_layout(s_sd_bar);
+  int w = lv_obj_get_width(s_sd_bar), x = 0;
+  uint64_t counted = 0;
+  for (int c = 0; c <= C_COUNT; c++) {
+    uint64_t b = c < C_COUNT ? s_bytes[c] : (used > counted ? used - counted : 0);
+    if (c < C_COUNT) counted += b;
+    int px = (int)((double)b * w / total + 0.5);
+    if (b && px < 2) px = 2;   // a sliver still shows
+    if (px > w - x) px = w - x;
+    lv_obj_set_width(s_seg[c], px);
+    x += px;
+  }
+}
+
 static void showUsage(lv_obj_t* bar, lv_obj_t* lbl, uint64_t total, uint64_t used) {
   if (!bar || !lbl) return;
   if (used > total) used = total;
-  lv_bar_set_value(bar, total ? (int32_t)(used * 1000 / total) : 0, LV_ANIM_OFF);
+  if (bar == s_sd_bar) showSegments(total, used);
+  else lv_bar_set_value(bar, total ? (int32_t)(used * 1000 / total) : 0, LV_ANIM_OFF);
   char u[16], t[16], f[16], line[64];
   fmtBytes(u, sizeof(u), used);
   fmtBytes(t, sizeof(t), total);
@@ -201,9 +265,9 @@ void UITask::buildStorage() {
   if (!lvport::mountStorage()) {
     infoRow(g, "Card", "None", theme::TEXT_MUTED);
   } else {
-    s_sd_bar = usageBar(g, &s_sd_lbl);
+    s_sd_bar = segmentBar(g, &s_sd_lbl);
     lv_label_set_text(s_sd_lbl, "Reading the card...");
-    for (int c = 0; c < C_COUNT; c++) s_cat_val[c] = infoRow(g, CAT_NAME[c], "...", theme::ACCENT);   // what takes the space
+    for (int c = 0; c < C_COUNT; c++) s_cat_val[c] = catRow(g, c);   // what takes the space, keyed to the bar
     s_status = infoRow(g, "Files", "");
     s_sd_read = false;   // read in pollStorage(): the first read of a big card takes a moment
     startWalk();

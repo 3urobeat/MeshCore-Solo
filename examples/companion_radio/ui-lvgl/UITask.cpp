@@ -1491,6 +1491,48 @@ static lv_obj_t* sectionTitle(lv_obj_t* parent, const char* text) {
   return l;
 }
 
+// Messages section title: a chevron and the title fold the section (tap),
+// an "All" / "★ Fav" pill on the right (filter >= 0) flips its
+// favourites-only filter. Folded, the title carries the unread count.
+enum : uint8_t { FOLD_CHANNELS, FOLD_DIRECT, FOLD_ROOMS };
+static int s_chat_fold = -1;   // bit per FOLD_*; -1: not read from NVS yet
+static void onChatFold(lv_event_t* e) { s_ui->chatFold((int)(uintptr_t)lv_event_get_user_data(e)); }
+static bool chatFolded(int which) {
+  if (s_chat_fold < 0) s_chat_fold = lvport::loadChatFold();
+  return s_chat_fold & (1 << which);
+}
+
+static void chatSection(lv_obj_t* parent, const char* text, int fold, int unread, int filter, bool fav_only) {
+  bool folded = chatFolded(fold);
+  lv_obj_t* row = lv_obj_create(parent);
+  styleSurface(row, theme::BG);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), 30);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_opa(row, LV_OPA_60, LV_STATE_PRESSED);
+  lv_obj_add_event_cb(row, onChatFold, LV_EVENT_CLICKED, (void*)(uintptr_t)fold);
+  lv_obj_t* ch = label(row, folded ? LV_SYMBOL_RIGHT : LV_SYMBOL_DOWN, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_align(ch, LV_ALIGN_LEFT_MID, 2, 0);
+  lv_obj_t* t = label(row, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_align(t, LV_ALIGN_LEFT_MID, 22, 0);
+  if (folded && unread > 0) {   // what's waiting inside
+    lv_obj_t* n = label(row, "", THEME_FONT_SMALL, theme::ACCENT);
+    lv_label_set_text_fmt(n, "%d new", unread);
+    lv_obj_align_to(n, t, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+  }
+  if (filter < 0 || folded) return;
+  lv_obj_t* b = lv_button_create(row);
+  lv_obj_set_size(b, LV_SIZE_CONTENT, 24);
+  lv_obj_set_style_pad_hor(b, 10, 0);
+  lv_obj_set_style_pad_ver(b, 0, 0);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(fav_only ? theme::ACCENT_DIM : theme::SURFACE), 0);
+  lv_obj_align(b, LV_ALIGN_RIGHT_MID, -2, 0);
+  lv_obj_add_event_cb(b, onChatFilter, LV_EVENT_CLICKED, (void*)(uintptr_t)filter);
+  lv_obj_center(label(b, fav_only ? UI_SYMBOL_STAR " Fav" : "All", THEME_FONT_SMALL, theme::TEXT));
+}
+
 // Section title with an "All" / "★ Fav" pill on the right that flips the
 // section's favourites-only filter.
 static void sectionWithFilter(lv_obj_t* parent, const char* text, bool fav_only, uint8_t which) {
@@ -1521,15 +1563,22 @@ static lv_obj_t* headerButton(lv_obj_t* hdr, const char* text, lv_event_cb_t cb,
 
 void UITask::buildChats() {
   lv_obj_t* body = newScreen("Messages", true);
-  if (_header && unreadTotal() > 0)
-    headerButton(_header, LV_SYMBOL_OK " Read all", onMarkAllRead, 4, NULL);
+  if (_header) {   // a new message first, whatever the lists below hold
+    lv_obj_t* nb = headerButton(_header, LV_SYMBOL_EDIT " New", onNewChat, 4, NULL);
+    stylePrimary(nb);
+    if (unreadTotal() > 0) {
+      lv_obj_t* rb = headerButton(_header, LV_SYMBOL_OK " Read all", onMarkAllRead, 0, NULL);
+      lv_obj_update_layout(_header);
+      lv_obj_align_to(rb, nb, LV_ALIGN_OUT_LEFT_MID, -6, 0);
+    }
+  }
 
   // Channels: favourites first (unless turned off), hold a row for its options
   bool ch_fav_only = _prefs && _prefs->ch_fav_only;
-  sectionWithFilter(body, "CHANNELS", ch_fav_only, CF_CHANNELS);
+  chatSection(body, "CHANNELS", FOLD_CHANNELS, _core->history.getTotalChannelUnread(), CF_CHANNELS, ch_fav_only);
   bool fav_first = !(_prefs && _prefs->fav_sort_off);
   int ch_rows = 0;
-  for (int pass = fav_first ? 0 : 1; pass < 2; pass++) {
+  for (int pass = fav_first ? 0 : 1; pass < 2 && !chatFolded(FOLD_CHANNELS); pass++) {
     for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
       ChannelDetails ch;
       if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
@@ -1551,8 +1600,9 @@ void UITask::buildChats() {
       badge(row, _core->history.chUnread(i), _core->history.chUnreadOverflow(i));
     }
   }
-  if (ch_rows == 0 && ch_fav_only) label(body, "No favourite channels", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  if (ch_rows == 0 && ch_fav_only && !chatFolded(FOLD_CHANNELS)) label(body, "No favourite channels", THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_obj_t* add_ch = lv_button_create(body);
+  if (chatFolded(FOLD_CHANNELS)) lv_obj_add_flag(add_ch, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_size(add_ch, LV_PCT(100), 32);
   lv_obj_set_style_bg_color(add_ch, lv_color_hex(theme::BG), 0);
   lv_obj_set_style_border_color(add_ch, lv_color_hex(theme::SURFACE_2), 0);
@@ -1563,9 +1613,9 @@ void UITask::buildChats() {
   lv_obj_center(label(add_ch, LV_SYMBOL_PLUS "  Add channel", THEME_FONT_SMALL, theme::TEXT_MUTED));
 
   // Recent direct conversations (DM ring, newest first, one row per contact)
-  sectionTitle(body, "DIRECT");
+  chatSection(body, "DIRECT", FOLD_DIRECT, _core->dmUnreadTotal(), -1, false);
   int rows = 0;
-  for (int j = 0; j < _core->history.dmHistCount() && rows < MessageHistory::DM_HIST_MAX; j++) {
+  for (int j = 0; j < _core->history.dmHistCount() && rows < MessageHistory::DM_HIST_MAX && !chatFolded(FOLD_DIRECT); j++) {
     const DmHistEntry& e = _core->history.dmAtPos(_core->history.dmHistPosNewest(j));
     bool seen = false;
     for (int r = 0; r < rows; r++) if (memcmp(s_dm_rows[r], e.prefix, 4) == 0) { seen = true; break; }
@@ -1586,18 +1636,14 @@ void UITask::buildChats() {
     badge(row, _core->dmUnread(e.prefix), _core->dmUnreadOverflow(e.prefix));
     rows++;
   }
-  if (rows == 0) label(body, "No conversations yet", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  if (rows == 0 && !chatFolded(FOLD_DIRECT)) label(body, "No conversations yet - New, top right", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
   // Room servers: tap logs in (saved password or ask) and opens; hold: options
   bool room_fav_only = _prefs && _prefs->room_fav_only;
-  int room_unread = _core->roomUnread();
-  char rt[32];
-  if (room_unread > 0) snprintf(rt, sizeof(rt), "ROOMS  -  %d new", room_unread);
-  else snprintf(rt, sizeof(rt), "ROOMS");
-  sectionWithFilter(body, rt, room_fav_only, CF_ROOMS);
+  chatSection(body, "ROOMS", FOLD_ROOMS, _core->roomUnread(), CF_ROOMS, room_fav_only);
   int nrooms = 0, total = the_mesh.getNumContacts();
   const int MAX_ROOMS = ROOM_ROWS_MAX;
-  for (int pass = fav_first ? 0 : 1; pass < 2; pass++) {
+  for (int pass = fav_first ? 0 : 1; pass < 2 && !chatFolded(FOLD_ROOMS); pass++) {
     for (int i = 0; i < total && nrooms < MAX_ROOMS; i++) {
       ContactInfo c;
       if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, c) || c.type != ADV_TYPE_ROOM) continue;
@@ -1619,16 +1665,19 @@ void UITask::buildChats() {
       nrooms++;
     }
   }
-  if (nrooms == 0) label(body, room_fav_only ? "No favourite rooms" : "No room servers known", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  if (nrooms == 0 && !chatFolded(FOLD_ROOMS))
+    label(body, room_fav_only ? "No favourite rooms" : "No room servers known", THEME_FONT_SMALL, theme::TEXT_MUTED);
+}
 
-  lv_obj_t* add = lv_button_create(body);
-  lv_obj_set_size(add, LV_PCT(100), 36);
-  lv_obj_set_style_bg_color(add, lv_color_hex(theme::ACCENT_DIM), 0);
-  lv_obj_set_style_radius(add, theme::RADIUS, 0);
-  lv_obj_set_style_shadow_width(add, 0, 0);
-  lv_obj_add_event_cb(add, onNewChat, LV_EVENT_CLICKED, NULL);
-  lv_obj_center(label(add, LV_SYMBOL_PLUS "  New message", THEME_FONT_BODY, theme::TEXT));
-  stylePrimary(add);
+// A section title tapped: folded / unfolded (kept in NVS), the list redrawn
+// where it was.
+void UITask::chatFold(int which) {
+  chatFolded(which);   // loaded
+  s_chat_fold ^= 1 << which;
+  lvport::saveChatFold(s_chat_fold);
+  int y = _body ? lv_obj_get_scroll_y(_body) : 0;
+  buildChats();
+  if (_body) { lv_obj_update_layout(_body); lv_obj_scroll_to_y(_body, y, LV_ANIM_OFF); }
 }
 
 // ── Contact picker (start a DM) ───────────────────────────────────────────────

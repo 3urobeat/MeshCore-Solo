@@ -203,6 +203,9 @@ static void saveLiveCap(int idx) { nvs::putI8("mc_ui", "ltcap", idx); }
 // (off: only the top button does).
 static bool loadTapWake() { return nvs::getBool("mc_ui", "tapwake", true); }
 static void saveTapWake(bool on) { nvs::putBool("mc_ui", "tapwake", on); }
+// Messages: which sections are folded (bit per section).
+static int loadChatFold() { return nvs::getU8("mc_ui", "chfold", 0); }
+static void saveChatFold(int bits) { nvs::putU8("mc_ui", "chfold", bits); }
 // Filesystem size and space in use (Settings > Storage), plus the card's own
 // size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
 // imager) shows both. The first free-space count on a big card takes a moment.
@@ -497,6 +500,9 @@ static void saveLiveCap(int idx) { s_live_cap = idx; }
 static bool s_tap_wake = true;
 static bool loadTapWake() { return s_tap_wake; }
 static void saveTapWake(bool on) { s_tap_wake = on; }
+static int s_chat_fold = 0;
+static int loadChatFold() { return s_chat_fold; }
+static void saveChatFold(int bits) { s_chat_fold = bits; }
 // The browser has no card: a nominal 32 GB, used = what the files add up to
 // (the storage screen counts them anyway; it passes that in).
 static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) { total = card = 32ULL << 30; used = 0; return true; }
