@@ -1,6 +1,6 @@
 #pragma once
 // Vector map (spike): tiles from tools/maps/osm_vector.py under VECTOR_ROOT,
-// {dz}/{x}/{y}.vt at data zooms 10, 12 and 14, drawn here into the 256x256 RGB565
+// {dz}/{x}/{y}.vt (format VT3) at data zooms 10, 12 and 14, drawn here into the 256x256 RGB565
 // buffer the map asks for -- polygons by scanline (even-odd), lines as quads
 // with round joins. No anti-aliasing, no labels yet. Where there is no vector
 // data (or below zoom 10) the raster provider draws instead, so the two mix.
@@ -61,6 +61,8 @@ private:
   const uint8_t* _data = nullptr;   // the data tile being drawn
   size_t _data_len = 0;
   int _ox = 0, _oy = 0, _k = 0, _z = 0;
+  const uint8_t* _end = nullptr;   // the feature's parts end here
+  int16_t _bx = 0, _by = 0;        // its bbox corner: where point deltas start
   uint16_t* _out = nullptr;
   uint32_t _last_ms = 0;
 
@@ -72,6 +74,18 @@ private:
   Edge* _act[ACTIVE];
   int32_t _xs[ACTIVE];
   uint32_t _t_load = 0, _t_fill = 0, _t_line = 0;   // us, last tile
+
+  // Unsigned LEB128 varint / zigzag-signed (the tile format, osm_vector.py).
+  static inline uint32_t varint(const uint8_t*& p, const uint8_t* end) {
+    uint32_t v = 0;
+    for (int s = 0; p < end && s < 35; s += 7) {
+      uint8_t b = *p++;
+      v |= (uint32_t)(b & 0x7F) << s;
+      if (!(b & 0x80)) break;
+    }
+    return v;
+  }
+  static inline int32_t zigzag(uint32_t v) { return (int32_t)(v >> 1) ^ -(int32_t)(v & 1); }
 
   static uint16_t rgb(uint32_t c) { return (uint16_t)(((c >> 8) & 0xF800) | ((c >> 5) & 0x07E0) | ((c >> 3) & 0x1F)); }
 
@@ -109,7 +123,7 @@ private:
     }
     d->len = readFast(f, d->buf, sz) ? sz : 0;
     fclose(f);
-    d->ok = d->len == (size_t)sz && memcmp(d->buf, "VT2", 3) == 0;
+    d->ok = d->len == (size_t)sz && memcmp(d->buf, "VT3", 3) == 0;
     _data = d->buf;
     _data_len = d->len;
     return d->ok;
@@ -165,13 +179,12 @@ private:
       memcpy(&col, p + 2, 2);
       memcpy(bb, p + 4, 8);
       p += 12;
+      uint32_t len = varint(p, end);
       const uint8_t* parts = p;
-      for (int i = 0; i < nparts && p + 2 <= end; i++) {   // skip to the next feature
-        uint16_t n;
-        memcpy(&n, p, 2);
-        p += 2 + 4 * n;
-      }
-      if (p > end) return;
+      if (len > (uint32_t)(end - p)) return;
+      p += len;   // the next feature
+      _end = p;
+      _bx = bb[0]; _by = bb[1];
       bool road = cls >= L_SERVICE && cls <= L_TRUNK;
       bool want = pass == 0 ? (cls < L_SERVICE) : pass == 3 ? cls == L_ROUTE : road;
       if (!want) continue;
@@ -268,19 +281,17 @@ private:
   // Points of a part, in 1/16 px, closer than half a pixel to the last one
   // dropped (the data is detailed enough for zoom 18).
   template <typename F> void forPoints(const uint8_t*& p, bool keep_last, F fn) {
-    uint16_t n;
-    memcpy(&n, p, 2);
-    p += 2;
+    uint32_t n = varint(p, _end);
     int32_t lx = INT32_MIN, ly = 0;
-    for (int j = 0; j < n; j++) {
-      int16_t ux, uy;
-      memcpy(&ux, p + 4 * j, 2); memcpy(&uy, p + 4 * j + 2, 2);
-      int32_t x = sx(ux), y = sy(uy);
+    int32_t ux = _bx, uy = _by;
+    for (uint32_t j = 0; j < n && p < _end; j++) {
+      ux += zigzag(varint(p, _end));
+      uy += zigzag(varint(p, _end));
+      int32_t x = (ux - _ox) << _k, y = (uy - _oy) << _k;
       if (lx != INT32_MIN && abs(x - lx) + abs(y - ly) < 8 && !(keep_last && j == n - 1)) continue;
       fn(x, y, lx == INT32_MIN);
       lx = x; ly = y;
     }
-    p += 4 * n;
   }
 
   void fillFeature(const uint8_t* p, int nparts, uint16_t col) {

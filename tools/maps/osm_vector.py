@@ -12,12 +12,14 @@ Three data zooms: 10 (drawn at z10-11), 12 (z12-13), 14 (z14-18); the device pic
 data tile covering the tile it draws and scales it. Copy the output folder to
 the card as /sdcard/vmap.
 
-Tile format 'VT2' (little-endian):
-  'V' 'T' '2' dz:u8  count:u16
+Tile format 'VT3' (little-endian):
+  'V' 'T' '3' dz:u8  count:u16
   count x feature, in drawing order:
     cls:u8 nparts:u8 colour:u16 (RGB565, 0 = the class's own)
     bbox: x0 y0 x1 y1 (i16) -- the device skips what's off the tile unread
-    nparts x (npts:u16, npts x (x:i16, y:i16))
+    len: varint -- bytes of the parts that follow (to skip them)
+    nparts x (npts: varint, npts x (dx, dy: zigzag varint))
+  Points are deltas from the previous one; a part's first from (x0, y0).
   Coordinates: 0..4096 across the data tile, a little past its edges.
   Polygons: rings, even-odd. Lines: polylines.
 
@@ -59,10 +61,28 @@ HIGHWAY = {
 # Lowest data zoom a class goes in (smaller ones would be clutter / weight).
 MIN_DZ = {P_BUILDING: 14, L_SERVICE: 14, L_PATH: 12, L_TRACK: 12, L_STREAM: 12, L_MINOR: 12}
 
+# Natural land cover (not roads, buildings, water): its edges are vague
+# anyway, so simplified harder -- most of the points are here.
+NATURAL = (P_MEADOW, P_SCRUB, P_FOREST, P_ROCK)
+NATURAL_TOL = 3
+
 WAYMARK = {   # osmc:symbol / colour -> RGB888
     'red': 0xE0302A, 'blue': 0x2A5FE0, 'green': 0x2EA043, 'yellow': 0xE8C20E, 'black': 0x202020,
     'orange': 0xF08A1C, 'purple': 0x9040C0, 'white': 0xF0F0F0, 'brown': 0x8B5A2B,
 }
+
+
+def varint(v):
+    out = bytearray()
+    while v >= 0x80:
+        out.append((v & 0x7F) | 0x80)
+        v >>= 7
+    out.append(v)
+    return out
+
+
+def zigzag(v):
+    return (v << 1) if v >= 0 else ((-v << 1) - 1)
 
 
 def rgb565(c):
@@ -288,11 +308,12 @@ def main():
     total_bytes = total_tiles = 0
     for dz in DATA_ZOOMS:
         n = 1 << dz
-        tol = 1.0 if dz == DATA_ZOOMS[-1] else 4.0   # half a pixel at the deepest zoom drawn from it
+        base_tol = 1.0 if dz == DATA_ZOOMS[-1] else 4.0   # half a pixel at the deepest zoom drawn from it
         tiles = defaultdict(list)
         for cls, col, kind, parts in feats:
             if MIN_DZ.get(cls, 0) > dz:
                 continue
+            tol = base_tol * (NATURAL_TOL if cls in NATURAL else 1)
             allp = [p for part in parts for p in part]
             if not allp:
                 continue
@@ -318,7 +339,7 @@ def main():
                         tiles[(tx, ty)].append((cls, col, out))
         for (tx, ty), fl in tiles.items():
             fl.sort(key=lambda f: f[0])
-            buf = bytearray(b'VT2' + bytes([dz]) + struct.pack('<H', 0))
+            buf = bytearray(b'VT3' + bytes([dz]) + struct.pack('<H', 0))
             count = 0
             for cls, col, parts in fl:
                 for i in range(0, len(parts), 255):   # nparts is a byte
@@ -332,12 +353,17 @@ def main():
                                 q.append(p)
                         qs.append(q)
                     allq = [p for q in qs for p in q]
-                    buf += struct.pack('<BBHhhhh', cls, len(chunk), col, min(p[0] for p in allq), min(p[1] for p in allq),
-                                       max(p[0] for p in allq), max(p[1] for p in allq))
+                    bx0, by0 = min(p[0] for p in allq), min(p[1] for p in allq)
+                    body = bytearray()
                     for q in qs:
-                        buf += struct.pack('<H', len(q))
+                        body += varint(len(q))
+                        px, py = bx0, by0
                         for x, y in q:
-                            buf += struct.pack('<hh', x, y)
+                            body += varint(zigzag(x - px)) + varint(zigzag(y - py))
+                            px, py = x, y
+                    buf += struct.pack('<BBHhhhh', cls, len(chunk), col, bx0, by0,
+                                       max(p[0] for p in allq), max(p[1] for p in allq))
+                    buf += varint(len(body)) + body
                     count += 1
             struct.pack_into('<H', buf, 4, min(count, 65535))
             d = os.path.join(a.out, str(dz), str(tx))
