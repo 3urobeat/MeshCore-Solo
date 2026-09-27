@@ -68,6 +68,8 @@ public:
       expWritePin(EXP_PIN_GNSS_EN, LOW);
     }
   }
+  // microSD rail (unmount first)
+  void setSdPower(bool on) { expWritePin(EXP_PIN_TF_EN, on); }
   // Grove expansion port rail (nothing on-board depends on it)
   void setGrovePower(bool on) { expWritePin(EXP_PIN_GROVE_EN, on); }
 
