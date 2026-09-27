@@ -86,6 +86,8 @@ public:
   explicit TileDownloader(const char* root) : _root(root) {}
 
   State state() const       { return _state; }
+  const TileArea& area() const { return _area; }   // of the current / last job
+  bool withTrails() const   { return _trails; }
   bool  active() const      { return _state == CONNECTING || _state == RUNNING; }
   uint32_t total() const    { return _total; }
   uint32_t processed() const { return _done + _skipped + _failed; }
@@ -110,7 +112,9 @@ public:
     _job_checked = true;
   }
 
-  bool start(const TileArea& a, const char* ssid, const char* pass) {
+  // `force`: fetch every tile again (a refresh), not only the missing ones.
+  // `trails`: 1 / 0 with or without the trails overlay, -1 as the map's toggle.
+  bool start(const TileArea& a, const char* ssid, const char* pass, bool force = false, int trails = -1) {
     if (active()) return false;
     if (_lv_fetching) { lvport::fetchAbandon(); _lv_fetching = false; }   // the job takes the fetcher
     _lv_state = LV_IDLE;
@@ -118,7 +122,8 @@ public:
     _area = a;
     if (_area.zmax > _src_zmax) _area.zmax = _src_zmax;   // the server has nothing finer
     if (_area.zmin > _area.zmax) { fail("The server has no finer zoom: zoom out"); return false; }
-    _trails = s_trails_on;
+    _trails = trails < 0 ? s_trails_on : trails > 0;
+    _force = force;
     _layer = 0;
     _total = countTiles(_area);
     if (_trails && _area.zmin <= TRAILS_MAX_Z) {
@@ -245,7 +250,7 @@ public:
       char path[96];
       tilePath(path, sizeof(path), _z, _x, _y, _layer);
       struct stat st;
-      if (stat(path, &st) == 0 && (st.st_size > 0 || _layer == 1)) { _skipped++; advance(); continue; }   // an empty trails file counts
+      if (!_force && stat(path, &st) == 0 && (st.st_size > 0 || _layer == 1)) { _skipped++; advance(); continue; }   // an empty trails file counts
       if ((int32_t)(millis() - _last_start) < 120) return;   // be gentle with the server (a retry waits longer)
       char url[200];
       buildUrl(url, sizeof(url), _z, _x, _y, _layer);
@@ -265,6 +270,7 @@ private:
   int      _z = 0, _x = 0, _y = 0, _x0 = 0, _y0 = 0, _x1 = 0, _y1 = 0;
   bool     _fetching = false;
   bool     _trails = false;    // this job fetches the trails overlay too
+  bool     _force = false;     // refetches tiles already on the card
   uint8_t  _layer = 0;         // of the current tile: 0 the base map, 1 its trails
   bool     _retried = false;   // the current tile already failed once
   uint32_t _last_start = 0, _connect_started = 0;

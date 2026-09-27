@@ -245,8 +245,12 @@ Ideas to come back to (2026-09-26):
       over the base map (Map tools > Hiking trails); fetched with an area
       download (re-running one adds just the trails) and live; empty tiles
       as 0-byte files.
-- [ ] Area manager: named list of downloaded areas (regenerate, delete),
-      a draggable frame to pick an area instead of the visible screen.
+- [x] Map areas: a frame with corner handles picks the area to download
+      (the map pans / zooms under it; size, zoom range, tiles, trails in a
+      bar); downloaded areas are listed in /sdcard/maps/areas.txt (Map tools
+      > Map areas: show, rename, fill gaps, refresh, trails on / off, delete
+      -- tiles another area covers stay). Maps fetched before the list aren't
+      in it (re-download them).
 - [x] A grid under the map (and the minimap), its step a round distance in
       the metric / imperial unit, with a scale bar: position and scale where
       no tile is loaded.

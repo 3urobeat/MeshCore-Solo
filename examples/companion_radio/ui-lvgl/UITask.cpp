@@ -1389,6 +1389,7 @@ void UITask::back() {
       break;
     case SCR_MAP:
       if (_nav_overlay) navClosePopup();
+      else if (areaSelecting()) areaSelectEnd();
       else if (_dl_overlay) mapDownloadClose();
       else if (!_map_nav) showNearby();   // the Nodes map opens from Nearby
       else showHome();
@@ -2181,6 +2182,7 @@ void UITask::nodeAction(uint8_t action) {
 static lv_obj_t* switchRow(lv_obj_t* parent, const char* text, const char* sub, uint8_t* pref);   // below
 #include "MapScreen.h"
 #include "NavMap.h"
+#include "MapAreas.h"
 #include "HomeScreen.h"
 #include "ClockScreen.h"
 #include "RadioScreen.h"
@@ -3099,6 +3101,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void sim_open(const char* name) {
   if (!strncmp(name, "page", 4)) { s_ui->showSchemaSettings(atoi(name + 4)); return; }
   if (!strcmp(name, "map")) { s_ui->openMap(true); return; }
   if (!strcmp(name, "maptools")) { s_ui->navToolsPopup(); return; }
+  if (!strcmp(name, "areasel")) { s_ui->areaSelectBegin(); return; }
+  if (!strcmp(name, "areas")) { s_ui->mapAreasPopup(); return; }
   if (!strcmp(name, "advert")) { s_ui->advertPopup(); return; }
 }
 // Scrolls the screen's (or a popup's) main list by dy; returns what was left to scroll.

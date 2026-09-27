@@ -21,6 +21,8 @@ class UiCore;
 class NearbyModel;
 struct UiEvent;
 
+namespace mapview { struct TileArea; }
+
 class UITask : public UITaskBase, public UiCoreHost {
 public:
   UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial) {}
@@ -66,6 +68,21 @@ public:
   void mapPan(int dx, int dy);
   void mapOpenMarker(int idx);
   void mapDownloadPopup();
+  // Map areas (MapAreas.h)
+  void areaBuildLayer(lv_obj_t* body);
+  void areaSelectBegin();
+  void areaSelectEnd();
+  bool areaSelecting() const;
+  void areaSelectDownload();
+  void areaSelectZmax(int d);
+  void areaHandleDrag(int corner, int dx, int dy);
+  void areaLayout();
+  bool areaStartDownload(const mapview::TileArea& box, bool force, bool trails);
+  void mapAreasPopup();
+  void mapAreaPopup(int idx);
+  void mapAreaAction(uint8_t act);
+  void mapAreaRenameDone(bool ok);
+  int  mapZoomLevel() const;
   void setTapWake(bool on);
   void mapDownloadClose();
   void mapDownloadStart();

@@ -779,7 +779,7 @@ void UITask::shareToMessage(const char* text) {
 
 namespace navmap {
 enum : uint8_t { TL_TRAIL_TOGGLE, TL_TRAIL_SAVE, TL_TRAIL_LOAD, TL_TRAIL_RESET, TL_TRAIL_GPX, TL_TRACKBACK,
-                 TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD, TL_OPTIONS,
+                 TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD, TL_AREAS, TL_OPTIONS,
                  TL_WP_HERE, TL_WP_COORDS, TL_SPOT_ADD, TL_SPOT_GO,
                  TL_ST_LOAD, TL_ST_GPX, TL_ST_DELETE };
 
@@ -973,7 +973,11 @@ void UITask::navToolsPopup() {
   lv_obj_t* tsw = switchRow(g, "Hiking trails", "Marked routes in their colours", nullptr);
   if (lvport::trailsOn()) lv_obj_add_state(tsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(tsw, onTrails, LV_EVENT_VALUE_CHANGED, NULL);
-  listRow(g, "Download this area", "For use offline", onNavTool, (void*)(uintptr_t)navmap::TL_DOWNLOAD);
+  listRow(g, "Download an area", "Pick it with a frame, for use offline", onNavTool, (void*)(uintptr_t)navmap::TL_DOWNLOAD);
+  char ar[40];
+  int na = mapview::s_areas.count();
+  snprintf(ar, sizeof(ar), na ? "%d on the card - rename, refresh, delete" : "None yet", na);
+  listRow(g, "Map areas", ar, onNavTool, (void*)(uintptr_t)navmap::TL_AREAS);
   listRow(g, "Map options", "Trail, live sharing, arrival alert", onNavTool, (void*)(uintptr_t)navmap::TL_OPTIONS);
 
   _nav_reset_armed_ms = 0;
@@ -1264,6 +1268,9 @@ void UITask::navToolAction(uint8_t act) {
     case navmap::TL_DOWNLOAD:
       navClosePopup();
       mapDownloadPopup();
+      return;
+    case navmap::TL_AREAS:
+      mapAreasPopup();
       return;
     case navmap::TL_OPTIONS:   // back returns to the map
       showSchemaSettings(settings::PG_NAV);

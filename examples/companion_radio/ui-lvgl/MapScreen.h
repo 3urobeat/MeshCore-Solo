@@ -19,6 +19,7 @@
 #include "map/TileCache.h"
 #include "map/LiveCache.h"
 #include "map/TileDownloader.h"
+#include "map/AreaStore.h"
 
 namespace mapview {
 
@@ -26,6 +27,7 @@ static RasterTileProvider s_raster("/sdcard/maps", LIVE_ROOT);
 static TileProvider*      s_provider = &s_raster;   // the one place to swap in a vector renderer
 static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();   // decoded tiles, in PSRAM
 static TileDownloader     s_dl("/sdcard/maps");
+static AreaStore          s_areas("/sdcard/maps");
 static const uint32_t     AVG_TILE_BYTES = 22 * 1024;   // OpenTopoMap-ish, for the size estimate
 
 // Decode a tile into the cache; with live tiles on, a base tile shown without
@@ -329,6 +331,8 @@ void UITask::buildMap() {
   lv_obj_remove_flag(_map_me, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(_map_me, LV_OBJ_FLAG_HIDDEN);
 
+  areaBuildLayer(body);   // download frame / area outlines, over the tiles (MapAreas.h)
+
   // Controls
   lv_obj_t* back = mapButton(body, LV_SYMBOL_LEFT, onBack);
   lv_obj_align(back, LV_ALIGN_TOP_LEFT, 6, 6);
@@ -486,8 +490,9 @@ void UITask::layoutMap() {
                    : mapview::s_dl.liveQueued() > 0 ? nullptr   // being fetched
                    : (!_map_pending && shown == 0 && missing > 0)
                        ? "No map here at this zoom -\nzoom out or download the area" : nullptr;
-  if (hint) { lv_label_set_text(_map_hint, hint); lv_obj_remove_flag(_map_hint, LV_OBJ_FLAG_HIDDEN); }
+  if (hint && !areaSelecting()) { lv_label_set_text(_map_hint, hint); lv_obj_remove_flag(_map_hint, LV_OBJ_FLAG_HIDDEN); }
   else lv_obj_add_flag(_map_hint, LV_OBJ_FLAG_HIDDEN);
+  areaLayout();
 }
 
 // One tile decode per call, nearest to the centre first.
@@ -677,8 +682,12 @@ static mapview::TileArea visibleArea(double cx, double cy, int z, int w, int h, 
 
 static int dlZmin(int z) { return z - 4 < 5 ? (z < 5 ? z : 5) : z - 4; }   // a few overview levels (cheap)
 
+// The download button: progress / an unfinished job in a popup, else the
+// frame to pick a new area (MapAreas.h).
 void UITask::mapDownloadPopup() {
   if (_dl_overlay) return;
+  mapview::TileArea job;
+  if (!mapview::s_dl.active() && !mapview::s_dl.savedJob(job)) { areaSelectBegin(); return; }
   int src_max = mapview::s_dl.sourceMaxZ();
   if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3;
   if (_dl_zmax > src_max) _dl_zmax = src_max;   // the server has nothing finer
@@ -848,20 +857,13 @@ void UITask::refreshDownloadPopup() {
     snprintf(last, sizeof(last), "\nLast: %s (%lu new)", dl.message(), (unsigned long)dl.downloaded());
   lv_label_set_text_fmt(_dl_info, "z%d-%d: %lu tiles, about %s  -  %s\n%s%s",
                         a.zmin, a.zmax, (unsigned long)n, size, host, net, last);
-  lv_label_set_text(_dl_start_lbl, n > mapview::TileDownloader::MAX_TILES ? "Too large - zoom in"
-                                   : LV_SYMBOL_DOWNLOAD " Download");
+  (void)n;
+  lv_label_set_text(_dl_start_lbl, LV_SYMBOL_PLUS " New area");
 }
 
 void UITask::mapDownloadStart() {
   if (mapview::s_dl.active()) { mapDownloadStop(); return; }
-  char ssid[33], pass[65];
-  if (!lvport::wifiAllowed()) { showToast("WiFi is off - Settings > WiFi"); return; }
-  if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) { showToast("Pick a WiFi network first - Settings > WiFi", 3000); return; }
-  if (!lvport::mountStorage()) { showToast("No SD card"); return; }
-  int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
-  mapview::TileArea a = visibleArea(_map_cx, _map_cy, _map_z, w, h, dlZmin(_map_z), _dl_zmax);
-  if (!mapview::s_dl.start(a, ssid, pass)) { showToast(mapview::s_dl.message()); return; }
-  refreshDownloadPopup();
+  areaSelectBegin();   // a new area: picked with the frame
 }
 
 void UITask::mapDownloadResume() {
@@ -928,6 +930,14 @@ void UITask::mapDownloadTick() {
   mapview::TileDownloader& dl = mapview::s_dl;
   dl.loop();
   mapview::s_live_cache.service(6);   // trims live tiles past the Storage limit
+  if (mapview::s_areas.service(8)) {   // a deleted area's files are gone
+    char t[48];
+    snprintf(t, sizeof(t), "Area deleted (%lu files)", (unsigned long)mapview::s_areas.deleted());
+    showToast(t);
+    mapview::s_cache.invalidate();
+    mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
+    if (_screen == SCR_MAP) layoutMap();
+  }
   if (dl.liveOn()) {
     int z, x, y;
     bool got = false;
@@ -944,6 +954,8 @@ void UITask::mapDownloadTick() {
   bool was_active = _dl_last_state == mapview::TileDownloader::CONNECTING ||
                     _dl_last_state == mapview::TileDownloader::RUNNING;
   if (was_active && !dl.active()) {   // just finished
+    if (st == mapview::TileDownloader::DONE)
+      mapview::s_areas.setFlag(mapview::s_areas.find(dl.area()), mapview::AreaStore::F_COMPLETE, true);
     char t[64];
     snprintf(t, sizeof(t), "Map: %s, %lu new tiles", dl.message(), (unsigned long)dl.downloaded());
     showToast(t, 4000);
