@@ -29,8 +29,41 @@ static bool isNoTilePicture(const uint8_t* d, size_t n) {
   return h == OTM_NOTILE_FNV;
 }
 
-
 static const int TILE_PX = 256;
+
+// Hiking trails: Waymarked Trails' transparent overlay (marked routes in their
+// waymark colours), kept apart from the base map under TRAILS_ROOT in the same
+// {z}/{x}/{y}.png layout, drawn over whatever base tile is shown while
+// s_trails_on. A 0-byte file there means "fetched, no trail on this tile" --
+// most tiles, and an empty file takes no cluster on a FAT card.
+static const char* const TRAILS_ROOT = "/sdcard/maps-trails";
+static const char* const TRAILS_URL = "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png";
+static const char* const TRAILS_ATTR = "Trails \xC2\xA9 waymarkedtrails.org (CC-BY-SA)";
+static const int TRAILS_MAX_Z = 18;
+static bool s_trails_on = false;   // Map tools > Hiking trails (NVS), set when the map opens
+
+// PNG -> RGBA (LVGL's lodepng: the result is an lv_draw_buf_t*, destroy it).
+static lv_draw_buf_t* decodePng(const uint8_t* png, size_t len) {
+  unsigned char* res = nullptr;
+  unsigned w = 0, h = 0;
+  unsigned err = lodepng_decode32(&res, &w, &h, png, len);
+  lv_draw_buf_t* db = (lv_draw_buf_t*)res;
+  if (err || !db || w != TILE_PX || h != TILE_PX) { if (db) lv_draw_buf_destroy(db); return nullptr; }
+  return db;
+}
+
+// An overlay tile with anything drawn on it (not fully transparent).
+static bool pngHasInk(const uint8_t* png, size_t len) {
+  lv_draw_buf_t* db = decodePng(png, len);
+  if (!db) return false;
+  bool ink = false;
+  for (int row = 0; row < TILE_PX && !ink; row++) {
+    const uint8_t* p = db->data + row * db->header.stride + 3;
+    for (int i = 0; i < TILE_PX; i++, p += 4) if (*p) { ink = true; break; }
+  }
+  lv_draw_buf_destroy(db);
+  return ink;
+}
 
 class TileProvider {
 public:
@@ -69,19 +102,16 @@ public:
   }
 
   bool renderTile(int z, int x, int y, uint16_t* out) override {
+    _overlay_missed = false;
     uint32_t len = 0;
     uint8_t* png = readLoose(_root, z, x, y, len);
     if (!png) png = readPacked(z, x, y, len);
     if (!png && _live) png = readLoose(_live, z, x, y, len);
     if (!png) return false;
 
-    unsigned char* res = nullptr;
-    unsigned w = 0, h = 0;
-    unsigned err = lodepng_decode32(&res, &w, &h, png, len);
+    lv_draw_buf_t* db = decodePng(png, len);
     lv_free(png);
-    lv_draw_buf_t* db = (lv_draw_buf_t*)res;
-    if (err || !db) { if (db) lv_draw_buf_destroy(db); return false; }
-    if (w != TILE_PX || h != TILE_PX) { lv_draw_buf_destroy(db); return false; }
+    if (!db) return false;
 
     for (int row = 0; row < TILE_PX; row++) {
       const uint8_t* p = db->data + row * db->header.stride;   // R, G, B, A
@@ -90,15 +120,56 @@ public:
         o[i] = (uint16_t)(((p[0] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[2] >> 3));
     }
     lv_draw_buf_destroy(db);
+    if (s_trails_on && z <= TRAILS_MAX_Z) drawOverlay(z, x, y, out);
     return true;
   }
 
-  const char* attribution() const override { return _attr[0] ? _attr : "\xC2\xA9 OpenStreetMap contributors"; }
+  // The last renderTile() found no trails file for its tile (not fetched yet).
+  bool overlayMissed() const { return _overlay_missed; }
+
+  const char* attribution() const override {
+    const char* base = _attr[0] ? _attr : "\xC2\xA9 OpenStreetMap contributors";
+    if (!s_trails_on) return base;
+    snprintf(_attr_full, sizeof(_attr_full), "%s | %s", base, TRAILS_ATTR);
+    return _attr_full;
+  }
 
 private:
   const char* _root;
   const char* _live;
   char _attr[96] = "";
+  mutable char _attr_full[160] = "";
+  bool _overlay_missed = false;
+
+  // The trails tile over `out`, blended by its alpha.
+  void drawOverlay(int z, int x, int y, uint16_t* out) {
+    char path[64];
+    snprintf(path, sizeof(path), "%s/%d/%d/%d.png", TRAILS_ROOT, z, x, y);
+    FILE* f = fopen(path, "rb");
+    if (!f) { _overlay_missed = true; return; }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    uint8_t* png = sz > 0 ? readRange(f, 0, (uint32_t)sz) : nullptr;   // 0 bytes: no trail here
+    fclose(f);
+    if (!png) return;
+    lv_draw_buf_t* db = decodePng(png, (size_t)sz);
+    lv_free(png);
+    if (!db) return;
+    for (int row = 0; row < TILE_PX; row++) {
+      const uint8_t* p = db->data + row * db->header.stride;
+      uint16_t* o = out + row * TILE_PX;
+      for (int i = 0; i < TILE_PX; i++, p += 4) {
+        unsigned a = p[3];
+        if (!a) continue;
+        unsigned r = (o[i] >> 8) & 0xF8, g = (o[i] >> 3) & 0xFC, b = (o[i] << 3) & 0xF8;
+        r = (p[0] * a + r * (255 - a)) / 255;
+        g = (p[1] * a + g * (255 - a)) / 255;
+        b = (p[2] * a + b * (255 - a)) / 255;
+        o[i] = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+      }
+    }
+    lv_draw_buf_destroy(db);
+  }
 
   static uint8_t* readRange(FILE* f, long off, uint32_t len) {
     if (len == 0 || len > 512 * 1024) return nullptr;

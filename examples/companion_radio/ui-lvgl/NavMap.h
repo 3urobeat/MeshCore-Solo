@@ -873,6 +873,9 @@ static void scanTrails() {
 static void onSavedTrail(lv_event_t* e) { s_ui->savedTrailPopup((int)(intptr_t)lv_event_get_user_data(e)); }
 
 static void onNavTools(lv_event_t* e)       { (void)e; s_ui->navToolsPopup(); }
+static void onTrails(lv_event_t* e) {
+  s_ui->setTrails(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
+}
 static void onLiveTiles(lv_event_t* e) {
   s_ui->setLiveTiles(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
 }
@@ -967,6 +970,9 @@ void UITask::navToolsPopup() {
   lv_obj_t* lsw = switchRow(g, "Live tiles", "Load missing tiles over WiFi", nullptr);
   if (lvport::liveTiles()) lv_obj_add_state(lsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(lsw, onLiveTiles, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_t* tsw = switchRow(g, "Hiking trails", "Marked routes in their colours", nullptr);
+  if (lvport::trailsOn()) lv_obj_add_state(tsw, LV_STATE_CHECKED);
+  lv_obj_add_event_cb(tsw, onTrails, LV_EVENT_VALUE_CHANGED, NULL);
   listRow(g, "Download this area", "For use offline", onNavTool, (void*)(uintptr_t)navmap::TL_DOWNLOAD);
   listRow(g, "Map options", "Trail, live sharing, arrival alert", onNavTool, (void*)(uintptr_t)navmap::TL_OPTIONS);
 

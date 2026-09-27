@@ -71,7 +71,7 @@ static void startWalk() {
 
 // What a top-level folder counts as.
 static uint8_t topCat(const char* name) {
-  if (!strcmp(name, "maps")) return C_MAPS;
+  if (!strcmp(name, "maps") || !strcmp(name, "maps-trails")) return C_MAPS;   // trails: the maps' overlay
   if (!strcmp(name, "maps-live")) return C_LIVE;
   if (!strcmp(name, "meshcore")) return C_MSGS;
   if (!strcmp(name, "trails")) return C_TRAILS;

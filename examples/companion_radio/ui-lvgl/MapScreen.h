@@ -28,6 +28,14 @@ static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();  
 static TileDownloader     s_dl("/sdcard/maps");
 static const uint32_t     AVG_TILE_BYTES = 22 * 1024;   // OpenTopoMap-ish, for the size estimate
 
+// Decode a tile into the cache; with live tiles on, a base tile shown without
+// its trails overlay has the overlay fetched.
+static TileCache::Slot* loadTile(int z, int x, int y) {
+  TileCache::Slot* s = s_cache.load(*s_provider, z, x, y);
+  if (s_trails_on && s_provider == &s_raster && s_raster.overlayMissed()) s_dl.liveRequest(z, x, y, true);
+  return s;
+}
+
 static const int MIN_Z = 3, MAX_Z = 18;
 static const int GRID_COLS = 3, GRID_ROWS = 2;   // covers 320x218 at any offset
 
@@ -110,7 +118,7 @@ static bool prefetchOne(double left, double top, int w, int h, int z) {
     }
   }
   if (best >= 1e18) return false;
-  s_cache.load(*s_provider, z, bx, by);
+  loadTile(z, bx, by);
   return true;
 }
 
@@ -198,6 +206,7 @@ void UITask::openMap(bool nav) {
 
 void UITask::showMap() {
   _screen = SCR_MAP;
+  mapview::s_trails_on = lvport::trailsOn();
   mapLiveBegin();
   mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
   if (_map_z == 0) {   // first open: own position, else the node's own advert position, else Poland
@@ -436,7 +445,7 @@ void UITask::mapLoop() {
     }
   }
   if (best_d < 1e18) {
-    mapview::s_cache.load(*mapview::s_provider, _map_z, best_x, best_y);
+    mapview::loadTile(_map_z, best_x, best_y);
   } else {   // every tile at this zoom looked up: decode a coarser one for a missing tile
     best_d = 1e18;
     int bz = -1;
@@ -455,7 +464,7 @@ void UITask::mapLoop() {
         if (d < best_d) { best_d = d; bz = wz; best_x = ax; best_y = ay; }
       }
     }
-    if (bz >= 0) mapview::s_cache.load(*mapview::s_provider, bz, best_x, best_y);
+    if (bz >= 0) mapview::loadTile(bz, best_x, best_y);
   }
   layoutMap();
 }
@@ -797,6 +806,17 @@ void UITask::mapLiveBegin() {
   mapview::s_dl.liveBegin(ssid, pass);
 }
 
+// Map tools > Hiking trails: the overlay on / off, every decoded tile redrawn.
+void UITask::setTrails(bool on) {
+  lvport::setTrailsOn(on);
+  mapview::s_trails_on = on;
+  mapview::s_cache.invalidate();
+  if (_screen == SCR_MAP) layoutMap();
+  if (!on) showToast("Hiking trails off");
+  else if (lvport::liveTiles() && lvport::wifiAllowed()) showToast("Trails load with the map over WiFi", 3000);
+  else showToast("Download an area again to add its trails", 3000);
+}
+
 void UITask::setLiveTiles(bool on) {
   lvport::setLiveTiles(on);
   if (on) {
@@ -820,7 +840,7 @@ void UITask::mapDownloadTick() {
   if (dl.liveOn()) {
     int z, x, y;
     bool got = false;
-    while (dl.liveTake(z, x, y)) { mapview::s_cache.forgetMissing(z, x, y); got = true; }
+    while (dl.liveTake(z, x, y)) { mapview::s_cache.drop(z, x, y); got = true; }   // a new tile, or its trails
     if (got && _screen == SCR_MAP) layoutMap();
     // The WiFi goes 30 s after the map was left or the screen went off (a
     // quick look elsewhere keeps it).

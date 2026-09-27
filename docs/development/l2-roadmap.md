@@ -241,7 +241,15 @@ Ideas to come back to (2026-09-26):
       Live map tiles: 16 / 64 / 256 MB / 1 GB, default 64 MB; Delete).
       Live tiles saved by earlier builds sit in /sdcard/maps and can't be
       told apart from downloaded ones.
-- [ ] Vector maps and other tile sources (to think through).
+- [x] Hiking trails: Waymarked Trails overlay in /sdcard/maps-trails, drawn
+      over the base map (Map tools > Hiking trails); fetched with an area
+      download (re-running one adds just the trails) and live; empty tiles
+      as 0-byte files.
+- [ ] Area manager: named list of downloaded areas (regenerate, delete),
+      a draggable frame to pick an area instead of the visible screen.
+- [ ] A grid (scale) under the map where there are no tiles.
+- [ ] Vector maps: spike first (own compact format from OSM, roads / trails
+      / water / forest, no labels; measure render time).
 
 User list, second batch (2026-09-26):
 

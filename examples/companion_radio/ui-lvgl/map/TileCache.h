@@ -78,6 +78,12 @@ public:
     for (Missing& m : _missing) if (m.z == z && m.x == x && m.y == y) m.z = -1;
   }
 
+  // Forget one tile, decoded or missing (it changed on the card: redrawn next time).
+  void drop(int z, int x, int y) {
+    for (Slot& s : _slots) if (s.z == z && s.x == x && s.y == y) { s.z = -1; s.used = 0; }
+    forgetMissing(z, x, y);
+  }
+
   // Forget everything (e.g. the card was swapped); keeps the buffers.
   void invalidate() { for (Slot& s : _slots) { s.z = -1; s.used = 0; } forgetMissing(); }
 

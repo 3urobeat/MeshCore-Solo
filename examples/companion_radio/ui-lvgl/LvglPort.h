@@ -185,6 +185,9 @@ static void setWifiAllowed(bool on) { s_wifi_allowed = on; nvs::putBool("mc_wifi
 // Map tools > Live tiles: missing tiles fetched over WiFi while the map is open.
 static bool liveTiles() { return nvs::getBool("mc_wifi", "live", true); }
 static void setLiveTiles(bool on) { nvs::putBool("mc_wifi", "live", on); }
+// Map tools > Hiking trails: the Waymarked Trails overlay over the map.
+static bool trailsOn() { return nvs::getBool("mc_ui", "trails", false); }
+static void setTrailsOn(bool on) { nvs::putBool("mc_ui", "trails", on); }
 
 // Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
 static void loadPin(char* out, size_t n) { nvs::getStr("mc_lock", "pin", out, n); }
@@ -516,6 +519,9 @@ static void setWifiAllowed(bool on) { s_wifi_on = on; }
 static bool s_live_tiles = true;
 static bool liveTiles() { return s_live_tiles; }
 static void setLiveTiles(bool on) { s_live_tiles = on; }
+static bool s_trails = false;
+static bool trailsOn() { return s_trails; }
+static void setTrailsOn(bool on) { s_trails = on; }
 static bool s_net_on = false;
 static void netBegin(const char*, const char*) { s_net_on = true; }
 static int  netState() { return NET_UP; }

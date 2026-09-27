@@ -17,6 +17,11 @@
 // default 19 -- or 17 for OpenTopoMap); without it, OpenTopoMap. Whatever the source,
 // its attribution is written to <root>/attribution.txt for the map to show.
 //
+// Hiking trails (s_trails_on): each tile's trails overlay is fetched right
+// after its base tile, into TRAILS_ROOT (TileProvider.h) -- empty ones as
+// 0-byte files, so re-running an area already on the card adds just the
+// trails.
+//
 // Live tiles: while the map is open, single tiles it is missing are fetched
 // the same way (one at a time, between the job's steps when there is no job),
 // the WiFi connected on the first miss and dropped by the caller (liveEnd)
@@ -113,12 +118,19 @@ public:
     _area = a;
     if (_area.zmax > _src_zmax) _area.zmax = _src_zmax;   // the server has nothing finer
     if (_area.zmin > _area.zmax) { fail("The server has no finer zoom: zoom out"); return false; }
+    _trails = s_trails_on;
+    _layer = 0;
     _total = countTiles(_area);
+    if (_trails && _area.zmin <= TRAILS_MAX_Z) {
+      TileArea t = _area;
+      if (t.zmax > TRAILS_MAX_Z) t.zmax = TRAILS_MAX_Z;
+      _total += countTiles(t);
+    }
     _done = _skipped = _failed = _consec_fail = 0;
     _retried = false;
     _placeholder_hash = 0; _placeholder_hits = 0;
     _msg[0] = '\0';
-    if (_total == 0 || _total > MAX_TILES) { fail("Area too large: use the PC tool"); return false; }
+    if (_total == 0 || _total > (_trails ? 2 : 1) * MAX_TILES) { fail("Area too large: use the PC tool"); return false; }
     writeAttribution();
     writeJob(_area);
     _z = _area.zmin;
@@ -157,14 +169,17 @@ public:
   bool liveConnecting() const { return _live && _lv_state == LV_CONNECTING; }
   int  liveQueued() const { return _live ? _lv_n + (_lv_fetching ? 1 : 0) : 0; }
   // A tile the map is missing (duplicates, recent failures and a full queue ignored).
-  void liveRequest(int z, int x, int y) {
-    if (!_live || active() || z > _src_zmax) return;   // past the server's zoom: the map magnifies
-    if (_lv_fetching && _lv_cur.z == z && _lv_cur.x == x && _lv_cur.y == y) return;
-    for (int i = 0; i < _lv_n; i++) if (_lv_q[i].z == z && _lv_q[i].x == x && _lv_q[i].y == y) return;
-    for (const LiveTile& f : _lv_failed) if (f.z == z && f.x == x && f.y == y) return;
+  // `trails`: the tile's trails overlay (its base is on the card already).
+  void liveRequest(int z, int x, int y, bool trails = false) {
+    if (!_live || active() || z > (trails ? TRAILS_MAX_Z : _src_zmax)) return;   // past the server's zoom: the map magnifies
+    uint8_t layer = trails ? 1 : 0;
+    auto same = [&](const LiveTile& t) { return t.z == z && t.x == x && t.y == y && t.layer == layer; };
+    if (_lv_fetching && same(_lv_cur)) return;
+    for (int i = 0; i < _lv_n; i++) if (same(_lv_q[i])) return;
+    for (const LiveTile& f : _lv_failed) if (same(f)) return;
     if (_lv_n >= LV_QUEUE) return;
     LiveTile& t = _lv_q[_lv_n++];
-    t.z = (int16_t)z; t.x = x; t.y = y;
+    t.z = (int16_t)z; t.x = x; t.y = y; t.layer = layer;
   }
   // Next tile written since the last call (the map forgets it was missing).
   bool liveTake(int& z, int& x, int& y) {
@@ -199,6 +214,10 @@ public:
         size_t len = 0;
         const uint8_t* data = lvport::fetchData(len);
         if (!looksLikeImage(data, len)) onFailure("Server didn't send a PNG tile");
+        else if (_layer == 1) {   // trails: the overlay, or an empty marker
+          if (!writeTrails(_z, _x, _y, data, len)) { lvport::fetchRelease(); finish(FAILED, "Can't write to the SD card"); return; }
+          _done++; _consec_fail = 0;
+        }
         else if (isNoTilePicture(data, len)) { _skipped++; _consec_fail = 0; }   // "no tile here": nothing to keep
         else if (isPlaceholder(data, len)) { lvport::fetchRelease(); finish(FAILED, "Server sends a placeholder (blocked / key?)"); return; }
         else if (!writeTile(_z, _x, _y, data, len)) { lvport::fetchRelease(); finish(FAILED, "Can't write to the SD card"); return; }
@@ -224,12 +243,12 @@ public:
     for (int i = 0; i < 16 && _state == RUNNING; i++) {
       if (_z > _area.zmax) { finish(DONE, "Done"); return; }
       char path[96];
-      tilePath(path, sizeof(path), _z, _x, _y);
+      tilePath(path, sizeof(path), _z, _x, _y, _layer);
       struct stat st;
-      if (stat(path, &st) == 0 && st.st_size > 0) { _skipped++; advance(); continue; }
+      if (stat(path, &st) == 0 && (st.st_size > 0 || _layer == 1)) { _skipped++; advance(); continue; }   // an empty trails file counts
       if ((int32_t)(millis() - _last_start) < 120) return;   // be gentle with the server (a retry waits longer)
       char url[200];
-      buildUrl(url, sizeof(url), _z, _x, _y);
+      buildUrl(url, sizeof(url), _z, _x, _y, _layer);
       int r = lvport::fetchStart(url);
       if (r > 0) { _fetching = true; _last_start = millis(); }
       else if (r < 0) finish(FAILED, "Out of memory (download task)");
@@ -245,6 +264,8 @@ private:
   uint8_t  _consec_fail = 0;
   int      _z = 0, _x = 0, _y = 0, _x0 = 0, _y0 = 0, _x1 = 0, _y1 = 0;
   bool     _fetching = false;
+  bool     _trails = false;    // this job fetches the trails overlay too
+  uint8_t  _layer = 0;         // of the current tile: 0 the base map, 1 its trails
   bool     _retried = false;   // the current tile already failed once
   uint32_t _last_start = 0, _connect_started = 0;
   uint32_t _placeholder_hash = 0;
@@ -258,7 +279,7 @@ private:
   bool     _has_job = false, _job_checked = false;
 
   // Live tiles
-  struct LiveTile { int16_t z = -1; int32_t x = 0, y = 0; };
+  struct LiveTile { int16_t z = -1; uint8_t layer = 0; int32_t x = 0, y = 0; };   // layer: 0 base, 1 trails
   enum LiveState : uint8_t { LV_IDLE, LV_CONNECTING, LV_UP, LV_BACKOFF };
   static const int LV_QUEUE = 8, LV_FAILED = 16, LV_DONE = 8;
   bool      _live = false;
@@ -320,7 +341,14 @@ private:
       const uint8_t* data = r > 0 ? lvport::fetchData(len) : nullptr;
       char lpath[64];
       LiveCache::tilePath(lpath, sizeof(lpath), _lv_cur.z, _lv_cur.x, _lv_cur.y);
-      if (r > 0 && looksLikeImage(data, len) && !isNoTilePicture(data, len) && writeFile(lpath, data, len)) {
+      if (_lv_cur.layer == 1) {   // trails over a tile already shown
+        if (r > 0 && looksLikeImage(data, len) && writeTrails(_lv_cur.z, _lv_cur.x, _lv_cur.y, data, len)) {
+          _lv_consec_fail = 0;
+          if (_lv_done_n < LV_DONE) _lv_done[_lv_done_n++] = _lv_cur;
+        } else {
+          liveFailed(_lv_cur);
+        }
+      } else if (r > 0 && looksLikeImage(data, len) && !isNoTilePicture(data, len) && writeFile(lpath, data, len)) {
         s_live_cache.add(_lv_cur.z, _lv_cur.x, _lv_cur.y, (uint32_t)len);   // kept apart, within the Storage limit
         _lv_consec_fail = 0;
         if (_lv_done_n < LV_DONE) _lv_done[_lv_done_n++] = _lv_cur;
@@ -335,7 +363,7 @@ private:
     for (int i = 1; i < _lv_n; i++) _lv_q[i - 1] = _lv_q[i];
     _lv_n--;
     char url[200];
-    buildUrl(url, sizeof(url), _lv_cur.z, _lv_cur.x, _lv_cur.y);
+    buildUrl(url, sizeof(url), _lv_cur.z, _lv_cur.x, _lv_cur.y, _lv_cur.layer);
     if (lvport::fetchStart(url) > 0) { _lv_fetching = true; _last_start = millis(); }
     else _lv_q[_lv_n++] = _lv_cur;   // fetcher busy: back in the queue
   }
@@ -401,6 +429,8 @@ private:
 
   void advance() {
     _retried = false;
+    if (_layer == 0 && _trails && _z <= TRAILS_MAX_Z) { _layer = 1; return; }   // this tile's trails next
+    _layer = 0;
     if (++_y <= _y1) return;
     _y = _y0;
     if (++_x <= _x1) return;
@@ -409,13 +439,13 @@ private:
     _x = _x0; _y = _y0;
   }
 
-  void tilePath(char* out, size_t n, int z, int x, int y) const {
-    snprintf(out, n, "%s/%d/%d/%d.png", _root, z, x, y);
+  void tilePath(char* out, size_t n, int z, int x, int y, uint8_t layer = 0) const {
+    snprintf(out, n, "%s/%d/%d/%d.png", layer ? TRAILS_ROOT : _root, z, x, y);
   }
 
-  void buildUrl(char* out, size_t n, int z, int x, int y) const {
+  void buildUrl(char* out, size_t n, int z, int x, int y, uint8_t layer = 0) const {
     size_t o = 0;
-    for (const char* p = _url_tpl; *p && o + 12 < n; p++) {
+    for (const char* p = layer ? TRAILS_URL : _url_tpl; *p && o + 12 < n; p++) {
       if (p[0] == '{' && p[1] && p[2] == '}') {
         int v = p[1] == 'z' ? z : p[1] == 'x' ? x : p[1] == 'y' ? y : -1;
         if (v >= 0) { o += snprintf(out + o, n - o, "%d", v); p += 2; continue; }
@@ -477,6 +507,13 @@ private:
     _placeholder_hash = h;
     _placeholder_hits = 0;
     return false;
+  }
+
+  // A trails tile: as fetched when something is drawn on it, else 0 bytes.
+  bool writeTrails(int z, int x, int y, const uint8_t* d, size_t n) {
+    char path[96];
+    tilePath(path, sizeof(path), z, x, y, 1);
+    return pngHasInk(d, n) ? writeFile(path, d, n) : writeFile(path, d, 0);
   }
 
   bool writeTile(int z, int x, int y, const uint8_t* d, size_t n) {
