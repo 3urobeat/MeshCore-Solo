@@ -22,11 +22,10 @@ static lv_obj_t* s_used = nullptr;
 // Beside the plot: in view, search time / time to first fix, UTC.
 static lv_obj_t *s_inview = nullptr, *s_search = nullptr, *s_ttff = nullptr, *s_utc = nullptr;
 // Under the bars: the position card (hidden without a fix), one pill per
-// constellation, the USB warning.
+// constellation.
 static lv_obj_t *s_fix_title = nullptr, *s_fix_card = nullptr;
 static lv_obj_t *s_pos = nullptr, *s_alt = nullptr, *s_speed = nullptr, *s_dop = nullptr;
 static lv_obj_t* s_sys_pill[GpsSky::SYS_COUNT];
-static lv_obj_t* s_usb = nullptr;
 static lv_obj_t* s_on_btn = nullptr;
 static const int SKY = 150;
 static const int BAR_PITCH = 26, BAR_W = 16, BARS_H = 104;
@@ -322,9 +321,6 @@ void UITask::buildGps() {
   lv_obj_add_event_cb(s_on_btn, onGpsTurnOn, LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(s_on_btn, LV_OBJ_FLAG_HIDDEN);
 
-  s_usb = label(body, LV_SYMBOL_WARNING "  On USB power: charging disturbs GPS", THEME_FONT_SMALL, theme::ACCENT);
-  lv_obj_add_flag(s_usb, LV_OBJ_FLAG_HIDDEN);
-
   s_fix_title = sectionTitle(body, "POSITION");
   s_fix_card = infoCard(body);
   s_pos = infoRow(s_fix_card, "Coordinates", "");
@@ -435,10 +431,6 @@ void UITask::refreshGps() {
   infoSet(s_dop, dop);
   if (fix && pos[0]) { lv_obj_remove_flag(s_fix_title, LV_OBJ_FLAG_HIDDEN); lv_obj_remove_flag(s_fix_card, LV_OBJ_FLAG_HIDDEN); }
   else { lv_obj_add_flag(s_fix_title, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(s_fix_card, LV_OBJ_FLAG_HIDDEN); }
-  // measured: on the cable the L76K never decodes indoors
-  if (g && !off && _board->isExternalPowered()) lv_obj_remove_flag(s_usb, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_add_flag(s_usb, LV_OBJ_FLAG_HIDDEN);
-
   // Per constellation: used / in view.
   for (uint8_t k = 0; k < GpsSky::SYS_COUNT; k++) {
     int n = 0, u = 0;
