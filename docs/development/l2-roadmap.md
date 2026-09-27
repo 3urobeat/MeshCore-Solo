@@ -254,8 +254,14 @@ Ideas to come back to (2026-09-26):
 - [x] A grid under the map (and the minimap), its step a round distance in
       the metric / imperial unit, with a scale bar: position and scale where
       no tile is loaded.
-- [ ] Vector maps: spike first (own compact format from OSM, roads / trails
-      / water / forest, no labels; measure render time).
+- [x] Vector maps spike: own VT2 format from OSM (tools/maps/osm_vector.py,
+      Overpass JSON -> /sdcard/vmap, data zooms 10/12/14, bbox per feature),
+      scanline polygons + thick lines drawn into the 256 px tile; behind Map
+      tools > Vector map (test), raster where no vector data. Measured on the
+      L2: 8-60 ms drawing, SD read ~30 ms per new data file (cached after).
+- [ ] Vector maps next: delta / varint coordinates (smaller files, faster
+      read), labels and POIs (peaks, shelters, springs), contours, a PBF
+      pipeline for regions + download on the device, styling.
 
 User list, second batch (2026-09-26):
 

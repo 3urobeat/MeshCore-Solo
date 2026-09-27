@@ -42,6 +42,28 @@ static const char* const TRAILS_ATTR = "Trails \xC2\xA9 waymarkedtrails.org (CC-
 static const int TRAILS_MAX_Z = 18;
 static bool s_trails_on = false;   // Map tools > Hiking trails (NVS), set when the map opens
 
+// fread into a PSRAM buffer: the SD card can't DMA there, so the driver
+// falls back to one 512-byte sector per transfer. Read in chunks through
+// internal (DMA-capable) memory instead -- several times faster.
+static bool readFast(FILE* f, uint8_t* dst, size_t len) {
+#if defined(ESP32)
+  const size_t CHUNK = 16 * 1024;
+  uint8_t* bounce = (uint8_t*)heap_caps_malloc(len < CHUNK ? len : CHUNK, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  if (bounce) {
+    size_t done = 0;
+    while (done < len) {
+      size_t n = len - done < CHUNK ? len - done : CHUNK;
+      if (fread(bounce, 1, n, f) != n) break;
+      memcpy(dst + done, bounce, n);
+      done += n;
+    }
+    heap_caps_free(bounce);
+    return done == len;
+  }
+#endif
+  return fread(dst, 1, len, f) == len;
+}
+
 // PNG -> RGBA (LVGL's lodepng: the result is an lv_draw_buf_t*, destroy it).
 static lv_draw_buf_t* decodePng(const uint8_t* png, size_t len) {
   unsigned char* res = nullptr;
@@ -175,7 +197,7 @@ private:
     if (len == 0 || len > 512 * 1024) return nullptr;
     uint8_t* buf = (uint8_t*)lv_malloc(len);
     if (!buf) return nullptr;
-    if (fseek(f, off, SEEK_SET) != 0 || fread(buf, 1, len, f) != len) { lv_free(buf); return nullptr; }
+    if (fseek(f, off, SEEK_SET) != 0 || !readFast(f, buf, len)) { lv_free(buf); return nullptr; }
     return buf;
   }
 

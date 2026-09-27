@@ -91,7 +91,9 @@ public:
   void mapDownloadDiscard();
   void mapDownloadZmax(int delta);
   void setLiveTiles(bool on);
-  void setTrails(bool on);      // Map tools > Live tiles
+  void setTrails(bool on);
+  void setVectorMap(bool on);
+  void simMapAt(const char* spec);      // Map tools > Live tiles
   // Navigation map (NavMap.h)
   void navTargetsPopup();
   void navClosePopup();

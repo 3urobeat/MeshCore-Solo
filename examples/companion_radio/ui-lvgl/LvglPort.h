@@ -188,6 +188,9 @@ static void setLiveTiles(bool on) { nvs::putBool("mc_wifi", "live", on); }
 // Map tools > Hiking trails: the Waymarked Trails overlay over the map.
 static bool trailsOn() { return nvs::getBool("mc_ui", "trails", false); }
 static void setTrailsOn(bool on) { nvs::putBool("mc_ui", "trails", on); }
+// Map tools > Vector map (test).
+static bool vectorOn() { return nvs::getBool("mc_ui", "vector", false); }
+static void setVectorOn(bool on) { nvs::putBool("mc_ui", "vector", on); }
 
 // Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
 static void loadPin(char* out, size_t n) { nvs::getStr("mc_lock", "pin", out, n); }
@@ -522,6 +525,9 @@ static void setLiveTiles(bool on) { s_live_tiles = on; }
 static bool s_trails = false;
 static bool trailsOn() { return s_trails; }
 static void setTrailsOn(bool on) { s_trails = on; }
+static bool s_vector = false;
+static bool vectorOn() { return s_vector; }
+static void setVectorOn(bool on) { s_vector = on; }
 static bool s_net_on = false;
 static void netBegin(const char*, const char*) { s_net_on = true; }
 static int  netState() { return NET_UP; }

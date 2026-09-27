@@ -3100,6 +3100,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void sim_open(const char* name) {
   for (auto& s : SCREENS) if (!strcmp(s.n, name)) { (s_ui->*s.fn)(); return; }
   if (!strncmp(name, "page", 4)) { s_ui->showSchemaSettings(atoi(name + 4)); return; }
   if (!strcmp(name, "map")) { s_ui->openMap(true); return; }
+  if (!strncmp(name, "map@", 4)) { s_ui->simMapAt(name + 4); return; }   // "map@lat,lon,z"
+  if (!strcmp(name, "vector")) { s_ui->setVectorMap(true); return; }
   if (!strcmp(name, "maptools")) { s_ui->navToolsPopup(); return; }
   if (!strcmp(name, "areasel")) { s_ui->areaSelectBegin(); return; }
   if (!strcmp(name, "areas")) { s_ui->mapAreasPopup(); return; }

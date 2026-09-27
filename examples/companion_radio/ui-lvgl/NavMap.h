@@ -876,6 +876,9 @@ static void onNavTools(lv_event_t* e)       { (void)e; s_ui->navToolsPopup(); }
 static void onTrails(lv_event_t* e) {
   s_ui->setTrails(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
 }
+static void onVectorMap(lv_event_t* e) {
+  s_ui->setVectorMap(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
+}
 static void onLiveTiles(lv_event_t* e) {
   s_ui->setLiveTiles(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
 }
@@ -973,6 +976,9 @@ void UITask::navToolsPopup() {
   lv_obj_t* tsw = switchRow(g, "Hiking trails", "Marked routes in their colours", nullptr);
   if (lvport::trailsOn()) lv_obj_add_state(tsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(tsw, onTrails, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_t* vsw = switchRow(g, "Vector map (test)", "Drawn on the device from /vmap", nullptr);
+  if (lvport::vectorOn()) lv_obj_add_state(vsw, LV_STATE_CHECKED);
+  lv_obj_add_event_cb(vsw, onVectorMap, LV_EVENT_VALUE_CHANGED, NULL);
   listRow(g, "Download an area", "Pick it with a frame, for use offline", onNavTool, (void*)(uintptr_t)navmap::TL_DOWNLOAD);
   char ar[40];
   int na = mapview::s_areas.count();

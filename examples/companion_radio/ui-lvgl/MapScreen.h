@@ -16,6 +16,7 @@
 
 #include <math.h>
 #include "map/TileProvider.h"
+#include "map/VectorTileProvider.h"
 #include "map/TileCache.h"
 #include "map/LiveCache.h"
 #include "map/TileDownloader.h"
@@ -24,7 +25,8 @@
 namespace mapview {
 
 static RasterTileProvider s_raster("/sdcard/maps", LIVE_ROOT);
-static TileProvider*      s_provider = &s_raster;   // the one place to swap in a vector renderer
+static VectorTileProvider s_vector(s_raster);   // spike: vector data where there is some, raster elsewhere
+static TileProvider*      s_provider = &s_raster;   // Map tools > Vector map (test) swaps it
 static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();   // decoded tiles, in PSRAM
 static TileDownloader     s_dl("/sdcard/maps");
 static AreaStore          s_areas("/sdcard/maps");
@@ -267,6 +269,7 @@ void UITask::openMap(bool nav) {
 void UITask::showMap() {
   _screen = SCR_MAP;
   mapview::s_trails_on = lvport::trailsOn();
+  mapview::s_provider = lvport::vectorOn() ? (mapview::TileProvider*)&mapview::s_vector : &mapview::s_raster;
   mapLiveBegin();
   mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
   if (_map_z == 0) {   // first open: own position, else the node's own advert position, else Poland
@@ -485,6 +488,13 @@ void UITask::layoutMap() {
   if (_map_nav) layoutNav();
 
   if (over) lv_label_set_text_fmt(_map_zoom_lbl, "z%d  (map z%d)", _map_z, _map_z - over);   // magnified
+  else if (mapview::s_provider == &mapview::s_vector)   // spike: how long a tile takes
+  {
+    uint32_t ld, fl, ln;
+    mapview::s_vector.lastSplit(ld, fl, ln);
+    lv_label_set_text_fmt(_map_zoom_lbl, "z%d  vt %lu ms (r%lu a%lu l%lu)", _map_z, (unsigned long)mapview::s_vector.lastMs(),
+                          (unsigned long)ld, (unsigned long)fl, (unsigned long)ln);
+  }
   else lv_label_set_text_fmt(_map_zoom_lbl, "z%d", _map_z);
   const char* hint = !have_provider ? "No map on the SD card.\nPut tiles in /maps (tools/maps)."
                    : mapview::s_dl.liveQueued() > 0 ? nullptr   // being fetched
@@ -910,6 +920,16 @@ void UITask::setTrails(bool on) {
   else showToast("Download an area again to add its trails", 3000);
 }
 
+// Map tools > Vector map (test): /sdcard/vmap drawn on the device where it has data.
+void UITask::setVectorMap(bool on) {
+  lvport::setVectorOn(on);
+  mapview::s_provider = on ? (mapview::TileProvider*)&mapview::s_vector : &mapview::s_raster;
+  mapview::s_cache.invalidate();
+  mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
+  if (_screen == SCR_MAP) layoutMap();
+  showToast(on ? "Vector map on (where /vmap has data)" : "Vector map off");
+}
+
 void UITask::setLiveTiles(bool on) {
   lvport::setLiveTiles(on);
   if (on) {
@@ -996,6 +1016,19 @@ void UITask::mapDownloadTick() {
   if (_dl_overlay) refreshDownloadPopup();
   // New tiles in view while downloading: let the map pick them up.
   if (dl.active() && _screen == SCR_MAP && dl.downloaded() > 0) { mapview::s_cache.forgetMissing(); layoutMap(); }
+}
+
+// Sim / tests: the Navigation map at "lat,lon,z", not following the GPS.
+void UITask::simMapAt(const char* spec) {
+  double lat = 0, lon = 0;
+  int z = 14;
+  if (sscanf(spec, "%lf,%lf,%d", &lat, &lon, &z) < 2) return;
+  openMap(true);
+  _map_z = z;
+  _map_cx = mapview::lonToTileX(lon, z);
+  _map_cy = mapview::latToTileY(lat, z);
+  _map_follow = false;
+  layoutMap();
 }
 
 #if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
