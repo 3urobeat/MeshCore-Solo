@@ -1,6 +1,6 @@
 #pragma once
-// Vector map (spike): tiles from tools/maps/osm_vector.py under VECTOR_ROOT,
-// {dz}/{x}/{y}.vt (format VT3) at data zooms 10, 12 and 14, drawn here into the 256x256 RGB565
+// Vector map: tiles from tools/maps/osm_vector.py (region packs or loose
+// files, map/VectorPacks.h), format VT3, at data zooms 10, 12 and 14, drawn here into the 256x256 RGB565
 // buffer the map asks for -- polygons by scanline (even-odd), lines as quads
 // with round joins. No anti-aliasing; names of points in VectorLabels.h. Where there is no vector
 // data (or below zoom 10) the raster provider draws instead, so the two mix.
@@ -15,14 +15,14 @@ namespace mapview {
 static inline int32_t vmin(int32_t a, int32_t b) { return a < b ? a : b; }
 static inline int32_t vmax(int32_t a, int32_t b) { return a > b ? a : b; }
 
-static const char* const VECTOR_ROOT = "/sdcard/vmap";
-
 class VectorTileProvider : public TileProvider {
 public:
   explicit VectorTileProvider(TileProvider& fallback) : _fb(fallback) {}
 
   bool available() override {
     struct stat st;
+    s_vpacks.scan();
+    for (Data& d : _slot) d.dz = -1;   // a pack may have changed
     _have = stat(VECTOR_ROOT, &st) == 0 && S_ISDIR(st.st_mode);
     bool fb = _fb.available();
     return _have || fb;
@@ -104,14 +104,10 @@ private:
     d = &_slot[0];
     for (Data& s : _slot) if (s.used < d->used) d = &s;
     d->dz = dz; d->x = x; d->y = y; d->ok = false; d->used = ++_tick;
-    char path[64];
-    snprintf(path, sizeof(path), "%s/%d/%d/%d.vt", VECTOR_ROOT, dz, x, y);
-    FILE* f = fopen(path, "rb");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 6 || sz > 2 * 1024 * 1024) { fclose(f); return false; }
+    VectorPacks::Src src;
+    if (!s_vpacks.find(VectorPacks::K_TILE, dz, x, y, src)) return false;
+    long sz = src.len;
+    if (sz < 6 || sz > 2 * 1024 * 1024) { s_vpacks.done(src); return false; }
     if ((size_t)sz > d->cap) {
       if (d->buf) free(d->buf);
 #if defined(ESP32)
@@ -120,10 +116,10 @@ private:
       d->buf = (uint8_t*)malloc(sz);
 #endif
       d->cap = d->buf ? sz : 0;
-      if (!d->buf) { fclose(f); return false; }
+      if (!d->buf) { s_vpacks.done(src); return false; }
     }
-    d->len = readFast(f, d->buf, sz) ? sz : 0;
-    fclose(f);
+    d->len = readFast(src.f, d->buf, sz) ? sz : 0;
+    s_vpacks.done(src);
     d->ok = d->len == (size_t)sz && memcmp(d->buf, "VT3", 3) == 0;
     _data = d->buf;
     _data_len = d->len;

@@ -8,6 +8,13 @@ buildings; and named points for the labels (places, peaks, huts, springs...).
 No street names (the raster map has them).
 
   tools/maps/osm_vector.py area.json [points.json] --out vmap/ [--dem dem-cache/]
+  tools/maps/osm_vector.py area.json ... --pack tatry.vpk --name "Tatry"
+  tools/maps/osm_vector.py --pbf malopolskie-latest.osm.pbf --bbox 49.15,19.75,49.35,20.25 \
+      --dem dem-cache/ --pack tatry.vpk --name "Tatry"
+
+--pbf reads a Geofabrik extract (tools/maps/pbf.py, needs pyosmium: pip
+install osmium) for the --bbox (south,west,north,east) -- no Overpass limits;
+give it more than once for a box across a border.
 
 With --dem, contour lines too (tools/maps/dem.py: Terrain Tiles fetched into
 that folder): every 20 m (from zoom 15) with a darker one every 100 m.
@@ -15,6 +22,17 @@ that folder): every 20 m (from zoom 15) with a darker one every 100 m.
 Three data zooms: 10 (drawn at z10-11), 12 (z12-13), 14 (z14-18); the device picks the
 data tile covering the tile it draws and scales it. Copy the output folder to
 the card as /sdcard/vmap.
+
+A pack (--pack) holds a whole region in one file, which the device reads in
+place from /sdcard/vmap/*.vpk (a card writes one big file much faster than
+thousands of small ones, and a download is one file):
+  header, 64 bytes: 'VPK1' count:u32 index_off:u32 data_off:u32
+    lon0 lat0 lon1 lat1: i32 (degrees x 1e6)  zmin zmax flags(1 contours) 0: u8
+    name: 28 bytes UTF-8, 0-padded
+  count x index entry, 16 bytes, sorted: kind:u8 (0 tile, 1 points) dz:u8
+    x:u16 y:u16 0:u16 off:u32 (from data_off) len:u32
+  the files, one after another.
+Without --pack the files go to --out as {dz}/{x}/{y}.vt / .vp.
 
 Tile format 'VT3' (little-endian):
   'V' 'T' '3' dz:u8  count:u16
@@ -395,15 +413,36 @@ def clip_ring(pts, lo, hi):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('json', nargs='+')
+    ap.add_argument('json', nargs='*', help='Overpass JSON file(s)')
+    ap.add_argument('--pbf', action='append', default=[], help='an OSM PBF extract (with --bbox); again for more')
+    ap.add_argument('--bbox', help='south,west,north,east: only this box (and the pack\'s box)')
     ap.add_argument('--out', default='vmap')
+    ap.add_argument('--pack', metavar='FILE.vpk', help='write one pack file instead of a folder')
+    ap.add_argument('--name', default='', help="the region's name in the pack")
+    ap.add_argument('--lang', help='names in this language where OSM has them (name:pl ...)')
     ap.add_argument('--dem', metavar='CACHE', help='add contour lines; DEM tiles are kept in this folder')
     ap.add_argument('--contour-step', type=int, default=20)
     ap.add_argument('--index-step', type=int, default=100)
     a = ap.parse_args()
+    box = None
+    if a.bbox:
+        s_, w_, n_, e_ = (float(v) for v in a.bbox.split(','))
+        box = (w_, s_, e_, n_)
     elements = []
     for fn in a.json:
         elements += json.load(open(fn))['elements']
+    if a.pbf:
+        if not box:
+            ap.error('--pbf needs --bbox')
+        import pbf
+        for fn in a.pbf:   # neighbouring extracts: what both have is drawn twice, harmless
+            elements += pbf.read_pbf(fn, box)
+    if not elements:
+        ap.error('no input')
+    if not box:
+        lons = [p['lon'] for e in elements for p in (e.get('geometry') or []) if p] or [0]
+        lats = [p['lat'] for e in elements for p in (e.get('geometry') or []) if p] or [0]
+        box = (min(lons), min(lats), max(lons), max(lats))
 
     feats = []   # (cls, colour, 'poly'|'line', [parts in world coords])
     way_routes = defaultdict(set)   # way id -> route colours along it
@@ -414,7 +453,12 @@ def main():
         pt = point_class(t)
         if pt is not None:
             pos = (e['lon'], e['lat']) if 'lat' in e else (e['center']['lon'], e['center']['lat']) if 'center' in e else None
-            name = t.get('name', '')
+            if not pos and e.get('geometry'):   # a hut drawn as a building: its middle
+                g = [p for p in e['geometry'] if p]
+                pos = (sum(p['lon'] for p in g) / len(g), sum(p['lat'] for p in g) / len(g))
+            if pos and not (box[0] <= pos[0] <= box[2] and box[1] <= pos[1] <= box[3]):
+                pos = None
+            name = (a.lang and t.get('name:' + a.lang)) or t.get('name', '')
             ele = elevation(t)
             if pos and (name or (pt == T_PEAK and ele is not None)):   # unnamed: just peaks, by their height
                 x, y = world(*pos)
@@ -457,19 +501,19 @@ def main():
         packed = sum(c << (4 * i) for i, c in enumerate(cols))
         feats.append((L_ROUTES, packed, 'line', join_lines(ways)))
     if a.dem:
-        lons = [p['lon'] for e in elements for p in (e.get('geometry') or []) if p]
-        lats = [p['lat'] for e in elements for p in (e.get('geometry') or []) if p]
         nc = 0
-        for v, line in dem.contour_lines(a.dem, min(lons), min(lats), max(lons), max(lats), a.contour_step):
+        for v, line in dem.contour_lines(a.dem, *box, a.contour_step):
             feats.append((L_CONTOUR_IDX if round(v) % a.index_step == 0 else L_CONTOUR, 0, 'line', [line]))
             nc += 1
         print(f'{nc} contour lines', file=sys.stderr)
     print(f'{len(feats)} features, {len(way_routes)} route ways', file=sys.stderr)
 
-    total_bytes = total_tiles = 0
+    files = {}   # (kind 0 tile / 1 points, dz, x, y) -> bytes
     for dz in DATA_ZOOMS:
         n = 1 << dz
         base_tol = 1.0 if dz == DATA_ZOOMS[-1] else 4.0   # half a pixel at the deepest zoom drawn from it
+        (wx0, wy0), (wx1, wy1) = world(box[0], box[3]), world(box[2], box[1])
+        tx_lo, ty_lo, tx_hi, ty_hi = int(wx0 * n), int(wy0 * n), int(wx1 * n), int(wy1 * n)   # tiles of the box only
         tiles = defaultdict(list)
         for cls, col, kind, parts in feats:
             if MIN_DZ.get(cls, 0) > dz:
@@ -480,8 +524,8 @@ def main():
             allp = [p for part in parts for p in part]
             if not allp:
                 continue
-            x0 = int(min(p[0] for p in allp) * n); x1 = int(max(p[0] for p in allp) * n)
-            y0 = int(min(p[1] for p in allp) * n); y1 = int(max(p[1] for p in allp) * n)
+            x0 = max(int(min(p[0] for p in allp) * n), tx_lo); x1 = min(int(max(p[0] for p in allp) * n), tx_hi)
+            y0 = max(int(min(p[1] for p in allp) * n), ty_lo); y1 = min(int(max(p[1] for p in allp) * n), ty_hi)
             for tx in range(x0, x1 + 1):
                 for ty in range(y0, y1 + 1):
                     out = []
@@ -529,12 +573,7 @@ def main():
                     buf += varint(len(body)) + body
                     count += 1
             struct.pack_into('<H', buf, 4, min(count, 65535))
-            d = os.path.join(a.out, str(dz), str(tx))
-            os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, f'{ty}.vt'), 'wb') as f:
-                f.write(buf)
-            total_bytes += len(buf)
-            total_tiles += 1
+            files[(0, dz, tx, ty)] = bytes(buf)
     for dz in DATA_ZOOMS:
         n = 1 << dz
         tiles = defaultdict(list)
@@ -549,17 +588,45 @@ def main():
             buf = bytearray(b'VP1' + bytes([dz]) + struct.pack('<H', len(pl)))
             for pt, _, px, py, ele, name in pl:
                 buf += struct.pack('<BHHhB', pt, px, py, -32768 if ele is None else ele, len(name)) + name
-            d = os.path.join(a.out, str(dz), str(tx))
-            os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, f'{ty}.vp'), 'wb') as f:
-                f.write(buf)
-            total_bytes += len(buf)
+            files[(1, dz, tx, ty)] = bytes(buf)
     print(f'{len(points)} points', file=sys.stderr)
-    with open(os.path.join(a.out, 'attribution.txt'), 'w') as f:
-        f.write('© OpenStreetMap contributors (ODbL)\n')
-        if a.dem:
-            f.write(dem.ATTRIBUTION + '\n')
-    print(f'{total_tiles} tiles, {total_bytes / 1024:.0f} KB', file=sys.stderr)
+    total = sum(len(b) for b in files.values())
+    if a.pack:
+        name = a.name or os.path.splitext(os.path.basename(a.pack))[0]
+        write_pack(a.pack, files, box, name, bool(a.dem))
+    else:
+        for (kind, dz, x, y), b in files.items():
+            d = os.path.join(a.out, str(dz), str(x))
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, f'{y}.{"vp" if kind else "vt"}'), 'wb') as f:
+                f.write(b)
+        with open(os.path.join(a.out, 'attribution.txt'), 'w') as f:
+            f.write('© OpenStreetMap contributors (ODbL)\n')
+            if a.dem:
+                f.write(dem.ATTRIBUTION + '\n')
+    print(f'{sum(1 for k in files if k[0] == 0)} tiles, {total / 1024:.0f} KB', file=sys.stderr)
+
+
+def write_pack(path, files, box, name, contours):
+    keys = sorted(files)
+    index = bytearray()
+    off = 0
+    for k in keys:
+        index += struct.pack('<BBHHHII', k[0], k[1], k[2], k[3], 0, off, len(files[k]))
+        off += len(files[k])
+    nb = name.encode('utf-8')[:27]
+    while nb and (nb[-1] & 0xC0) == 0x80:
+        nb = nb[:-1]
+    zs = [k[1] for k in keys if k[0] == 0] or [0]
+    head = struct.pack('<4sIII4iBBBB28s', b'VPK1', len(keys), 64, 64 + len(index),
+                       *(int(round(v * 1e6)) for v in box), min(zs), max(zs), 1 if contours else 0, 0, nb)
+    assert len(head) == 64
+    with open(path + '.tmp', 'wb') as f:
+        f.write(head)
+        f.write(index)
+        for k in keys:
+            f.write(files[k])
+    os.replace(path + '.tmp', path)
 
 
 if __name__ == '__main__':

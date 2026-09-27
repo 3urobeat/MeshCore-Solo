@@ -16,6 +16,7 @@
 
 #include <math.h>
 #include "map/TileProvider.h"
+#include "map/VectorPacks.h"
 #include "map/VectorTileProvider.h"
 #include "map/VectorLabels.h"
 #include "map/TileCache.h"

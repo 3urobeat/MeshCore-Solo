@@ -37,33 +37,36 @@ static void load(int dz, int x, int y) {
   PoiTile* t = &s_tiles[0];
   for (PoiTile& s : s_tiles) if (s.used < t->used) t = &s;
   t->dz = dz; t->x = x; t->y = y; t->n = 0; t->used = ++s_tick;
-  char path[64];
-  snprintf(path, sizeof(path), "%s/%d/%d/%d.vp", VECTOR_ROOT, dz, x, y);
-  FILE* f = fopen(path, "rb");
-  if (!f) return;
-  uint8_t h[6];
-  if (fread(h, 1, 6, f) != 6 || memcmp(h, "VP1", 3) != 0) { fclose(f); return; }
-  int count = h[4] | (h[5] << 8);
+  VectorPacks::Src src;
+  if (!s_vpacks.find(VectorPacks::K_POINTS, dz, x, y, src)) return;
+  uint8_t* buf = src.len >= 6 && src.len < 256 * 1024 ? psramBuf<uint8_t>(src.len) : nullptr;
+  bool ok = buf && readFast(src.f, buf, src.len);
+  s_vpacks.done(src);
+  if (!ok || memcmp(buf, "VP1", 3) != 0) { free(buf); return; }
+  const uint8_t* q = buf + 6;
+  const uint8_t* end = buf + src.len;
+  int count = buf[4] | (buf[5] << 8);
   if (count > t->cap) {
     free(t->p);
     t->p = psramBuf<Poi>(count);
     t->cap = t->p ? count : 0;
   }
-  while (t->n < t->cap && t->n < count) {
-    uint8_t r[8];
-    if (fread(r, 1, 8, f) != 8) break;
+  while (t->n < t->cap && t->n < count && q + 8 <= end) {
     Poi& p = t->p[t->n];
-    p.cls = r[0];
-    p.u = r[1] | (r[2] << 8);
-    p.v = r[3] | (r[4] << 8);
-    p.ele = (int16_t)(r[5] | (r[6] << 8));
-    int len = r[7] > LABEL_MAX ? LABEL_MAX : r[7];
-    if (fread(p.name, 1, len, f) != (size_t)len) break;
-    if (r[7] > len) fseek(f, r[7] - len, SEEK_CUR);
+    p.cls = q[0];
+    p.u = q[1] | (q[2] << 8);
+    p.v = q[3] | (q[4] << 8);
+    p.ele = (int16_t)(q[5] | (q[6] << 8));
+    int nl = q[7];
+    q += 8;
+    if (q + nl > end) break;
+    int len = nl > LABEL_MAX ? LABEL_MAX : nl;
+    memcpy(p.name, q, len);
     p.name[len] = '\0';
+    q += nl;
     t->n++;
   }
-  fclose(f);
+  free(buf);
 }
 
 // What layout() placed, for the draw callback (names copied: a later read
@@ -203,6 +206,12 @@ static void layout(double left, double top, int w, int h, int z, bool on, int bo
     s_n++;
   }
   lv_obj_invalidate(s_layer);
+}
+
+// The packs changed: what was read (or found missing) goes.
+static void flush() {
+  for (PoiTile& t : s_tiles) t.dz = -1;
+  clear();
 }
 
 // A tile layout() found missing, read now; true if one was.

@@ -81,6 +81,9 @@ public:
   void mapAreasPopup();
   void mapAreaPopup(int idx);
   void mapAreaAction(uint8_t act);
+  void mapRegionsPopup();          // Map tools > Vector regions (MapRegions.h)
+  void mapRegionPopup(int idx);
+  void mapRegionAction(uint8_t act);
   void mapAreaRenameDone(bool ok);
   int  mapZoomLevel() const;
   void setTapWake(bool on);

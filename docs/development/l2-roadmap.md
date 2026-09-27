@@ -267,8 +267,18 @@ Ideas to come back to (2026-09-26):
 - [x] Contours on the vector map: osm_vector.py --dem (tools/maps/dem.py,
       standard library: Terrain Tiles from AWS Open Data, SRTM ~25 m,
       smoothed, marching squares); 100 m lines from z12, 20 m from z15.
-- [ ] Vector maps next: a PBF pipeline for regions + download on the
-      device, styling (anti-aliasing, dark theme).
+- [x] Vector regions: a region is one pack file (/vmap/*.vpk, index +
+      tiles + points, read in place; osm_vector.py --pack); input from
+      Overpass or Geofabrik PBF extracts (--pbf, pyosmium; several across a
+      border) for a --bbox; --lang for names. Map tools > Vector regions
+      lists the packs (show, delete). No download on the device: packs are
+      made by the user.
+- [ ] A Tools page on the solo site (meshcore-solo-site, beside the sim):
+      vector pack maker in the browser (pick a box on a map, Overpass +
+      DEM, a JS port of osm_vector.py in a worker, .vpk to save), the GPX
+      downloader (tools/gpx-downloader) and screenshots (tools/screenshot.py
+      over Web Serial).
+- [ ] Vector map styling: anti-aliasing, dark theme.
 
 User list, second batch (2026-09-26):
 

@@ -2183,6 +2183,7 @@ static lv_obj_t* switchRow(lv_obj_t* parent, const char* text, const char* sub, 
 #include "MapScreen.h"
 #include "NavMap.h"
 #include "MapAreas.h"
+#include "MapRegions.h"
 #include "HomeScreen.h"
 #include "ClockScreen.h"
 #include "RadioScreen.h"
@@ -3105,6 +3106,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void sim_open(const char* name) {
   if (!strcmp(name, "maptools")) { s_ui->navToolsPopup(); return; }
   if (!strcmp(name, "areasel")) { s_ui->areaSelectBegin(); return; }
   if (!strcmp(name, "areas")) { s_ui->mapAreasPopup(); return; }
+  if (!strcmp(name, "regions")) { s_ui->mapRegionsPopup(); return; }
+  if (!strcmp(name, "region0")) { s_ui->mapRegionPopup(0); return; }
   if (!strcmp(name, "advert")) { s_ui->advertPopup(); return; }
 }
 // Scrolls the screen's (or a popup's) main list by dy; returns what was left to scroll.
