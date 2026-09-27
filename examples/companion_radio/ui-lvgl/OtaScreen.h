@@ -110,7 +110,7 @@ static void install(HTTPClient& http, NetworkClientSecure& tls) {
   if (!ok) snprintf(s_msg, sizeof(s_msg), "Out of memory");
   while (ok && s_written < (uint32_t)len) {
     size_t avail = in->available();
-    if (!avail) {
+    if (!avail || (s_written == 0 && avail < 16)) {   // the header check below wants its 16 bytes in one read
       if (!in->connected() || millis() - last_data > 20000) { snprintf(s_msg, sizeof(s_msg), "Download stalled"); ok = false; break; }
       vTaskDelay(pdMS_TO_TICKS(5));
       continue;

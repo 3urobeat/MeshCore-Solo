@@ -24,8 +24,9 @@
 //
 // Live tiles: while the map is open, single tiles it is missing are fetched
 // the same way (one at a time, between the job's steps when there is no job),
-// the WiFi connected on the first miss and dropped by the caller (liveEnd)
-// once the map has been closed for a while. They go to LIVE_ROOT, not
+// the WiFi connected on the first miss and dropped after a minute with
+// nothing missing, or by the caller (liveEnd) once the map has been closed
+// for a while. They go to LIVE_ROOT, not
 // <root>, and only up to the Storage limit (LiveCache.h).
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp only (after LvglPort.h).
@@ -288,6 +289,7 @@ private:
   struct LiveTile { int16_t z = -1; uint8_t layer = 0; int32_t x = 0, y = 0; };   // layer: 0 base, 1 trails
   enum LiveState : uint8_t { LV_IDLE, LV_CONNECTING, LV_UP, LV_BACKOFF };
   static const int LV_QUEUE = 8, LV_FAILED = 16, LV_DONE = 8;
+  static const uint32_t LV_IDLE_MS = 60000;
   bool      _live = false;
   LiveState _lv_state = LV_IDLE;
   char      _lv_ssid[33] = "", _lv_pass[65] = "";
@@ -295,7 +297,7 @@ private:
   int       _lv_n = 0, _lv_failed_next = 0, _lv_done_n = 0;
   bool      _lv_fetching = false;
   uint8_t   _lv_consec_fail = 0;
-  uint32_t  _lv_since = 0;   // connect start / back-off end
+  uint32_t  _lv_since = 0;   // connect start / back-off end / last activity while up
 
   void liveFailed(const LiveTile& t) {
     _lv_failed[_lv_failed_next++ % LV_FAILED] = t;
@@ -320,7 +322,7 @@ private:
         return;
       case LV_CONNECTING: {
         int ns = lvport::netState();
-        if (ns == lvport::NET_UP) { _lv_state = LV_UP; return; }
+        if (ns == lvport::NET_UP) { _lv_state = LV_UP; _lv_since = millis(); return; }
         if (ns == lvport::NET_FAILED || millis() - _lv_since > 20000) {
           lvport::netEnd();
           _lv_state = LV_BACKOFF;
@@ -362,8 +364,11 @@ private:
         liveFailed(_lv_cur);
       }
       lvport::fetchRelease();
+      _lv_since = millis();
       return;
     }
+    // Nothing missing for a minute: the WiFi goes (the next miss reconnects).
+    if (!_lv_n && millis() - _lv_since > LV_IDLE_MS) { lvport::netEnd(); _lv_state = LV_IDLE; return; }
     if (!_lv_n || millis() - _last_start < 120) return;   // be gentle with the server
     _lv_cur = _lv_q[0];
     for (int i = 1; i < _lv_n; i++) _lv_q[i - 1] = _lv_q[i];

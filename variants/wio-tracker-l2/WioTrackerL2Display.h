@@ -15,6 +15,7 @@
 // sequenced by WioTrackerL2Board::begin() before this driver initializes.
 // ---------------------------------------------------------------------------
 
+// The SPI clock is 80 MHz / an integer: 75 MHz asked gives 40 MHz on the wire.
 #ifndef L2_SPI_FREQUENCY
   #define L2_SPI_FREQUENCY 75000000
 #endif

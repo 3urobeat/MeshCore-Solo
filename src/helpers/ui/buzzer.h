@@ -126,7 +126,7 @@ class genericBuzzer
         // A speaker behind an I2S codec (BUZZER_CODEC_ES8311) instead of a
         // PWM pin. An audio task synthesises the melody and advances its
         // notes by samples written, so timing holds through a stalled UI
-        // loop; loop() only powers the amp. See buzzer.cpp.
+        // loop; loop() powers the amp and the codec. See buzzer.cpp.
         static const int MEL_MAX = 256;
         char          _mel[MEL_MAX];         // the melody playing (a copy: callers reuse buffers)
         volatile uint32_t _req = 0;          // bumped by play()/stop(); the task restarts on a change
@@ -138,6 +138,8 @@ class genericBuzzer
         volatile bool _clk_running = false;  // I2S clocking the codec
         volatile uint32_t _clk_on_ms = 0;
         bool          _i2s_ok = false;
+        bool          _codec_on = false;     // codec powered up (standby while the clocks are off); caller's thread only
+        uint32_t      _codec_on_ms = 0;
         uint32_t      _amp_off_at = 0;       // amp stays on this long after the last sound
         void*         _task = nullptr;       // TaskHandle_t
 

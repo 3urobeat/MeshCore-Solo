@@ -10,6 +10,14 @@
 
 #define ADVERT_RESTART_DELAY  1000   // millis
 
+// As the nRF52 interface: 20-30 ms for the first 30 s (the app finds it at
+// once), then 152.5 ms. Left alone, the library advertises every 30-60 ms
+// for as long as nothing is connected. Units of 0.625 ms.
+#define ADV_FAST_MIN          32
+#define ADV_FAST_MAX          48
+#define ADV_SLOW              244
+#define ADV_FAST_MS           30000
+
 void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code) {
   _pin_code = pin_code;
 
@@ -186,13 +194,17 @@ void SerialBLEInterface::enable() {
   // Start the service
   pService->start();
 
-  // Start advertising
-
-  //pServer->getAdvertising()->setMinInterval(500);
-  //pServer->getAdvertising()->setMaxInterval(1000);
-
-  pServer->getAdvertising()->start();
+  startAdvertising(true);
   adv_restart_time = 0;
+}
+
+void SerialBLEInterface::startAdvertising(bool fast) {
+  BLEAdvertising* adv = pServer->getAdvertising();
+  adv->stop();   // the interval only takes on a (re)start
+  adv->setMinInterval(fast ? ADV_FAST_MIN : ADV_SLOW);
+  adv->setMaxInterval(fast ? ADV_FAST_MAX : ADV_SLOW);
+  adv->start();
+  adv_slow_time = fast ? (millis() + ADV_FAST_MS) | 1 : 0;
 }
 
 void SerialBLEInterface::disable() {
@@ -204,7 +216,7 @@ void SerialBLEInterface::disable() {
   pServer->disconnect(last_conn_id);
   pService->stop();
   oldDeviceConnected = deviceConnected = false;
-  adv_restart_time = 0;
+  adv_restart_time = adv_slow_time = 0;
 }
 
 size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
@@ -262,10 +274,6 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
       clearBuffers();
 
       BLE_DEBUG_PRINTLN("SerialBLEInterface -> disconnecting...");
-
-      //pServer->getAdvertising()->setMinInterval(500);
-      //pServer->getAdvertising()->setMaxInterval(1000);
-
       adv_restart_time = millis() + ADVERT_RESTART_DELAY;
     } else {
       BLE_DEBUG_PRINTLN("SerialBLEInterface -> stopping advertising");
@@ -273,7 +281,7 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
       // connecting
       // do stuff here on connecting
       pServer->getAdvertising()->stop();
-      adv_restart_time = 0;
+      adv_restart_time = adv_slow_time = 0;
     }
     oldDeviceConnected = deviceConnected;
   }
@@ -281,9 +289,14 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
   if (adv_restart_time && millis() >= adv_restart_time) {
     if (pServer->getConnectedCount() == 0) {
       BLE_DEBUG_PRINTLN("SerialBLEInterface -> re-starting advertising");
-      pServer->getAdvertising()->start();  // re-Start advertising
+      startAdvertising(true);  // re-Start advertising
     }
     adv_restart_time = 0;
+  }
+
+  if (adv_slow_time && (long)(millis() - adv_slow_time) >= 0) {
+    adv_slow_time = 0;
+    if (_isEnabled && pServer->getConnectedCount() == 0) startAdvertising(false);
   }
   return 0;
 }

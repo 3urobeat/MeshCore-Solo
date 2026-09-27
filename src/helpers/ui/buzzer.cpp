@@ -426,7 +426,9 @@ static bool i2sInstall() {
 }
 static void i2sUninstall() { i2s_channel_disable(s_tx); i2s_del_channel(s_tx); s_tx = nullptr; }
 static void i2sWrite(const void* src, size_t n, uint32_t ms) {
-  if (!s_tx) return;
+  // No channel (a restart found no DMA memory): wait as long as the samples
+  // would play, or the task, above the UI loop, spins until the clocks stop.
+  if (!s_tx) { vTaskDelay(pdMS_TO_TICKS(n / (SAMPLE_RATE / 250)) + 1); return; }
   size_t w;
   i2s_channel_write(s_tx, src, n, &w, ms);
 }
@@ -489,8 +491,8 @@ bool genericBuzzer::_i2sBegin() {
     i2sUninstall();
     return false;
   }
-  _clk_on_ms = millis();
-  _clk_running = true;
+  _clk_on_ms = _codec_on_ms = millis();
+  _clk_running = _codec_on = true;
   delay(CLK_SETTLE_MS);   // settled before the startup sound powers the amp
   // Above the UI loop and LVGL (priority 1), so rendering never starves it.
   _i2s_ok = xTaskCreate(_taskEntry, "buzzer", 3072, this, 6, (TaskHandle_t*)&_task) == pdPASS;
@@ -610,12 +612,13 @@ void genericBuzzer::_start(const char* melody) {
   if (_amp_on) {   // a replay within the settle time still waits out the rest
     uint32_t since = millis() - s_amp_on_ms;
     settle = since < AUDIO_AMP_SETTLE_MS ? (uint16_t)(AUDIO_AMP_SETTLE_MS - since) : 0;
-  } else if (_clk_running && millis() - _clk_on_ms >= CLK_SETTLE_MS) {
+  } else if (_clk_running && _codec_on && millis() - _clk_on_ms >= CLK_SETTLE_MS &&
+             millis() - _codec_on_ms >= CLK_SETTLE_MS) {
     _amp_on = power_now = true;   // claimed here, so the task keeps the clocks
     settle = AUDIO_AMP_SETTLE_MS;
   } else {
-    _amp_pending = true;          // loop() powers it once the clocks have settled
-    settle = CLK_SETTLE_MS + AUDIO_AMP_SETTLE_MS;
+    _amp_pending = true;          // loop() powers it once the clocks (and the codec) have settled
+    settle = (_codec_on ? 1 : 2) * CLK_SETTLE_MS + AUDIO_AMP_SETTLE_MS;
   }
   strncpy(_mel, melody, MEL_MAX - 1);
   _mel[MEL_MAX - 1] = 0;
@@ -650,15 +653,27 @@ void genericBuzzer::stop() {
   xTaskNotifyGive((TaskHandle_t)_task);
 }
 
-// The amp: on once the codec's clocks have settled (a pending start), off
-// once nothing has played for AMP_LINGER_MS.
+// The codec: to standby once the task has stopped the clocks (its analog side
+// kept drawing with nothing to play), set up again once they run. The amp: on
+// once the codec has settled (a pending start), off once nothing has played
+// for AMP_LINGER_MS. Both off in between, so neither step pops.
 void genericBuzzer::loop() {
   if (!_i2s_ok) return;
+  if (_codec_on && !_clk_running && !_amp_on && !_amp_pending) {
+    es8311::standby(Wire, BUZZER_CODEC_ES8311);
+    _codec_on = false;
+  }
+  if (_amp_pending && !_codec_on && _task_playing && _clk_running && millis() - _clk_on_ms >= CLK_SETTLE_MS) {
+    _codec_on = es8311::begin(Wire, BUZZER_CODEC_ES8311);   // a failed one is tried again next pass
+    _codec_on_ms = millis();
+  }
   if (_amp_pending) {
     bool power = false;
     portENTER_CRITICAL(&s_mux);
     if (!_task_playing) _amp_pending = false;   // stopped before it got going
-    else if (_clk_running && millis() - _clk_on_ms >= CLK_SETTLE_MS) { _amp_pending = false; _amp_on = power = true; }
+    else if (_clk_running && _codec_on && millis() - _clk_on_ms >= CLK_SETTLE_MS && millis() - _codec_on_ms >= CLK_SETTLE_MS) {
+      _amp_pending = false; _amp_on = power = true;
+    }
     portEXIT_CRITICAL(&s_mux);
     if (power) { buzzerAmpPower(true); s_amp_on_ms = millis(); }
   }

@@ -19,6 +19,7 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _pin_code;
   unsigned long _last_write;
   unsigned long adv_restart_time;
+  unsigned long adv_slow_time;   // when fast advertising drops to the slow interval (0 = not pending)
 
   struct Frame {
     uint8_t len;
@@ -33,6 +34,7 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   Frame send_queue[FRAME_QUEUE_SIZE];
 
   void clearBuffers();
+  void startAdvertising(bool fast);
 
 protected:
   // BLESecurityCallbacks methods
@@ -72,6 +74,7 @@ public:
     deviceConnected = false;
     oldDeviceConnected = false;
     adv_restart_time = 0;
+    adv_slow_time = 0;
     _isEnabled = false;
     _last_write = 0;
     last_conn_id = 0;

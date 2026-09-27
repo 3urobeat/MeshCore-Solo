@@ -42,4 +42,19 @@ static bool begin(TwoWire& w, uint8_t addr) {
   return true;
 }
 
+// Everything but the I2C interface off (esp-adf's es8311 suspend): DAC, ADC,
+// references and the output driver. begin() brings it back, with MCLK running.
+static bool standby(TwoWire& w, uint8_t addr) {
+  static const uint8_t SEQ[][2] = {
+    { 0x32, 0x00 }, { 0x17, 0x00 }, { 0x0E, 0xFF }, { 0x12, 0x02 }, { 0x14, 0x00 },
+    { 0x0D, 0xFA }, { 0x15, 0x00 }, { 0x37, 0x08 }, { 0x02, 0x10 },
+    { 0x00, 0x00 }, { 0x00, 0x1F },   // state machine reset
+    { 0x01, 0x30 }, { 0x01, 0x00 },   // clocks off
+    { 0x45, 0x00 }, { 0x0D, 0xFC }, { 0x02, 0x00 },
+  };
+  for (size_t i = 0; i < sizeof(SEQ) / sizeof(SEQ[0]); i++)
+    if (!write(w, addr, SEQ[i][0], SEQ[i][1])) return false;
+  return true;
+}
+
 }  // namespace es8311
