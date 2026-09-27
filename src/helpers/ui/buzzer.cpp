@@ -426,11 +426,22 @@ static bool i2sInstall() {
 }
 static void i2sUninstall() { i2s_channel_disable(s_tx); i2s_del_channel(s_tx); s_tx = nullptr; }
 static void i2sWrite(const void* src, size_t n, uint32_t ms) {
+  if (!s_tx) return;
   size_t w;
   i2s_channel_write(s_tx, src, n, &w, ms);
 }
-static void i2sStop()    { i2s_channel_disable(s_tx); }   // clocks off
-static void i2sRestart() { i2s_channel_enable(s_tx); }    // auto-clear left the buffers silent
+// Clocks off between sounds: a disabled channel still drives MCLK, and its
+// fractional divider (160 MHz / 39 1/16) makes a comb of lines every 256 kHz
+// right up the LoRa band -- 869.632 MHz sat in the EU narrow channel, ~15 dB
+// over the Wio Tracker L2's noise floor. So the channel goes, the pins held
+// low, and a sound makes it again.
+static void i2sStop() {
+  if (!s_tx) return;
+  i2sUninstall();
+  const int pins[] = { PIN_I2S_MCLK, PIN_I2S_BCK, PIN_I2S_WS, PIN_I2S_DOUT };
+  for (int p : pins) { gpio_reset_pin((gpio_num_t)p); pinMode(p, OUTPUT); digitalWrite(p, LOW); }
+}
+static void i2sRestart() { if (!s_tx) i2sInstall(); }
 #else
 static const i2s_port_t I2S_PORT = I2S_NUM_0;
 static bool i2sInstall() {

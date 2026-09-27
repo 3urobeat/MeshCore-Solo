@@ -16,15 +16,21 @@
 
 // The L76K's power and reset lines are on the IO expander, out of the NMEA
 // provider's reach: begin() / stop() / reset() drive them here, so GPS off
-// (Settings, duty cycling) really powers the receiver down.
+// (Settings, duty cycling) really powers the receiver down. begin() on a
+// running receiver does nothing: a reset there (the app setting "gps" again)
+// threw away the acquisition in progress.
 class L2GpsProvider : public MicroNMEALocationProvider {
   bool _uart_off = false;
+  bool _started = false;       // begin() ran (the boot one does the reset)
+  bool _cfg_pending = false;   // constellations to set once the module talks
+  uint32_t _cfg_rx = 0;
 public:
   using MicroNMEALocationProvider::MicroNMEALocationProvider;
   void begin() override;
   void stop() override;
   void reset() override;
   bool isEnabled() override;
+  void loop() override;
 };
 
 extern WioTrackerL2Board board;

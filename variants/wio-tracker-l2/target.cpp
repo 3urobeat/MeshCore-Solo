@@ -23,6 +23,7 @@ void buzzerAmpPower(bool on) { board.setSpeakerAmp(on); }
 #endif
 
 void L2GpsProvider::begin() {
+  if (_started && board.gnssPowered() && !_uart_off) return;   // already running
   board.setGnssPower(true);   // with the power-up reset
   if (_uart_off) {            // back from stop(): the UART again
     Serial1.setRxBufferSize(1024);
@@ -30,6 +31,20 @@ void L2GpsProvider::begin() {
     _uart_off = false;
   }
   MicroNMEALocationProvider::begin();
+  _started = true;
+  _cfg_pending = true;
+  _cfg_rx = rxChars();
+}
+
+// The L76K starts with GPS + BeiDou only; GLONASS as well gives it a third
+// more satellites. Sent once it has booted (NMEA arriving), again after each
+// power-up (not saved in the module).
+void L2GpsProvider::loop() {
+  MicroNMEALocationProvider::loop();
+  if (_cfg_pending && rxChars() - _cfg_rx > 200) {
+    _cfg_pending = false;
+    sendSentence("$PCAS04,7");   // GPS + BeiDou + GLONASS
+  }
 }
 
 void L2GpsProvider::stop() {
@@ -41,7 +56,9 @@ void L2GpsProvider::stop() {
   board.setGnssPower(false);
 }
 
-void L2GpsProvider::reset() { board.gnssReset(); }
+// The sensor manager resets right after every begin(); begin() already did
+// the power-up one, and a second would restart a running receiver.
+void L2GpsProvider::reset() { }
 bool L2GpsProvider::isEnabled() { return board.gnssPowered(); }
 
 bool radio_init() {
