@@ -92,6 +92,7 @@ static int s_z = mapview::DEFAULT_Z;
 static double s_cx = 0, s_cy = 0;   // centre, in tiles at s_z
 static bool s_pending = false;
 static uint32_t s_next_fit_ms = 0;
+static mapview::Grid s_grid;   // under the tiles, as on the map
 
 static void onTap(lv_event_t* e) { (void)e; s_ui->openMap(true); }
 
@@ -368,6 +369,7 @@ void UITask::buildHomeMap(lv_obj_t* box) {
   lv_obj_remove_flag(s_area, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(s_area, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
   lv_obj_add_event_cb(s_area, onTap, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(s_area, mapview::drawGrid, LV_EVENT_DRAW_MAIN_END, &s_grid);
   for (int i = 0; i < COLS * ROWS; i++) {
     lv_obj_t* cell = lv_obj_create(s_area);
     lv_obj_remove_style_all(cell);
@@ -478,6 +480,10 @@ void UITask::homeMapLayout() {
   int n = 1 << s_z;
   s_pending = false;
   int shown = 0;
+  char sl[16];
+  double lat = atan(sinh(M_PI * (1 - 2 * s_cy / (double)n))) * 180.0 / M_PI;
+  s_grid = { left, top, mapview::gridStep(s_z, lat, _prefs && _prefs->units_imperial, 48, sl, sizeof(sl)) };
+  lv_obj_invalidate(s_area);
   for (int j = 0; j < ROWS; j++) {
     for (int i = 0; i < COLS; i++) {
       lv_obj_t* cell = s_cells[j * COLS + i];

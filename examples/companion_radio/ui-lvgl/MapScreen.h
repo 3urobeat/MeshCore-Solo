@@ -49,6 +49,64 @@ static double latToTileY(double lat, int z) {
   return (1.0 - asinh(tan(r)) / M_PI) / 2.0 * (double)(1 << z);
 }
 
+// ── Grid ──
+// A square grid under the tiles, its step a round distance (the scale bar
+// says which), so the map gives position and scale where no tile is loaded:
+// the trail, marks and own position are drawn over it anyway. The step is
+// measured at the view's centre (Web Mercator stretches away from it), and
+// the lines sit at multiples of it in world pixels, so they move with a pan.
+struct Grid {
+  double left = 0, top = 0;   // world px of the view's top-left
+  double step_px = 0;         // 0: none
+};
+static Grid s_grid;           // the main map's
+static lv_obj_t* s_scale_bar = nullptr;
+static lv_obj_t* s_scale_lbl = nullptr;
+
+// The step for zoom `z` at latitude `lat`: at least `min_px` apart. Label out.
+static double gridStep(int z, double lat, bool imperial, int min_px, char* lbl, size_t n) {
+  double mpp = 156543.034 * cos(lat * M_PI / 180.0) / (double)(1 << z);   // metres per px
+  static const double M[] = { 10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6, 2e6 };
+  static const double FT[] = { 50, 100, 200, 500, 1000, 2640, 5280, 10560, 26400, 52800, 105600, 264000, 528000,
+                               1056000, 2640000, 5280000 };
+  const double* v = imperial ? FT : M;
+  int count = imperial ? sizeof(FT) / sizeof(FT[0]) : sizeof(M) / sizeof(M[0]);
+  double unit = imperial ? 0.3048 : 1.0;   // metres per step unit
+  int i = 0;
+  while (i < count - 1 && v[i] * unit / mpp < min_px) i++;
+  double u = v[i];
+  if (!imperial) snprintf(lbl, n, u >= 1000 ? "%.0f km" : "%.0f m", u >= 1000 ? u / 1000 : u);
+  else if (u < 2640) snprintf(lbl, n, "%.0f ft", u);
+  else snprintf(lbl, n, u == 2640 ? "0.5 mi" : "%.0f mi", u / 5280);
+  return u * unit / mpp;
+}
+
+// LV_EVENT_DRAW_MAIN_END of the map area (before its children, the tiles):
+// user data is the Grid.
+static void drawGrid(lv_event_t* e) {
+  const Grid* g = (const Grid*)lv_event_get_user_data(e);
+  if (!g || g->step_px < 8) return;
+  lv_obj_t* o = (lv_obj_t*)lv_event_get_target(e);
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+  lv_draw_line_dsc_t d;
+  lv_draw_line_dsc_init(&d);
+  d.color = lv_color_hex(0x3C3C46);
+  d.width = 1;
+  lv_layer_t* layer = lv_event_get_layer(e);
+  int w = lv_area_get_width(&a), h = lv_area_get_height(&a);
+  for (double x = ceil(g->left / g->step_px) * g->step_px - g->left; x < w; x += g->step_px) {
+    d.p1.x = d.p2.x = a.x1 + (lv_value_precise_t)lround(x);
+    d.p1.y = a.y1; d.p2.y = a.y2;
+    lv_draw_line(layer, &d);
+  }
+  for (double y = ceil(g->top / g->step_px) * g->step_px - g->top; y < h; y += g->step_px) {
+    d.p1.y = d.p2.y = a.y1 + (lv_value_precise_t)lround(y);
+    d.p1.x = a.x1; d.p2.x = a.x2;
+    lv_draw_line(layer, &d);
+  }
+}
+
 // Markers, remembered so layout can reposition them. `idx` is the Nearby row
 // (MK_NODE), the waypoint index (MK_WAYPOINT) or the live-share slot (MK_LIVE).
 enum : uint8_t { MK_NODE, MK_WAYPOINT, MK_LIVE };
@@ -231,6 +289,7 @@ void UITask::buildMap() {
   lv_obj_set_style_pad_all(body, 0, 0);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(body, lv_color_hex(0x1A1A1E), 0);   // unloaded / missing tiles
+  lv_obj_add_event_cb(body, mapview::drawGrid, LV_EVENT_DRAW_MAIN_END, &mapview::s_grid);
   lv_obj_add_flag(body, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(body, onMapPress, LV_EVENT_PRESSED, NULL);
   lv_obj_add_event_cb(body, onMapPress, LV_EVENT_PRESSING, NULL);
@@ -300,11 +359,33 @@ void UITask::buildMap() {
   lv_obj_set_ext_click_area(attr, 8);
   lv_obj_add_event_cb(attr, onMapCredits, LV_EVENT_CLICKED, NULL);
   lv_obj_align(attr, LV_ALIGN_BOTTOM_LEFT, 6, -6 - bottom);
+  // Scale: a bar one grid step long, the distance beside it.
+  lv_obj_t* sc = lv_obj_create(body);
+  lv_obj_remove_style_all(sc);
+  lv_obj_remove_flag(sc, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(sc, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(sc, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_color(sc, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(sc, LV_OPA_70, 0);
+  lv_obj_set_style_radius(sc, 4, 0);
+  lv_obj_set_style_pad_hor(sc, 5, 0);
+  lv_obj_set_style_pad_ver(sc, 3, 0);
+  lv_obj_set_flex_flow(sc, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sc, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(sc, 5, 0);
+  mapview::s_scale_bar = lv_obj_create(sc);
+  lv_obj_remove_style_all(mapview::s_scale_bar);
+  lv_obj_set_size(mapview::s_scale_bar, 60, 6);
+  lv_obj_set_style_border_color(mapview::s_scale_bar, lv_color_hex(theme::TEXT), 0);
+  lv_obj_set_style_border_width(mapview::s_scale_bar, 2, 0);
+  lv_obj_set_style_border_side(mapview::s_scale_bar, (lv_border_side_t)(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
+  mapview::s_scale_lbl = label(sc, "", THEME_FONT_SMALL, theme::TEXT);
+  lv_obj_align(sc, LV_ALIGN_BOTTOM_LEFT, 36, -6 - bottom);
   _map_hint = mapPill(body, "");
   lv_label_set_long_mode(_map_hint, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(_map_hint, 200);
   lv_obj_set_style_text_align(_map_hint, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_center(_map_hint);
+  lv_obj_align(_map_hint, LV_ALIGN_TOP_MID, 0, 50);   // clear of own position, mid-map
   lv_obj_add_flag(_map_hint, LV_OBJ_FLAG_HIDDEN);
   if (_map_nav) buildNavControls(body);
 
@@ -322,6 +403,16 @@ void UITask::layoutMap() {
   double left = _map_cx * mapview::TILE_PX - w / 2.0;   // world px of the view's top-left
   double top  = _map_cy * mapview::TILE_PX - h / 2.0;
   mapview::s_left = left; mapview::s_top = top;
+  {   // the grid under the tiles, the scale bar
+    char sl[16];
+    double lat = atan(sinh(M_PI * (1 - 2 * _map_cy / (double)(1 << _map_z)))) * 180.0 / M_PI;
+    mapview::s_grid = { left, top, mapview::gridStep(_map_z, lat, _prefs && _prefs->units_imperial, 56, sl, sizeof(sl)) };
+    if (mapview::s_scale_lbl) {
+      lv_label_set_text(mapview::s_scale_lbl, sl);
+      lv_obj_set_width(mapview::s_scale_bar, (int)lround(mapview::s_grid.step_px));
+    }
+    lv_obj_invalidate(_map_area);
+  }
   int tx0 = (int)floor(left / mapview::TILE_PX), ty0 = (int)floor(top / mapview::TILE_PX);
   int n = 1 << _map_z;
   bool have_provider = mapview::s_available;
@@ -394,7 +485,7 @@ void UITask::layoutMap() {
   const char* hint = !have_provider ? "No map on the SD card.\nPut tiles in /maps (tools/maps)."
                    : mapview::s_dl.liveQueued() > 0 ? nullptr   // being fetched
                    : (!_map_pending && shown == 0 && missing > 0)
-                       ? "No map detail here at this zoom.\nZoom out, or download this area." : nullptr;
+                       ? "No map here at this zoom -\nzoom out or download the area" : nullptr;
   if (hint) { lv_label_set_text(_map_hint, hint); lv_obj_remove_flag(_map_hint, LV_OBJ_FLAG_HIDDEN); }
   else lv_obj_add_flag(_map_hint, LV_OBJ_FLAG_HIDDEN);
 }

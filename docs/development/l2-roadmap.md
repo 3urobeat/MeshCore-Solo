@@ -247,7 +247,9 @@ Ideas to come back to (2026-09-26):
       as 0-byte files.
 - [ ] Area manager: named list of downloaded areas (regenerate, delete),
       a draggable frame to pick an area instead of the visible screen.
-- [ ] A grid (scale) under the map where there are no tiles.
+- [x] A grid under the map (and the minimap), its step a round distance in
+      the metric / imperial unit, with a scale bar: position and scale where
+      no tile is loaded.
 - [ ] Vector maps: spike first (own compact format from OSM, roads / trails
       / water / forest, no labels; measure render time).
 
