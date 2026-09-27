@@ -7,7 +7,10 @@ marked hiking routes in their waymark colours, water, forest, meadows, rock,
 buildings; and named points for the labels (places, peaks, huts, springs...).
 No street names (the raster map has them).
 
-  tools/maps/osm_vector.py area.json [points.json] --out vmap/
+  tools/maps/osm_vector.py area.json [points.json] --out vmap/ [--dem dem-cache/]
+
+With --dem, contour lines too (tools/maps/dem.py: Terrain Tiles fetched into
+that folder): every 20 m (from zoom 15) with a darker one every 100 m.
 
 Three data zooms: 10 (drawn at z10-11), 12 (z12-13), 14 (z14-18); the device picks the
 data tile covering the tile it draws and scales it. Copy the output folder to
@@ -56,6 +59,8 @@ and the points (a second file):
 Map data (c) OpenStreetMap contributors, ODbL.
 """
 import argparse, json, math, os, struct, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dem
 from collections import defaultdict
 
 EXTENT = 4096
@@ -69,6 +74,7 @@ L_PATH, L_TRACK, L_SERVICE, L_MINOR, L_TERTIARY, L_SECONDARY, L_PRIMARY, L_TRUNK
 L_PATH_HARD = 29   # a path of demanding / alpine difficulty (sac_scale)
 L_ROUTE = 50       # (old: one route, its RGB565 colour)
 L_ROUTES = 51      # the routes along a stretch
+L_CONTOUR, L_CONTOUR_IDX = 15, 16   # contour lines, every 20 m / 100 m
 
 HIGHWAY = {
     'path': L_PATH, 'footway': L_PATH, 'steps': L_PATH, 'bridleway': L_PATH, 'cycleway': L_PATH,
@@ -81,7 +87,8 @@ HIGHWAY = {
     'trunk': L_TRUNK, 'trunk_link': L_TRUNK, 'motorway': L_TRUNK, 'motorway_link': L_TRUNK,
 }
 # Lowest data zoom a class goes in (smaller ones would be clutter / weight).
-MIN_DZ = {P_BUILDING: 14, L_SERVICE: 14, L_PATH: 12, L_PATH_HARD: 12, L_TRACK: 12, L_STREAM: 12, L_MINOR: 12}
+MIN_DZ = {P_BUILDING: 14, L_SERVICE: 14, L_PATH: 12, L_PATH_HARD: 12, L_TRACK: 12, L_STREAM: 12, L_MINOR: 12,
+          L_CONTOUR: 14, L_CONTOUR_IDX: 12}
 HARD_SAC = ('demanding_mountain_hiking', 'alpine_hiking', 'demanding_alpine_hiking', 'difficult_alpine_hiking')
 
 # Points (labels): class, lowest data zoom.
@@ -147,7 +154,7 @@ def short_name(name):
 
 # Natural land cover (not roads, buildings, water): its edges are vague
 # anyway, so simplified harder -- most of the points are here.
-NATURAL = (P_MEADOW, P_SCRUB, P_FOREST, P_ROCK)
+NATURAL = (P_MEADOW, P_SCRUB, P_FOREST, P_ROCK, L_CONTOUR, L_CONTOUR_IDX)   # (and the contours: from a 25 m grid)
 NATURAL_TOL = 3
 
 WAYMARK = {   # osmc:symbol / colour -> RGB888
@@ -390,6 +397,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('json', nargs='+')
     ap.add_argument('--out', default='vmap')
+    ap.add_argument('--dem', metavar='CACHE', help='add contour lines; DEM tiles are kept in this folder')
+    ap.add_argument('--contour-step', type=int, default=20)
+    ap.add_argument('--index-step', type=int, default=100)
     a = ap.parse_args()
     elements = []
     for fn in a.json:
@@ -446,6 +456,14 @@ def main():
     for cols, ways in bundles.items():
         packed = sum(c << (4 * i) for i, c in enumerate(cols))
         feats.append((L_ROUTES, packed, 'line', join_lines(ways)))
+    if a.dem:
+        lons = [p['lon'] for e in elements for p in (e.get('geometry') or []) if p]
+        lats = [p['lat'] for e in elements for p in (e.get('geometry') or []) if p]
+        nc = 0
+        for v, line in dem.contour_lines(a.dem, min(lons), min(lats), max(lons), max(lats), a.contour_step):
+            feats.append((L_CONTOUR_IDX if round(v) % a.index_step == 0 else L_CONTOUR, 0, 'line', [line]))
+            nc += 1
+        print(f'{nc} contour lines', file=sys.stderr)
     print(f'{len(feats)} features, {len(way_routes)} route ways', file=sys.stderr)
 
     total_bytes = total_tiles = 0
@@ -539,6 +557,8 @@ def main():
     print(f'{len(points)} points', file=sys.stderr)
     with open(os.path.join(a.out, 'attribution.txt'), 'w') as f:
         f.write('© OpenStreetMap contributors (ODbL)\n')
+        if a.dem:
+            f.write(dem.ATTRIBUTION + '\n')
     print(f'{total_tiles} tiles, {total_bytes / 1024:.0f} KB', file=sys.stderr)
 
 

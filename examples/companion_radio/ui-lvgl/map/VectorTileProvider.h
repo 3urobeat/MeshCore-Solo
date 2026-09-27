@@ -47,7 +47,7 @@ public:
     return true;
   }
 
-  const char* attribution() const override { return _have ? "\xC2\xA9 OpenStreetMap contributors (ODbL)" : _fb.attribution(); }
+  const char* attribution() const override { return _have ? "\xC2\xA9 OpenStreetMap contributors (ODbL); contours: Terrain Tiles (SRTM, AWS Open Data)" : _fb.attribution(); }
   bool hasData() const { return _have; }
   uint32_t lastMs() const { return _last_ms; }
   // The last tile's time split: reading the data, areas, lines (ms).
@@ -131,7 +131,7 @@ private:
   }
 
   // Styles. Widths in px at zoom 14, scaled with the zoom.
-  enum : uint8_t { L_STREAM = 20, L_RIVER = 21, L_PATH_HARD = 29, L_PATH = 30, L_TRACK = 31, L_SERVICE = 32, L_TRUNK = 37,
+  enum : uint8_t { L_CONTOUR = 15, L_CONTOUR_IDX = 16, L_STREAM = 20, L_RIVER = 21, L_PATH_HARD = 29, L_PATH = 30, L_TRACK = 31, L_SERVICE = 32, L_TRUNK = 37,
                    L_ROUTE = 50, L_ROUTES = 51 };
   // Waymark colours of L_ROUTES (index 1.., osm_vector.py PALETTE).
   static uint16_t routeColour(int i) {
@@ -152,6 +152,8 @@ private:
   }
   static bool lineStyle(uint8_t c, uint16_t& col, float& w) {
     switch (c) {
+      case L_CONTOUR:     col = rgb(0xB89668); w = 1.0f; return true;
+      case L_CONTOUR_IDX: col = rgb(0x9A7448); w = 1.0f; return true;
       case L_STREAM: col = rgb(0x86B6D8); w = 1.0f; return true;
       case L_RIVER:  col = rgb(0x86B6D8); w = 3.0f; return true;
       case L_PATH:   col = rgb(0xA8502A); w = 1.2f; return true;
@@ -196,7 +198,8 @@ private:
       bool road = cls >= L_SERVICE && cls <= L_TRUNK;
       bool want = pass == 0 ? (cls < L_SERVICE) : pass == 3 ? (cls == L_ROUTE || cls == L_ROUTES) : road;
       if (!want) continue;
-      if (_z < 13 && (cls == L_PATH || cls == L_PATH_HARD || cls == 7)) continue;   // paths from z13, buildings from z14 (data)
+      if (_z < 13 && (cls == L_PATH || cls == L_PATH_HARD || cls == 7)) continue;
+      if (_z < 15 && cls == L_CONTOUR) continue;   // every 20 m: too dense further out   // paths from z13, buildings from z14 (data)
       // Off the drawn tile (with a margin for the widest line): not even read.
       const int32_t M = 12 * 16, S = TILE_PX * 16;
       if (sx(bb[2]) < -M || sx(bb[0]) > S + M || sy(bb[3]) < -M || sy(bb[1]) > S + M) continue;

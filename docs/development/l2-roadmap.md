@@ -264,8 +264,11 @@ Ideas to come back to (2026-09-26):
       white band, less simplified; demanding / alpine paths dotted; labels of
       named points (places, peaks with height, huts, passes, springs...) as
       a layer over the tiles, placed by priority. No street names (raster).
-- [ ] Vector maps next: contours, a PBF pipeline for regions + download on
-      the device, styling.
+- [x] Contours on the vector map: osm_vector.py --dem (tools/maps/dem.py,
+      standard library: Terrain Tiles from AWS Open Data, SRTM ~25 m,
+      smoothed, marching squares); 100 m lines from z12, 20 m from z15.
+- [ ] Vector maps next: a PBF pipeline for regions + download on the
+      device, styling (anti-aliasing, dark theme).
 
 User list, second batch (2026-09-26):
 
