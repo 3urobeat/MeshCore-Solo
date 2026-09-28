@@ -67,6 +67,7 @@
     <div class="row">
       <button id="btn-L">User (back; hold: mute)</button>
       <button id="wake-L">Wake (screen off / on)</button>
+      <button id="shot-L">Screenshot (User held + Wake)</button>
       <button id="reset-L">Reset L2</button>
     </div>
   </div>
@@ -283,6 +284,23 @@
       btnDownAt = 0;
     });
     document.getElementById('wake-L').addEventListener('click', () => L && L.call('sim_wake_button', null));
+    // The device's own screenshot (the button combo), then the newest file
+    // from its /sdcard/screenshots handed to the browser as a download.
+    document.getElementById('shot-L').addEventListener('click', async () => {
+      if (!L) return;
+      L.call('sim_screenshot', null);
+      await sleep(300);
+      const FS = L.mod.FS, dir = '/sdcard/screenshots';
+      let names = [];
+      try { names = FS.readdir(dir).filter(n => n.endsWith('.bmp')).sort(); } catch (e) {}
+      if (!names.length) { log('screenshot: nothing saved'); return; }
+      const name = names[names.length - 1];
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([FS.readFile(dir + '/' + name)], { type: 'image/bmp' }));
+      a.download = name;
+      a.click();
+      log('screenshot: ' + name);
+    });
     document.getElementById('reset-L').addEventListener('click', () => bootL());
     document.getElementById('advert').addEventListener('click', advertBoth);
     document.getElementById('peer-dm').addEventListener('click', () => {

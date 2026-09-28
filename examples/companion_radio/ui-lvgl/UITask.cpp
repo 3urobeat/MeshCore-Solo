@@ -7,6 +7,7 @@
 #endif
 #include <new>
 #include <stdarg.h>
+#include <sys/stat.h>
 
 // Flags: LVGL draws text one codepoint at a time, so a flag (a pair of regional
 // indicator letters) would show as two letter tiles. Every label and span of
@@ -101,6 +102,8 @@ static bool s_sim_btn_click = false, s_sim_btn_hold = false, s_sim_wake = false;
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_lcd_button() { s_sim_btn_click = true; }
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_lcd_button_hold() { s_sim_btn_hold = true; }
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_wake_button() { s_sim_wake = true; }
+static bool s_sim_shot = false;   // the side + top button combo
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_screenshot() { s_sim_shot = true; }
 // The speaker, polled every frame by the page's Web Audio oscillator.
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_is_playing() { return s_ui && s_ui->isBuzzerPlaying() ? 1 : 0; }
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_buzzer_freq_hz() { return s_ui ? (int)s_ui->buzzerFreqHz() : 0; }
@@ -846,11 +849,13 @@ void UITask::toggleMute() {
 #endif
 }
 
+static constexpr uint32_t LOCK_OFF_MS = 30000;   // the lock screen's own auto-off cap
+
 void UITask::loop() {
   pollConnection();
   drainCoreEvents();
 
-  // USER (BOOT, side) button: Home's clock page; held, mutes / unmutes, also with the
+  // USER (BOOT, side) button: Home's clock page; held and let go, mutes / unmutes, also with the
   // screen off, which it doesn't wake. WAKE (top) button: screen off / on.
   // Either one silences a ringing alarm first.
   bool btn_click = false, btn_hold = false, wake_press = false;
@@ -872,9 +877,25 @@ void UITask::loop() {
     _wake_down = down;
   }
 #endif
-  if ((btn_click || btn_hold || wake_press) && _core->clock.isRinging()) dismissRing();
+  // Side button held + top button: a screenshot (and neither does its own thing).
+  // A long hold only arms the mute, which happens on letting go -- so holding
+  // the side button a bit long before the top one doesn't mute as well.
+  static bool mute_armed = false;
+  bool shot = false, mute = false;
+#ifdef PIN_USER_BTN
+  bool side_down = user_btn.isPressed();
+  if (wake_press && side_down) { user_btn.cancelClick(); shot = true; mute_armed = false; }
+  if (mute_armed && !side_down) { mute_armed = false; mute = true; }
+#elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+  shot = s_sim_shot;
+  s_sim_shot = false;
+  if (mute_armed) { mute_armed = false; mute = true; }   // the page sends the hold on release
+#endif
+  if (shot) { if (!_asleep) takeScreenshot(); }
+  else if ((btn_click || btn_hold || wake_press) && _core->clock.isRinging()) dismissRing();
   else if (wake_press) { if (_asleep) wake(); else sleep(); }
-  else if (btn_hold) toggleMute();
+  else if (btn_hold) mute_armed = true;
+  else if (mute) toggleMute();
   else if (btn_click) { if (!_asleep && !locked()) goHome(); }   // the side button doesn't wake: pockets
 
   if (_asleep) {
@@ -884,7 +905,10 @@ void UITask::loop() {
       if (lvport::touched()) { lvport::swallowTouch(); wake(); }
     }
   } else {
+    // Locked, nobody's using it: the lock screen goes dark after LOCK_OFF_MS
+    // even with auto-off at Never (a woken-up pocket, a boot PIN, a message).
     uint32_t aoff = autoOffMillis();
+    if (locked() && (aoff == 0 || aoff > LOCK_OFF_MS)) aoff = LOCK_OFF_MS;
     if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging() && !otaBusy()) sleep();
   }
 
@@ -1287,6 +1311,72 @@ bool UITask::ensureGps() {
 static void toastTimerCb(lv_timer_t* t) {
   anim::fadeHide((lv_obj_t*)lv_timer_get_user_data(t));
   lv_timer_pause(t);
+}
+
+// The screen as it is, toasts and popups included, re-rendered once into a
+// buffer the flush callback fills (lvport::shotCopy) and written to the card
+// as a 24-bit BMP: /sdcard/screenshots/scr_NNNN.bmp.
+void UITask::takeScreenshot() {
+  lv_display_t* d = lv_display_get_default();
+  const int32_t W = lv_display_get_horizontal_resolution(d), H = lv_display_get_vertical_resolution(d);
+  if (!lvport::mountStorage()) { showToast("No SD card"); return; }
+  mkdir("/sdcard", 0777);   // the sim's MEMFS may not have it yet (the card: fails, harmless)
+  mkdir("/sdcard/screenshots", 0777);
+  char path[48];
+  struct stat st;
+  int n = 1;
+  for (; n <= 9999; n++) {
+    snprintf(path, sizeof(path), "/sdcard/screenshots/scr_%04d.bmp", n);
+    if (stat(path, &st) != 0) break;
+  }
+  if (n > 9999) { showToast("Screenshots folder full"); return; }
+#ifdef ESP32
+  uint16_t* px = (uint16_t*)heap_caps_malloc(W * H * 2, MALLOC_CAP_SPIRAM);
+#else
+  uint16_t* px = (uint16_t*)malloc(W * H * 2);
+#endif
+  if (!px) { showToast("Out of memory"); return; }
+
+  lvport::s_shot = px;
+  lv_obj_invalidate(lv_screen_active());   // the whole display, every layer
+  lv_refr_now(d);
+  lvport::s_shot = nullptr;
+
+  bool ok = false;
+  if (FILE* f = fopen(path, "wb")) {
+    const uint32_t row = (uint32_t)W * 3, size = 54 + row * H;   // W*3 is a multiple of 4 at 320
+    uint8_t hdr[54] = {'B', 'M'};
+    auto put32 = [&](int at, uint32_t v) { for (int i = 0; i < 4; i++) hdr[at + i] = (uint8_t)(v >> (8 * i)); };
+    put32(2, size); put32(10, 54); put32(14, 40); put32(18, W); put32(22, H);
+    hdr[26] = 1; hdr[28] = 24; put32(34, row * H);
+    ok = fwrite(hdr, 1, 54, f) == 54;
+    uint8_t line[320 * 3];
+    for (int32_t y = H - 1; ok && y >= 0; y--) {   // bottom-up, BGR
+      const uint16_t* s = px + y * W;
+      for (int32_t x = 0; x < W && x < 320; x++) {
+        uint16_t c = s[x];
+        uint8_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
+        line[x * 3 + 0] = (uint8_t)((b << 3) | (b >> 2));
+        line[x * 3 + 1] = (uint8_t)((g << 2) | (g >> 4));
+        line[x * 3 + 2] = (uint8_t)((r << 3) | (r >> 2));
+      }
+      ok = fwrite(line, 1, row, f) == row;
+    }
+    ok = (fclose(f) == 0) && ok;
+  }
+  free(px);
+  if (!ok) { remove(path); showToast("Couldn't save the screenshot"); return; }
+
+  // A white flash, like a camera's, then where it went.
+  lv_obj_t* flash = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(flash);
+  lv_obj_set_size(flash, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(flash, lv_color_white(), 0);
+  lv_obj_remove_flag(flash, LV_OBJ_FLAG_CLICKABLE);
+  anim::run(flash, anim::setBgOpa, LV_OPA_70, LV_OPA_TRANSP, 300, anim::coverDone);
+  char msg[40];
+  snprintf(msg, sizeof(msg), "Saved scr_%04d.bmp", n);
+  showToast(msg);
 }
 
 void UITask::showToast(const char* text, uint32_t ms) {

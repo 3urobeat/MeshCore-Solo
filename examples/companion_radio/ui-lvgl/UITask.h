@@ -401,6 +401,7 @@ private:
   void wake();
   void sleep();
   void toggleMute();
+  void takeScreenshot();
   uint32_t _next_wake_poll_ms = 0;
   uint32_t _next_touch_poll_ms = 0;   // tap to wake, while the screen is off
   bool _wake_down = false;

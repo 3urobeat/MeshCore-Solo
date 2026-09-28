@@ -26,6 +26,17 @@
 
 namespace lvport {
 
+// Screenshot: while s_shot points at a full-screen RGB565 buffer, the flush
+// callbacks also copy what they send to the panel into it.
+static uint16_t* s_shot = nullptr;
+static void shotCopy(const lv_area_t* a, const uint8_t* px) {
+  if (!s_shot) return;
+  const int32_t W = lv_display_get_horizontal_resolution(NULL);
+  const int32_t w = a->x2 - a->x1 + 1;
+  const uint16_t* src = (const uint16_t*)px;
+  for (int32_t y = a->y1; y <= a->y2; y++, src += w) memcpy(s_shot + y * W + a->x1, src, w * 2);
+}
+
 // Network for map downloads: state of the link, and one HTTP GET at a time.
 enum NetState { NET_OFF, NET_CONNECTING, NET_UP, NET_FAILED };
 static const int WIFI_SCAN_MAX = 20;
@@ -41,6 +52,7 @@ static void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) 
 #ifdef UI_PERF_TEST
   uint32_t t = micros();
 #endif
+  shotCopy(area, px_map);
   int w = area->x2 - area->x1 + 1;
   int h = area->y2 - area->y1 + 1;
   s_gfx->startWrite();
@@ -445,6 +457,7 @@ static const char* fetchError() { return s_ferr; }
 static bool s_swallow = false;
 
 static void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
+  shotCopy(area, px_map);
   display.blit(area->x1, area->y1, area->x2 - area->x1 + 1, area->y2 - area->y1 + 1,
                (const uint16_t*)px_map);
   lv_display_flush_ready(disp);
