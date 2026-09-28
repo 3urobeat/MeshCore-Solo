@@ -88,6 +88,7 @@ public:
   void mapRegionPopup(int idx);
   void mapRegionAction(uint8_t act);
   void mapAreaRenameDone(bool ok);
+  void areaPreviewEnd();   // back to the view from before a map area's preview
   int  mapZoomLevel() const;
   void setTapWake(bool on);
   void mapDownloadClose();
@@ -317,6 +318,7 @@ private:
   void buildSettings();
   void buildSchemaSettings();
   void schemaRows(lv_obj_t* body, uint8_t page);
+  void showMapOptions(uint8_t section);
   void schemaRow(lv_obj_t* card, int idx);
   void buildKeyboardPage(lv_obj_t* body);
   void buildAboutPage(lv_obj_t* body);
@@ -347,7 +349,7 @@ private:
   void refreshNavBar();
   void navFrameTarget();
   void navSetTarget(uint8_t kind, const uint8_t* key, int32_t lat, int32_t lon, const char* name);
-  lv_obj_t* navPopupPanel(const char* title, bool full);
+  lv_obj_t* navPopupPanel(const char* title, bool full, bool bottom = false);
   void navRenamePopup(int idx);
   void navAddWaypoint(int32_t lat, int32_t lon);
   void navDropAt(int x, int y);

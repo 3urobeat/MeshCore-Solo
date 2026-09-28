@@ -474,9 +474,9 @@ void UITask::navToNode(const uint8_t* key, int32_t lat, int32_t lon, const char*
 
 // ── Popups: target list, waypoint menu, rename ────────────────────────────────
 
-lv_obj_t* UITask::navPopupPanel(const char* title, bool full) {
+lv_obj_t* UITask::navPopupPanel(const char* title, bool full, bool bottom) {
   navClosePopup();
-  lv_obj_t* panel = popupOpen(screen(), full ? POP_FULL : POP_FIT, _nav_overlay);
+  lv_obj_t* panel = popupOpen(screen(), bottom ? POP_BOTTOM : full ? POP_FULL : POP_FIT, _nav_overlay);
   lv_obj_set_style_pad_row(panel, 6, 0);
 
   lv_obj_t* hdr = lv_obj_create(panel);
@@ -492,6 +492,7 @@ lv_obj_t* UITask::navPopupPanel(const char* title, bool full) {
 }
 
 void UITask::navClosePopup() {
+  areaPreviewEnd();   // a map area's popup: the map goes back where it was
   if (_nav_overlay) lv_obj_delete_async(_nav_overlay);   // may be closing from its own button
   _nav_overlay = _nav_ta = _nav_kb = _nav_del_lbl = nullptr;
   _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
@@ -755,14 +756,16 @@ void UITask::shareToMessage(const char* text) {
   showToast("Pick a conversation to share it in");
 }
 
-// ── Tools panel: trail recording, live share, arrival alert, map download,
-// and their options (the schema's PG_NAV page) -- all of it lives with the map.
+// ── Tools panel: trail recording, live share, arrival alert, each with its
+// options (a section of the schema's PG_NAV page); offline maps; layers --
+// all of it lives with the map.
 
 namespace navmap {
 enum : uint8_t { TL_TRAIL_TOGGLE, TL_TRAIL_SAVE, TL_TRAIL_LOAD, TL_TRAIL_RESET, TL_TRAIL_GPX, TL_TRACKBACK,
-                 TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD, TL_AREAS, TL_REGIONS, TL_OPTIONS,
+                 TL_SHARE_TOGGLE, TL_SHARE_ONCE, TL_DOWNLOAD, TL_AREAS, TL_REGIONS,
                  TL_WP_HERE, TL_WP_COORDS, TL_SPOT_ADD, TL_SPOT_GO,
-                 TL_ST_LOAD, TL_ST_GPX, TL_ST_DELETE };
+                 TL_ST_LOAD, TL_ST_GPX, TL_ST_DELETE,
+                 TL_OPT_TRAIL, TL_OPT_SHARE, TL_OPT_ALERT };
 
 // Live-share targets offered in the dropdown: channels, then favourite contacts.
 static const int SHARE_TARGETS = MAX_GROUP_CHANNELS + 16;
@@ -907,6 +910,8 @@ void UITask::navToolsPopup() {
   _nav_tb_btn = toolButton(r, "", navmap::TL_TRACKBACK, false);
   toolButton(r, LV_SYMBOL_SD_CARD " GPX", navmap::TL_TRAIL_GPX, false);
   _nav_reset_lbl = toolButton(r, LV_SYMBOL_TRASH " Reset", navmap::TL_TRAIL_RESET, false);
+  listRow(group(list, nullptr), "Trail options", "Point spacing, auto-pause, low battery", onNavTool,
+          (void*)(uintptr_t)navmap::TL_OPT_TRAIL);
 
   sectionTitle(list, "LIVE SHARE");
   _nav_share_lbl = label(list, "", THEME_FONT_SMALL, theme::TEXT);
@@ -942,34 +947,36 @@ void UITask::navToolsPopup() {
   _nav_share_btn = toolButton(r, "", navmap::TL_SHARE_TOGGLE, true);
   toolButton(r, LV_SYMBOL_UPLOAD " Send once", navmap::TL_SHARE_ONCE, false);
 
-  sectionTitle(list, "ARRIVAL ALERT");
-  char al[64], rad[12];
+  listRow(group(list, nullptr), "Share options", "How often, for how long", onNavTool, (void*)(uintptr_t)navmap::TL_OPT_SHARE);
+
+  lv_obj_t* g = group(list, "ARRIVAL ALERT");
+  schemaRow(g, SETTING(locator_enabled));
+  char al[48], rad[12];
   uint16_t m = NodePrefs::locatorRadiusMeters(_prefs->locator_radius_idx);
   geo::fmtDist(rad, sizeof(rad), m / 1000.0f, _prefs->units_imperial);
-  if (_prefs->locator_enabled) snprintf(al, sizeof(al), "On  -  %s, %s radius", NodePrefs::locatorModeLabel(_prefs->locator_mode), rad);
-  else snprintf(al, sizeof(al), "Off");
-  label(list, al, THEME_FONT_SMALL, theme::TEXT);
+  snprintf(al, sizeof(al), "%s radius, %s", rad, NodePrefs::locatorModeLabel(_prefs->locator_mode));
+  listRow(g, "Alert options", al, onNavTool, (void*)(uintptr_t)navmap::TL_OPT_ALERT);
 
-  lv_obj_t* g = group(list, "MAP");
+  g = group(list, "OFFLINE MAPS");
+  char ar[48];
+  int na = mapview::s_areas.count();
+  snprintf(ar, sizeof(ar), na ? "%d on the card - new, rename, refresh, delete" : "None yet - pick one with a frame", na);
+  listRow(g, "Map areas", ar, onNavTool, (void*)(uintptr_t)navmap::TL_AREAS);
   lv_obj_t* lsw = switchRow(g, "Live tiles", "Load missing tiles over WiFi", nullptr);
   if (lvport::liveTiles()) lv_obj_add_state(lsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(lsw, onLiveTiles, LV_EVENT_VALUE_CHANGED, NULL);
+
+  g = group(list, "LAYERS");
   lv_obj_t* tsw = switchRow(g, "Hiking trails", "Marked routes in their colours", nullptr);
   if (lvport::trailsOn()) lv_obj_add_state(tsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(tsw, onTrails, LV_EVENT_VALUE_CHANGED, NULL);
-  lv_obj_t* vsw = switchRow(g, "Vector map", "Drawn on the device: trails, contours", nullptr);
+  lv_obj_t* vsw = switchRow(g, "Vector map (test)", "Drawn on the device: trails, contours", nullptr);
   if (lvport::vectorOn()) lv_obj_add_state(vsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(vsw, onVectorMap, LV_EVENT_VALUE_CHANGED, NULL);
-  listRow(g, "Download an area", "Pick it with a frame, for use offline", onNavTool, (void*)(uintptr_t)navmap::TL_DOWNLOAD);
-  char ar[40];
-  int na = mapview::s_areas.count();
-  snprintf(ar, sizeof(ar), na ? "%d on the card - rename, refresh, delete" : "None yet", na);
-  listRow(g, "Map areas", ar, onNavTool, (void*)(uintptr_t)navmap::TL_AREAS);
   char vr[48];
   int nv = mapview::s_vpacks.count();
   snprintf(vr, sizeof(vr), nv ? "%d on the card" : "None - packs go in /vmap", nv);
   listRow(g, "Vector regions", vr, onNavTool, (void*)(uintptr_t)navmap::TL_REGIONS);
-  listRow(g, "Map options", "Trail, live sharing, arrival alert", onNavTool, (void*)(uintptr_t)navmap::TL_OPTIONS);
 
   _nav_reset_armed_ms = 0;
   refreshNavTools();
@@ -1266,8 +1273,11 @@ void UITask::navToolAction(uint8_t act) {
     case navmap::TL_REGIONS:
       mapRegionsPopup();
       return;
-    case navmap::TL_OPTIONS:   // back returns to the map
-      showSchemaSettings(settings::PG_NAV);
+    case navmap::TL_OPT_TRAIL:   // one section of the Map options; back returns to the map
+    case navmap::TL_OPT_SHARE:
+    case navmap::TL_OPT_ALERT:
+      showMapOptions(act == navmap::TL_OPT_TRAIL ? settings::SEC_TRAIL
+                     : act == navmap::TL_OPT_SHARE ? settings::SEC_LIVE_SHARE : settings::SEC_LOCATOR);
       return;
     case navmap::TL_WP_HERE:
       navClosePopup();

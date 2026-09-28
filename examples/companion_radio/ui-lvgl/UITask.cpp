@@ -163,7 +163,9 @@ static lv_obj_t* dimOverlay(lv_obj_t* parent) {
 // POP_FIT: as tall as its content, centred below the status bar, scrolling
 // past that height. POP_FULL: all of that height; its own list scrolls.
 // POP_TOP: as tall as its content, under the status bar, clear of a keyboard.
-enum PopFit : uint8_t { POP_FIT, POP_FULL, POP_TOP };
+// POP_BOTTOM: as tall as its content, at the bottom, nothing dimmed -- for
+// what's shown on the screen above it (a map area's preview).
+enum PopFit : uint8_t { POP_FIT, POP_FULL, POP_TOP, POP_BOTTOM };
 static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int32_t inset = 8) {
   overlay = dimOverlay(parent);
   lv_obj_t* panel = lv_obj_create(overlay);
@@ -175,6 +177,9 @@ static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int
   } else if (fit == POP_TOP) {
     lv_obj_set_height(panel, LV_SIZE_CONTENT);
     lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);
+  } else if (fit == POP_BOTTOM) {
+    lv_obj_set_height(panel, LV_SIZE_CONTENT);
+    lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -inset);
   } else {
     lv_obj_set_height(panel, LV_SIZE_CONTENT);
     lv_obj_set_style_max_height(panel, h - theme::STATUS_H - 12, 0);
@@ -189,7 +194,7 @@ static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int
   lv_obj_set_style_pad_all(panel, theme::PAD, 0);
   lv_obj_set_style_pad_row(panel, 4, 0);
   lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  anim::popup(overlay);
+  anim::popup(overlay, fit == POP_BOTTOM ? LV_OPA_TRANSP : LV_OPA_60);
   return panel;
 }
 
@@ -598,6 +603,7 @@ static const char* settingText(const NodePrefs& p, int idx, char* buf, int n) {
 }
 static lv_obj_t* s_sec_card[settings::SEC_COUNT];   // schemaRows()' groups, by section
 static bool s_opts_from_map = false;                // Map options opened from the map: back returns there
+static int s_nav_section = -1;                      // Map options: one section of them (from the map), -1 all
 static int32_t s_settings_y = 0;                    // Settings' scroll, kept while a page of it is open
 
 // A one-of-N choice: a row (or grid, with "\n" in the map) of checkable
@@ -1674,7 +1680,12 @@ void UITask::back() {
     case SCR_ADMIN:    if (_nav_overlay) navClosePopup(); else adminLeave(); break;
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV:   // the map's options go back to the map
-      if (_settings_page == settings::PG_NAV && s_opts_from_map) openMap(true); else showSettings();
+      if (_settings_page == settings::PG_NAV && s_opts_from_map) {
+        openMap(true);
+        if (s_nav_section >= 0) navToolsPopup();   // one section's options: back into Map tools
+      } else {
+        showSettings();
+      }
       break;
     case SCR_QUICK:    // back to Messages & contacts' bottom, where the row is
       if (_nav_overlay) { navClosePopup(); break; }
@@ -3075,7 +3086,10 @@ static void onSchemaDropdown(lv_event_t* e) {
   s_ui->setSchemaValue((int)(uintptr_t)lv_event_get_user_data(e),
                        choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
-static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onOpenSchemaPage(lv_event_t* e) {
+  s_nav_section = -1;   // from Settings: all of a page
+  s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e));
+}
 static void onHomeApps(lv_event_t* e) { (void)e; s_ui->homeEdit(true); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
 static void onOpenQuickMsgs(lv_event_t* e);
@@ -3086,6 +3100,12 @@ static void onVolumeSlider(lv_event_t* e) {
   s_ui->setSoundVolume((int)lv_slider_get_value((lv_obj_t*)lv_event_get_target(e)));
 }
 
+
+// Map tools > Trail / Share / Alert options: that section of the Map options.
+void UITask::showMapOptions(uint8_t section) {
+  s_nav_section = section;
+  showSchemaSettings(settings::PG_NAV);
+}
 
 void UITask::showSchemaSettings(int page) {
   if (page == settings::PG_NAV && !_nav_back) s_opts_from_map = _screen == SCR_MAP;
@@ -3146,6 +3166,9 @@ void UITask::setTapWake(bool on) {
 void UITask::buildSchemaSettings() {
   static const char* const OWN[] = { "Keyboard", "About", "Display", "Power", "Time" };
   const char* title = _settings_page >= PG_KEYBOARD ? OWN[_settings_page - PG_KEYBOARD] : settings::pageTitle(_settings_page);
+  if (_settings_page == settings::PG_NAV && s_nav_section >= 0)
+    title = s_nav_section == settings::SEC_TRAIL ? "Trail options"
+          : s_nav_section == settings::SEC_LIVE_SHARE ? "Share options" : "Alert options";
   lv_obj_t* body = newScreen(title, true);
   _prune_lbl = nullptr;
   _prune_armed_ms = 0;
@@ -3229,9 +3252,11 @@ void UITask::schemaRows(lv_obj_t* body, uint8_t page) {
   for (int i = 0; i < settings::COUNT; i++) {
     const settings::Setting& st = settings::ALL[i];
     if (settings::sectionPage(st.section) != page) continue;
+    bool one = page == settings::PG_NAV && s_nav_section >= 0;   // one section: its own page, no heading
+    if (one && st.section != s_nav_section) continue;
     if (st.section != sec) {
       sec = st.section;
-      card = s_sec_card[sec] = group(body, settings::sectionTitle(sec));
+      card = s_sec_card[sec] = group(body, one ? nullptr : settings::sectionTitle(sec));
       if (sec == settings::SEC_SOUND) buildSoundRows(card, true);   // On / Off / Auto
     }
     schemaRow(card, i);

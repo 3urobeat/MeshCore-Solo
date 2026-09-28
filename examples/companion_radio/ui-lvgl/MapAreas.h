@@ -1,7 +1,8 @@
 #pragma once
 // Map areas: picking an area to download with a frame on the map, and the
-// list of downloaded areas (map/AreaStore.h) -- show, rename, fill gaps,
-// refresh, trails on / off, delete.
+// list of downloaded areas (map/AreaStore.h). Picking one frames it on the
+// map above a small sheet -- rename, fill gaps, refresh, trails on / off,
+// delete; closing the sheet puts the map back where it was.
 //
 // The frame: four corner handles on the map, dragged to size it; the map
 // pans and zooms under it as usual, so an area can be larger than the screen.
@@ -14,7 +15,7 @@
 
 namespace areas {
 
-enum : uint8_t { A_SHOW, A_RENAME, A_FILL, A_REFRESH, A_TRAILS, A_DELETE };
+enum : uint8_t { A_RENAME, A_FILL, A_REFRESH, A_TRAILS, A_DELETE };
 
 static bool      s_sel = false;          // the frame is up
 static double    s_fx0, s_fy0, s_fx1, s_fy1;   // the frame, world units (tiles at z 0)
@@ -26,7 +27,11 @@ static lv_obj_t* s_bar = nullptr;
 static lv_obj_t* s_info = nullptr;
 static lv_obj_t* s_zoom = nullptr;
 static lv_obj_t* s_trails_btn = nullptr;
-static int       s_show = -1;            // area outlined after Show
+static int       s_show = -1;            // area outlined while its sheet is open
+static bool      s_preview = false;      // the map is framing it; the view before:
+static double    s_prev_cx, s_prev_cy;
+static int       s_prev_z;
+static bool      s_prev_follow;
 static int       s_idx = -1;             // area in the open popup
 static lv_obj_t* s_del_lbl = nullptr;
 static uint32_t  s_del_armed_ms = 0;
@@ -83,6 +88,7 @@ static void onZPlus(lv_event_t* e)    { (void)e; s_ui->areaSelectZmax(+1); }
 static void onTrailsChip(lv_event_t* e) { (void)e; s_trails = !s_trails; s_ui->areaLayout(); }
 static void onArea(lv_event_t* e)     { s_ui->mapAreaPopup((int)(intptr_t)lv_event_get_user_data(e)); }
 static void onNewArea(lv_event_t* e)  { (void)e; s_ui->areaSelectBegin(); }
+static void onDlOpen(lv_event_t* e)   { (void)e; s_ui->navClosePopup(); s_ui->mapDownloadPopup(); }
 static void onAct(lv_event_t* e)      { s_ui->mapAreaAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onRenameKb(lv_event_t* e) { s_ui->mapAreaRenameDone(lv_event_get_code(e) == LV_EVENT_READY); }
 
@@ -150,18 +156,21 @@ static lv_obj_t* barButton(lv_obj_t* row, const char* text, lv_event_cb_t cb, in
   return b;
 }
 
-static lv_obj_t* actButton(lv_obj_t* row, const char* text, uint8_t act, bool accent) {
+// A sheet button: its icon over a short word.
+static lv_obj_t* actButton(lv_obj_t* row, const char* icon, const char* text, uint8_t act) {
   lv_obj_t* b = lv_button_create(row);
-  lv_obj_set_height(b, 36);
+  lv_obj_set_height(b, 46);
   lv_obj_set_flex_grow(b, 1);
-  lv_obj_set_style_pad_hor(b, 4, 0);
+  lv_obj_set_width(b, 1);
+  lv_obj_set_style_pad_all(b, 2, 0);
   lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? theme::ACCENT_DIM : theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
   lv_obj_add_event_cb(b, onAct, LV_EVENT_CLICKED, (void*)(uintptr_t)act);
+  lv_obj_align(label(b, icon, THEME_FONT_BODY, theme::ACCENT), LV_ALIGN_TOP_MID, 0, 3);
   lv_obj_t* l = label(b, text, THEME_FONT_SMALL, theme::TEXT);
-  lv_obj_center(l);
+  lv_obj_align(l, LV_ALIGN_BOTTOM_MID, 0, -2);
   return l;
 }
 
@@ -358,6 +367,14 @@ void UITask::mapAreasPopup() {
     snprintf(t, sizeof(t), "Deleting... %lu files", (unsigned long)mapview::s_areas.deleted());
     label(list, t, THEME_FONT_SMALL, theme::ACCENT);
   }
+  mapview::TileArea job;   // a download running or left unfinished: its progress / Resume
+  if (mapview::s_dl.active() || mapview::s_dl.savedJob(job)) {
+    char sub[48];
+    if (mapview::s_dl.active())
+      snprintf(sub, sizeof(sub), "%lu of %lu tiles", (unsigned long)mapview::s_dl.processed(), (unsigned long)mapview::s_dl.total());
+    listRow(group(list, nullptr), mapview::s_dl.active() ? LV_SYMBOL_DOWNLOAD "  Downloading" : LV_SYMBOL_PAUSE "  Unfinished download",
+            mapview::s_dl.active() ? sub : "Resume or discard it", onDlOpen, nullptr);
+  }
   if (n) {
     lv_obj_t* g = group(list, nullptr);
     for (int i = n - 1; i >= 0; i--) {   // newest first
@@ -386,28 +403,52 @@ void UITask::mapAreasPopup() {
 void UITask::mapAreaPopup(int idx) {
   using namespace areas;
   if (idx < 0 || idx >= mapview::s_areas.count()) return;
-  s_idx = idx;
   const mapview::MapArea& m = mapview::s_areas.at(idx);
-  lv_obj_t* panel = navPopupPanel(m.name, false);
-  char info[128], date[16];
+  lv_obj_t* panel = navPopupPanel(m.name, false, true);   // ends an earlier preview first
+  s_idx = idx;
+  char info[96], date[16];
   fmtDate(date, sizeof(date), m.created, _prefs);
   uint32_t n = mapview::countTiles(m.box);
-  snprintf(info, sizeof(info), "Zoom %d-%d, %lu tiles%s%s%s\n%s", m.box.zmin, m.box.zmax, (unsigned long)n,
+  snprintf(info, sizeof(info), "Zoom %d-%d, %lu tiles%s%s%s%s", m.box.zmin, m.box.zmax, (unsigned long)n,
            (m.flags & mapview::AreaStore::F_TRAILS) ? ", trails" : "", date[0] ? "  -  " : "", date,
-           (m.flags & mapview::AreaStore::F_COMPLETE) ? "Downloaded" : "Unfinished - Fill gaps completes it");
-  lv_obj_t* l = label(panel, info, THEME_FONT_SMALL, theme::TEXT);
+           (m.flags & mapview::AreaStore::F_COMPLETE) ? "" : "\nUnfinished - Fill gaps completes it");
+  lv_obj_t* l = label(panel, info, THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(l, LV_PCT(100));
   lv_obj_t* r = toolRow(panel);
-  actButton(r, UI_SYMBOL_MAP " Show", A_SHOW, true);
-  actButton(r, LV_SYMBOL_EDIT " Rename", A_RENAME, false);
-  r = toolRow(panel);
-  actButton(r, LV_SYMBOL_DOWNLOAD " Fill gaps", A_FILL, false);
-  actButton(r, LV_SYMBOL_REFRESH " Refresh", A_REFRESH, false);
-  r = toolRow(panel);
-  actButton(r, (m.flags & mapview::AreaStore::F_TRAILS) ? "Remove trails" : LV_SYMBOL_PLUS " Trails", A_TRAILS, false);
-  s_del_lbl = actButton(r, LV_SYMBOL_TRASH " Delete", A_DELETE, false);
+  actButton(r, LV_SYMBOL_EDIT, "Rename", A_RENAME);
+  actButton(r, LV_SYMBOL_DOWNLOAD, "Fill", A_FILL);
+  actButton(r, LV_SYMBOL_REFRESH, "Refresh", A_REFRESH);
+  actButton(r, (m.flags & mapview::AreaStore::F_TRAILS) ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS, "Trails", A_TRAILS);
+  s_del_lbl = actButton(r, LV_SYMBOL_TRASH, "Delete", A_DELETE);
   s_del_armed_ms = 0;
+
+  // Framed in the map above the sheet: the view is kept to go back to.
+  lv_obj_update_layout(panel);
+  int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
+  int sheet = lv_obj_get_height(panel) + 8;   // its inset
+  int above = h - sheet;
+  if (above < 60) above = 60;
+  s_prev_cx = _map_cx; s_prev_cy = _map_cy; s_prev_z = _map_z; s_prev_follow = _map_follow;
+  s_preview = true;
+  double x0, y0, x1, y1;
+  boxWorld(m.box, x0, y0, x1, y1);
+  _map_z = fitZoom(x1 - x0, y1 - y0, w - 24, above - 16);
+  double s = (double)(1 << _map_z);
+  _map_cx = (x0 + x1) / 2 * s;
+  _map_cy = (y0 + y1) / 2 * s + (double)(h - above) / 2 / mapview::TILE_PX;   // centred in the part left showing
+  _map_follow = false;
+  s_show = idx;
+  layoutMap();
+}
+
+void UITask::areaPreviewEnd() {
+  using namespace areas;
+  if (!s_preview) return;
+  s_preview = false;
+  s_show = -1;
+  _map_cx = s_prev_cx; _map_cy = s_prev_cy; _map_z = s_prev_z; _map_follow = s_prev_follow;
+  if (_screen == SCR_MAP && _map_area) layoutMap();
 }
 
 void UITask::mapAreaAction(uint8_t act) {
@@ -416,20 +457,6 @@ void UITask::mapAreaAction(uint8_t act) {
   mapview::MapArea m = mapview::s_areas.at(s_idx);
   bool trails = m.flags & mapview::AreaStore::F_TRAILS;
   switch (act) {
-    case A_SHOW: {
-      navClosePopup();
-      double x0, y0, x1, y1;
-      boxWorld(m.box, x0, y0, x1, y1);
-      int w = _map_area ? lv_obj_get_width(_map_area) : 320, h = _map_area ? lv_obj_get_height(_map_area) : 218;
-      _map_z = fitZoom(x1 - x0, y1 - y0, w - 40, h - 60);
-      double s = (double)(1 << _map_z);
-      _map_cx = (x0 + x1) / 2 * s;
-      _map_cy = (y0 + y1) / 2 * s;
-      _map_follow = false;
-      s_show = s_idx;
-      layoutMap();
-      return;
-    }
     case A_RENAME: {
       lv_obj_t* panel = navPopupPanel("Area name", false);
       lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // above the keyboard
