@@ -712,6 +712,25 @@ static void fmtDate(char* b, size_t n, const struct tm& ti) {
   snprintf(b, n, "%s %d %s %d", DOW[ti.tm_wday], ti.tm_mday, MON[ti.tm_mon], ti.tm_year + 1900);
 }
 
+// Settings changed here reach flash once their screen is left (as on the L1:
+// a run of switches is one write, and the flash wears less), just after the
+// next screen has come in -- a save stalls the UI (0.1-0.6 s on the ESP32's
+// SPIFFS, far less on LittleFS). Else when the screen goes off, or a minute on. NodePrefs
+// itself changes at once; shutdown() saves whatever is pending.
+static uint32_t s_prefs_dirty_ms = 0;   // when the first unsaved change came (0: none)
+static uint32_t s_prefs_save_at = 0;    // the screen was left: save from then (0: not yet)
+static void prefsSave() { if (!s_prefs_dirty_ms) s_prefs_dirty_ms = millis() | 1; }
+static void prefsSaveSoon(uint32_t delay_ms) {
+  if (s_prefs_dirty_ms && !s_prefs_save_at) s_prefs_save_at = (millis() + delay_ms) | 1;
+}
+static void prefsFlush() {
+  if (!s_prefs_dirty_ms) return;
+  bool due = s_prefs_save_at ? (int32_t)(millis() - s_prefs_save_at) >= 0 : millis() - s_prefs_dirty_ms >= 60000;
+  if (!due) return;
+  s_prefs_dirty_ms = s_prefs_save_at = 0;
+  the_mesh.savePrefs();
+}
+
 // A big clock (Home, the lock screen): the digits and, on a 12-hour clock,
 // AM / PM beside them in `small`, on the digits' baseline. clockFaceSet()
 // once a second; "--:--" until the time is known.
@@ -821,7 +840,7 @@ void UITask::toggleMute() {
   if (!_prefs) return;
   bool on = soundctl::mode(_prefs) != soundctl::MODE_ON;
   soundctl::setMode(_prefs, _buzzer, on ? soundctl::MODE_ON : soundctl::MODE_OFF, isClientConnected());
-  the_mesh.savePrefs();
+  prefsSave();
   if (on) _buzzer.playForced(soundctl::MEL_VOLUME);
   if (!_asleep) { showToast(on ? "Sound on" : "Sound off", 1200); refreshStatusBar(); }
 #endif
@@ -871,6 +890,7 @@ void UITask::loop() {
 
   _core->loop();
   drainCoreEvents();
+  prefsFlush();
 #if defined(UI_HEAP_REPORT) && defined(ESP32)
   // -D UI_HEAP_REPORT: internal / PSRAM heap once, 20 s after boot (the
   // framework comparison in docs/development/l2-roadmap.md).
@@ -1005,6 +1025,7 @@ uint32_t UITask::idleMillis(uint32_t lv_next) {
 }
 
 void UITask::shutdown(bool restart) {
+  s_prefs_dirty_ms = s_prefs_save_at = 0;
   the_mesh.savePrefs();
   the_mesh.saveRTCTime();
   the_mesh.flushDirtyContacts();
@@ -1053,6 +1074,7 @@ void UITask::sleep() {
   if (_asleep) return;
   _asleep = true;
   if (_display) _display->turnOff();
+  prefsSaveSoon(0);   // nothing to stall now
   lvport::powerSave(true, _tap_wake);
   if ((_prefs && _prefs->auto_lock) || _pin[0]) lockScreen();   // Lock screen, or a screen PIN
 }
@@ -1349,6 +1371,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   bool same = _screen == _shown_screen && strncmp(title ? title : "", _shown_title, sizeof(_shown_title) - 1) == 0;
   bool backward = _nav_back || screenDepth(_screen) < screenDepth(_shown_screen);
   _nav_back = false;
+  if (!same) prefsSaveSoon(anim::FADE_MS + 60);   // left the screen they were changed on
   _shown_screen = _screen;
   snprintf(_shown_title, sizeof(_shown_title), "%s", title ? title : "");
   _scr = scr;
@@ -2174,7 +2197,7 @@ void UITask::nodeAction(uint8_t action) {
       if (e.has_prefix) navToNode(e.pub_key, e.lat_e6, e.lon_e6, e.name[0] ? e.name : "Node");
       else {
         _core->locator.setTarget(0, nullptr, e.lat_e6, e.lon_e6, e.name[0] ? e.name : "Node");
-        the_mesh.savePrefs();
+        prefsSave();
         openMap(true);
         navFrameTarget();
       }
@@ -2763,7 +2786,7 @@ static void onKeyboardAlphabet(lv_event_t* e) {
 static void onPrefSwitch(lv_event_t* e) {
   uint8_t* pref = (uint8_t*)lv_event_get_user_data(e);
   *pref = lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED) ? 1 : 0;
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 static void onGpsSwitch(lv_event_t* e) {
@@ -2848,7 +2871,7 @@ void UITask::setBrightnessPct(uint8_t pct, bool save) {
   _prefs->display_brightness_pct = pct;
   _prefs->display_brightness = (uint8_t)((pct + 12) / 25 > 4 ? 4 : (pct + 12) / 25);   // nearest level, for anything reading it
   applyDisplayPrefs();
-  if (save) the_mesh.savePrefs();
+  if (save) prefsSave();
 }
 
 static void onTapWake(lv_event_t* e) {
@@ -3008,7 +3031,7 @@ void UITask::setSchemaValue(int idx, int v) {
   const settings::Setting& st = settings::ALL[idx];
   settings::set(*_prefs, st, (uint8_t)v);
   if (st.changed) st.changed(*_core);
-  the_mesh.savePrefs();
+  prefsSave();
   if (st.offset == offsetof(NodePrefs, units_imperial) && _screen == SCR_SETTINGS_NAV) {   // other labels depend on it
     lv_obj_t* body = _body;
     int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
@@ -3102,7 +3125,7 @@ void UITask::setKeyboardAlphabets(int main_idx, int alt_sel) {
   if (!_prefs) return;
   _prefs->keyboard_main_alphabet = (uint8_t)main_idx;
   _prefs->keyboard_alt_alphabet  = (uint8_t)(alt_sel == 0 ? main_idx : alt_sel - 1);
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 #include "ConversationScreen.h"

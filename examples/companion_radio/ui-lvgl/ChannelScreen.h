@@ -128,7 +128,7 @@ void UITask::channelSet(uint8_t which, int v) {
   if (which == C_NOTIF) chanctl::setNotif(_prefs, s_idx, (uint8_t)v);
   else if (which == C_SCOPE) the_mesh.setChannelScope(s_idx, (uint8_t)v);
   else if (which == C_MELODY) { chanctl::setMelody(_prefs, s_idx, (uint8_t)v); hearMelody(v); }
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 void UITask::channelAction(uint8_t act) {
@@ -139,7 +139,7 @@ void UITask::channelAction(uint8_t act) {
     case A_FAV: {
       bool on = !chanctl::favourite(_prefs, idx);
       chanctl::setFavourite(_prefs, idx, on);
-      the_mesh.savePrefs();
+      prefsSave();
       if (s_fav_btn) lv_obj_set_style_bg_color(s_fav_btn, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
       showToast(on ? "Added to favourites" : "Removed from favourites", 1200);
       if (_screen == SCR_CHATS) { buildChats(); channelMenu(idx); }   // list order / star

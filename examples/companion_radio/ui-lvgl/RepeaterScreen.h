@@ -123,7 +123,7 @@ void UITask::repeaterSet(int which, int v) {
     case RP_YIELD: p->repeat_delay_boost = (uint8_t)v; break;
     case RP_SNR:   p->repeat_min_snr = rptctl::snrFromChoice(v); break;
   }
-  the_mesh.savePrefs();
+  prefsSave();
   if (which <= RP_CR) rebuildRepeater();   // hints, the profile rows and the preset name follow
   refreshStatusBar();
 }
@@ -148,7 +148,7 @@ void UITask::repeaterScopesPopup() {
 
 void UITask::repeaterScopeSet(uint8_t i, bool on) {
   rptctl::setExtraScope(_prefs, i, on);
-  the_mesh.savePrefs();
+  prefsSave();
   char sub[48];
   extraScopesSummary(_prefs, sub, sizeof(sub));
   if (rptview::s_scopes_sub) lv_label_set_text(rptview::s_scopes_sub, sub);

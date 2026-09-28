@@ -267,7 +267,7 @@ void UITask::setAlarm(int which, int v) {
     case 3: _prefs->alarm_repeat_mask = NodePrefs::alarmRepeatMaskForIdx((uint8_t)v); break;
   }
   _core->clock.onAlarmChanged();
-  the_mesh.savePrefs();
+  prefsSave();
   if (which < 2 && clockview::s_alarm_sw) lv_obj_add_state(clockview::s_alarm_sw, LV_STATE_CHECKED);
 }
 

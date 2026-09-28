@@ -185,7 +185,7 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
 void UITask::conversationNotif(int v) {
   if (!_prefs || v < 0 || v > 2) return;
   contactctl::setNotif(_prefs, convview::s_key, (uint8_t)v);
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 void UITask::conversationAction(uint8_t act) {
@@ -405,6 +405,6 @@ void UITask::toggleChatFilter(uint8_t which) {
     case CF_ROOMS:    _prefs->room_fav_only ^= 1; break;
     case CF_CONTACTS: _prefs->dm_show_all ^= 1; break;
   }
-  the_mesh.savePrefs();
+  prefsSave();
   if (_screen == SCR_CONTACTS) buildContacts(); else buildChats();
 }

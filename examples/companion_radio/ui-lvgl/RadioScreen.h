@@ -126,7 +126,7 @@ void UITask::radioSet(int which, int v) {
     case R_TX: p->tx_power_dbm = (int8_t)(TX_MIN + v); radioctl::applyTxPower(p); break;
     case R_APC: p->tx_apc = (uint8_t)v; radioctl::applyApc(); break;
   }
-  the_mesh.savePrefs();
+  prefsSave();
   rebuildRadio();   // preset name / hints follow
 }
 
@@ -173,7 +173,7 @@ void UITask::radioFreqDone(bool ok) {
     if (f < lo || f > hi) { showToast("Out of the radio's range"); return; }
     if (s_freq_rpt) { _prefs->repeater_freq = f; rptctl::applyProfile(); }
     else            { _prefs->freq = f; radioctl::applyParams(); }
-    the_mesh.savePrefs();
+    prefsSave();
   }
   radioCloseFreq();
   if (ok) { if (s_freq_rpt) rebuildRepeater(); else rebuildRadio(); }

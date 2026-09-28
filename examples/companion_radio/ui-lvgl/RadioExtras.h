@@ -100,7 +100,7 @@ void UITask::presetAction(uint8_t act) {
     case P_USE:
       p->freq = u.freq; p->bw = u.bw; p->sf = u.sf; p->cr = u.cr;
       radioctl::applyParams();
-      the_mesh.savePrefs();
+      prefsSave();
       navClosePopup();
       rebuildRadio();
       showToast("Preset in use");
@@ -115,7 +115,7 @@ void UITask::presetAction(uint8_t act) {
     }
     case P_DELETE_GO:
       radioctl::deleteUserPreset(p, s_slot);
-      the_mesh.savePrefs();
+      prefsSave();
       navClosePopup();
       rebuildRadio();
       showToast("Preset deleted");
@@ -157,7 +157,7 @@ void UITask::radioNameDone(bool ok) {
   if (s_naming == N_PRESET) {
     NodePrefs* p = _prefs;
     radioctl::saveUserPreset(p, name, p->freq, p->bw, p->sf, p->cr);
-    the_mesh.savePrefs();
+    prefsSave();
     toast = "Preset saved";
   } else if (s_naming == N_SCOPE_ADD) {
     toast = the_mesh.addScope(name) ? "Scope added" : "The list is full";

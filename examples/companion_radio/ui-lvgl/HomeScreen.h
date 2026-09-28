@@ -294,7 +294,7 @@ void UITask::buildHomeClock(lv_obj_t* box) {
 void UITask::homeFieldSet(int slot, int f) {
   if (!_prefs || slot < 0 || slot >= home::FIELDS || f < 0 || f >= home::F_COUNT) return;
   _prefs->dashboard_fields[slot] = (uint8_t)f;
-  the_mesh.savePrefs();
+  prefsSave();
   setHomePage(home::CLOCK);
 }
 

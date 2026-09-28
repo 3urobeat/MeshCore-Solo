@@ -419,7 +419,7 @@ void UITask::navFrameTrail() {
 void UITask::navSetTarget(uint8_t kind, const uint8_t* key, int32_t lat, int32_t lon, const char* name) {
   navmap::s_tb.stop();   // a chosen target replaces walking the trail back
   _core->locator.setTarget(kind, key, lat, lon, name);
-  the_mesh.savePrefs();
+  prefsSave();
   navmap::s_eta.reset();
   char t[40];
   snprintf(t, sizeof(t), "Navigating to %s", name);
@@ -433,7 +433,7 @@ void UITask::navPick(int code) {
     case navmap::T_CLEAR:
       if (navmap::s_tb.active()) { navmap::s_tb.stop(); showToast("Track back stopped"); break; }
       _core->locator.clearTarget();
-      the_mesh.savePrefs();
+      prefsSave();
       showToast("Target cleared");
       break;
     case navmap::T_WAYPOINT: {
@@ -682,7 +682,7 @@ void UITask::navRenameDone(bool ok) {
     _core->waypoints.rename(_nav_wp, lv_textarea_get_text(_nav_ta));
     if (was_target) {   // the bar shows the target's saved label
       snprintf(_prefs->locator_label, sizeof(_prefs->locator_label), "%s", _core->waypoints.at(_nav_wp).label);
-      the_mesh.savePrefs();
+      prefsSave();
     }
     rebuildMapMarkers();
     layoutMap();
@@ -1008,7 +1008,7 @@ void UITask::navSetShareTarget(int sel) {
   _prefs->loc_share_target_type = navmap::s_share_kind[sel];
   if (navmap::s_share_kind[sel] == 0) _prefs->loc_share_channel_idx = navmap::s_share_ch[sel];
   else memcpy(_prefs->loc_share_dm_prefix, navmap::s_share_key[sel], NodePrefs::FAVOURITE_PREFIX_LEN);
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 // A new file in /sdcard/trails named by the local time, "trail-YYYYMMDD-HHMM"
@@ -1243,7 +1243,7 @@ void UITask::navToolAction(uint8_t act) {
         if (_core->course.currentLocation(lat, lon)) showToast("Sharing your position");
         else ensureGps();
       }
-      the_mesh.savePrefs();
+      prefsSave();
       break;
     case navmap::TL_SHARE_ONCE: {
       int32_t lat, lon;

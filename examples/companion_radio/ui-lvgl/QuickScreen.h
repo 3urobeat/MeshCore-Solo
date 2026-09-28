@@ -166,7 +166,7 @@ void UITask::quickEditDone(bool ok) {
   using namespace qview;
   if (ok && _nav_ta && _prefs && s_edit >= 0) {
     msgtext::setQuick(_prefs, s_edit, lv_textarea_get_text(_nav_ta));
-    the_mesh.savePrefs();
+    prefsSave();
     showToast(msgtext::quick(_prefs, s_edit)[0] ? "Quick message saved" : "Quick message cleared", 1200);
   }
   navClosePopup();

@@ -139,7 +139,7 @@ void UITask::nodeNameDone(bool ok) {
     const char* t = lv_textarea_get_text(_nav_ta);
     if (!t[0]) { showToast("Name can't be empty"); return; }
     snprintf(_prefs->node_name, sizeof(_prefs->node_name), "%s", t);
-    the_mesh.savePrefs();   // getNodeName() and the self-advert read node_name live
+    prefsSave();   // getNodeName() and the self-advert read node_name live
     showToast("Name saved - others see it with your next advert", 3000);
   }
   navClosePopup();
@@ -512,7 +512,7 @@ void UITask::favAction(uint8_t act) {
   int slot = devview::s_fav_slot;
   if (act == devview::F_CHANGE) { favPickPopup(slot); return; }
   favslots::clear(_prefs, slot);
-  the_mesh.savePrefs();
+  prefsSave();
   navClosePopup();
   favRefresh();
 }
@@ -559,7 +559,7 @@ void UITask::favPick(int code) {
   using namespace devview;
   if (code >= PICK_CONTACT) favslots::pinContact(_prefs, s_fav_slot, s_pick_keys[code - PICK_CONTACT]);
   else favslots::pinChannel(_prefs, s_fav_slot, (uint8_t)code);
-  the_mesh.savePrefs();
+  prefsSave();
   navClosePopup();
   favRefresh();
 }
@@ -610,7 +610,7 @@ void UITask::pinTo(int slot) {
     else favslots::pinContact(_prefs, slot, s_pin_key);
     snprintf(msg, sizeof(msg), "Pinned to slot %d", slot + 1);
   }
-  the_mesh.savePrefs();
+  prefsSave();
   navClosePopup();
   showToast(msg, 1500);
 }

@@ -250,7 +250,7 @@ void UITask::setSoundMode(int mode) {
   soundctl::setMode(_prefs, _buzzer, (uint8_t)mode, isClientConnected());
   if (mode == soundctl::MODE_ON) notify(UIEventType::ack);   // hear that it's on
 #endif
-  the_mesh.savePrefs();
+  prefsSave();
   refreshStatusBar();
   if (mode == soundctl::MODE_AUTO) showToast(isClientConnected() ? "Silent while the app is connected" : "Sound on until the app connects");
 }
@@ -260,7 +260,7 @@ void UITask::setSoundVolume(int level) {
 #ifdef PIN_BUZZER
   soundctl::setVolume(_prefs, _buzzer, (uint8_t)level);
 #endif
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 // The Sound page's own rows: the mode at the top, the melodies at the bottom.
@@ -357,7 +357,7 @@ void UITask::melodySave() {
   using namespace sndview;
   if (!s_dirty || !_prefs) return;
   soundctl::store(_prefs, s_slot, s_mel);
-  the_mesh.savePrefs();
+  prefsSave();
   s_dirty = false;
   showToast(s_slot ? "Melody 2 saved" : "Melody 1 saved", 1200);
 }
@@ -446,7 +446,7 @@ void UITask::melodyAction(uint8_t act) {
 void UITask::conversationMelody(int v) {
   if (!_prefs || v < 0 || v >= soundctl::OVERRIDE_COUNT) return;
   contactctl::setMelody(_prefs, convview::s_key, (uint8_t)v);
-  the_mesh.savePrefs();
+  prefsSave();
   hearMelody(v);
 }
 

@@ -142,7 +142,7 @@ void UITask::botToggle(int row, bool on) {
   uint8_t* fl = botcfg::flag(_prefs, botcfg::row(botview::s_tab, row).kind);
   if (!fl) return;
   *fl = on ? 1 : 0;
-  the_mesh.savePrefs();
+  prefsSave();
 }
 
 // Tap on a value row: its editor.
@@ -247,7 +247,7 @@ void UITask::botTextDone(bool ok) {
     char* t = botcfg::text(_prefs, botcfg::row(s_tab, s_row).kind, cap);
     if (t) {
       snprintf(t, cap, "%s", lv_textarea_get_text(_nav_ta));
-      the_mesh.savePrefs();
+      prefsSave();
     }
   }
   navClosePopup();
@@ -260,7 +260,7 @@ void UITask::botPick(int idx) {
   botcfg::Kind k = botcfg::row(s_tab, s_row).kind;
   if (k == botcfg::CHANNEL) _prefs->bot_channel_idx = (uint8_t)idx;
   else if (k == botcfg::ROOM && idx >= 0 && idx < (int)(sizeof(s_rooms) / sizeof(s_rooms[0]))) botcfg::setRoom(_prefs, s_rooms[idx]);
-  the_mesh.savePrefs();
+  prefsSave();
   navClosePopup();
   buildBot();
 }
@@ -271,7 +271,7 @@ void UITask::botHour(uint8_t act) {
   botcfg::Kind k = botcfg::row(s_tab, s_row).kind;
   uint8_t& h = botcfg::hour(_prefs, k);
   if (act == B_DONE) {
-    the_mesh.savePrefs();
+    prefsSave();
     navClosePopup();
     buildBot();
     return;
