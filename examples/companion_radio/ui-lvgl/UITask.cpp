@@ -898,14 +898,6 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   buildStatusBar();
   applyDisplayPrefs();   // a slider percentage overrides the level main.cpp set
   showHome();
-  // Before the PIN moved into NodePrefs it was kept in NVS in plain text.
-  char old_pin[9];
-  lvport::takeOldPin(old_pin, sizeof(old_pin));
-  if (old_pin[0] && _prefs && !pinSet()) {
-    screenlock::set(*_prefs, old_pin, the_mesh.getRNG());
-    the_mesh.savePrefs();
-  }
-  memset(old_pin, 0, sizeof(old_pin));
   if (pinSet()) lockScreen();   // a reboot doesn't get round the PIN
   showSplash();                // over both; fades out by itself
 }

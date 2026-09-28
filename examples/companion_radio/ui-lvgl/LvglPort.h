@@ -680,7 +680,6 @@ static int  getU8(const char* ns, const char* key, int def) { return getInt(ns, 
 static void putU8(const char* ns, const char* key, int v) { putInt(ns, key, v); }
 static void getStr(const char* ns, const char* key, char* out, size_t n) { Kv* k = find(ns, key, false); snprintf(out, n, "%s", k ? k->val : ""); }
 static void putStr(const char* ns, const char* key, const char* v) { if (Kv* k = find(ns, key, true)) snprintf(k->val, sizeof(k->val), "%s", v); }
-static void remove(const char* ns, const char* key) { if (Kv* k = find(ns, key, false)) k->val[0] = '\0'; }
 }  // namespace nvs
 
 static bool s_swallow = false;
@@ -849,12 +848,6 @@ static bool vectorOn() { return nvs::getBool("mc_ui", "vector", false); }
 static void setVectorOn(bool on) { nvs::putBool("mc_ui", "vector", on); }
 
 // Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
-// The screen PIN as older builds kept it (plain text): read once and removed;
-// it lives hashed in NodePrefs now (ui-core/ScreenLock.h).
-static void takeOldPin(char* out, size_t n) {
-  nvs::getStr("mc_lock", "pin", out, n);
-  if (out[0]) nvs::remove("mc_lock", "pin");
-}
 
 // Accent colour (Settings > Display & power): an index into theme::ACCENTS.
 static int loadAccent() { return nvs::getU8("mc_ui", "accent", 0); }
