@@ -65,8 +65,8 @@ static void onCompassDraw(lv_event_t* e) {
   // Fixed pointer: points down at the ring, the heading always under it.
   lv_draw_triangle_dsc_t tri;
   lv_draw_triangle_dsc_init(&tri);
-  tri.bg_color = lv_color_hex(theme::ACCENT);
-  tri.bg_opa = LV_OPA_COVER;
+  tri.color = lv_color_hex(theme::ACCENT);
+  tri.opa = LV_OPA_COVER;
   tri.p[0].x = cx - 8; tri.p[0].y = cy - r - 12;
   tri.p[1].x = cx + 8; tri.p[1].y = cy - r - 12;
   tri.p[2].x = cx;     tri.p[2].y = cy - r + 2;

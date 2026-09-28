@@ -246,7 +246,13 @@ if [ "$SIM_UI" = "lvgl" ]; then
   # would shadow the libc <features.h> the C headers include.
   C_FLAGS=(-std=gnu99 "${OPT_FLAGS[@]}" "${DEFINES[@]}" "-I$LVGL_DIR" -Iexamples/companion_radio/ui-lvgl)
   LV_OBJ_DIR="$OUT_DIR/obj_lvgl"
-  python3 examples/companion_radio/ui-lvgl/lvgl_patches.py "$LVGL_DIR"   # as the firmware build does
+  # Another LVGL version: its files needn't be newer than the cached objects.
+  LV_VER="$(grep '"version"' "$LVGL_DIR/library.json")"
+  if [ "$(cat "$LV_OBJ_DIR/.lvgl_version" 2>/dev/null)" != "$LV_VER" ]; then
+    rm -rf "$LV_OBJ_DIR"
+    mkdir -p "$LV_OBJ_DIR"
+    echo "$LV_VER" > "$LV_OBJ_DIR/.lvgl_version"
+  fi
   C_SRCS=()
   while IFS= read -r f; do C_SRCS+=("$f"); done < <(
     find "$LVGL_DIR/src" -name '*.c' | sed "s|^$REPO_ROOT/||" | sort

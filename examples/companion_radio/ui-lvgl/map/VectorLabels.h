@@ -230,10 +230,10 @@ static void icon(lv_layer_t* layer, uint8_t cls, int32_t x, int32_t y) {
   r.border_opa = LV_OPA_COVER;
   lv_draw_triangle_dsc_t t;
   lv_draw_triangle_dsc_init(&t);
-  t.bg_opa = LV_OPA_COVER;
+  t.opa = LV_OPA_COVER;
   lv_area_t a;
   auto tri = [&](uint32_t col, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
-    t.bg_color = lv_color_hex(col);
+    t.color = lv_color_hex(col);
     t.p[0] = { (lv_value_precise_t)x0, (lv_value_precise_t)y0 };
     t.p[1] = { (lv_value_precise_t)x1, (lv_value_precise_t)y1 };
     t.p[2] = { (lv_value_precise_t)x2, (lv_value_precise_t)y2 };

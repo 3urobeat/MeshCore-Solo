@@ -58,7 +58,7 @@ namespace anim {
     lv_obj_remove_flag(cover, LV_OBJ_FLAG_CLICKABLE);   // taps go through to the screen
     lv_obj_add_flag(cover, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_size(cover, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(cover, lv_obj_get_style_bg_color(scr, 0), 0);
+    lv_obj_set_style_bg_color(cover, lv_obj_get_style_bg_color(scr, LV_PART_MAIN), 0);
     run(cover, setBgOpa, LV_OPA_COVER, LV_OPA_TRANSP, SCREEN_MS, coverDone);
     if (body) run(body, setTy, back ? -6 : 6, 0, SCREEN_MS);
   }
@@ -84,6 +84,6 @@ namespace anim {
   // Fade out, then hide (the object stays for reuse).
   static void fadeHide(lv_obj_t* o) {
     lv_anim_delete(o, setOpa);
-    run(o, setOpa, lv_obj_get_style_opa(o, 0), LV_OPA_TRANSP, OUT_MS, hideDone);
+    run(o, setOpa, lv_obj_get_style_opa(o, LV_PART_MAIN), LV_OPA_TRANSP, OUT_MS, hideDone);
   }
 }
