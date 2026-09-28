@@ -192,7 +192,7 @@ void UITask::lockScreen() {
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(top, 14, 0);
-    s_lock_clock = label(top, "--:--", THEME_FONT_LARGE, theme::TEXT);
+    s_lock_clock = clockFace(top, THEME_FONT_LARGE, THEME_FONT_SMALL);
     s_lock_unread = label(top, "", THEME_FONT_BODY, theme::ACCENT);
     s_lock_date = nullptr;
     _pin_entry[0] = '\0';
@@ -202,7 +202,7 @@ void UITask::lockScreen() {
     refreshLock();
     return;
   }
-  s_lock_clock = label(s_lock, "--:--", THEME_FONT_CLOCK, theme::TEXT);
+  s_lock_clock = clockFace(s_lock, THEME_FONT_CLOCK, THEME_FONT_TITLE);
   s_lock_date = label(s_lock, "", THEME_FONT_BODY, theme::TEXT_MUTED);
   s_lock_unread = label(s_lock, "", THEME_FONT_BODY, theme::ACCENT);
   lv_obj_set_style_pad_top(s_lock_unread, 8, 0);
@@ -296,10 +296,9 @@ void UITask::refreshLock() {
   if (!s_lock) return;
   struct tm ti;
   if (localTime(_prefs, ti)) {
-    char clk[12], date[48];
-    fmtClock(clk, sizeof(clk), ti, _prefs, false, true);
-    fmtDate(date, sizeof(date), ti, _prefs);
-    lv_label_set_text(s_lock_clock, clk);
+    clockFaceSet(s_lock_clock, &ti, _prefs);
+    char date[48];
+    fmtDate(date, sizeof(date), ti);
     if (s_lock_date) lv_label_set_text(s_lock_date, date);
   }
   int unread = unreadTotal();

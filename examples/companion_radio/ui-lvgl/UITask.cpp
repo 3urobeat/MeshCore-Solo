@@ -704,14 +704,38 @@ static void fmtClock(char* b, size_t n, const struct tm& ti, const NodePrefs* p,
     snprintf(b, n, "%02d:%02d%s", ti.tm_hour, ti.tm_min, sec);
   }
 }
-// "Thu 25 Sep 2026" ("PM  Thu 25 Sep 2026" on a 12-hour clock, whose big
-// digits have no room for it).
-static void fmtDate(char* b, size_t n, const struct tm& ti, const NodePrefs* p) {
+// "Thu 25 Sep 2026".
+static void fmtDate(char* b, size_t n, const struct tm& ti) {
   static const char* DOW[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
   static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-  snprintf(b, n, "%s%s %d %s %d", (p && p->clock_12h) ? (ti.tm_hour < 12 ? "AM  " : "PM  ") : "",
-           DOW[ti.tm_wday], ti.tm_mday, MON[ti.tm_mon], ti.tm_year + 1900);
+  snprintf(b, n, "%s %d %s %d", DOW[ti.tm_wday], ti.tm_mday, MON[ti.tm_mon], ti.tm_year + 1900);
+}
+
+// A big clock (Home, the lock screen): the digits and, on a 12-hour clock,
+// AM / PM beside them in `small`, on the digits' baseline. clockFaceSet()
+// once a second; "--:--" until the time is known.
+static lv_obj_t* clockFace(lv_obj_t* parent, const lv_font_t* big, const lv_font_t* small) {
+  lv_obj_t* f = flexBox(parent, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(f, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+  lv_obj_set_style_pad_column(f, 4, 0);
+  label(f, "--:--", big, theme::TEXT);
+  lv_obj_t* ap = label(f, "", small, theme::TEXT_MUTED);
+  lv_obj_set_style_pad_bottom(ap, big->base_line - small->base_line, 0);
+  lv_obj_add_flag(ap, LV_OBJ_FLAG_HIDDEN);
+  return f;
+}
+static void clockFaceSet(lv_obj_t* f, const struct tm* ti, const NodePrefs* p) {
+  lv_obj_t* ap = lv_obj_get_child(f, 1);
+  char clk[12] = "--:--";
+  if (ti) fmtClock(clk, sizeof(clk), *ti, p, false, true);
+  lv_label_set_text(lv_obj_get_child(f, 0), clk);
+  bool h12 = ti && p && p->clock_12h;
+  if (h12) lv_label_set_text(ap, ti->tm_hour < 12 ? "AM" : "PM");
+  if (h12 != !lv_obj_has_flag(ap, LV_OBJ_FLAG_HIDDEN)) {
+    if (h12) lv_obj_remove_flag(ap, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(ap, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 // A message's age ("12s" / "5m" / "3h" / "2d"). After a restart the clock runs
 // from the build date until GPS or the app sets it, so messages restored from

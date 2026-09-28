@@ -249,7 +249,7 @@ void UITask::buildHomeClock(lv_obj_t* box) {
   lv_obj_add_flag(clk, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_opa(clk, LV_OPA_70, LV_STATE_PRESSED);
   lv_obj_add_event_cb(clk, onClockTap, LV_EVENT_CLICKED, NULL);
-  _home_clock = label(clk, "--:--", THEME_FONT_CLOCK, theme::TEXT);
+  _home_clock = clockFace(clk, THEME_FONT_CLOCK, THEME_FONT_TITLE);
   _home_date = label(clk, "", THEME_FONT_BODY, theme::TEXT_MUTED);
   label(clk, the_mesh.getNodeName(), THEME_FONT_BODY, theme::ACCENT);
 
@@ -574,14 +574,13 @@ void UITask::refreshHome() {
   }
   if (!_home_clock) return;
   struct tm ti;
-  if (localTime(_prefs, ti)) {
-    char clk[12], date[48];
-    fmtClock(clk, sizeof(clk), ti, _prefs, false, true);
-    fmtDate(date, sizeof(date), ti, _prefs);
-    lv_label_set_text(_home_clock, clk);
+  bool known = localTime(_prefs, ti);
+  clockFaceSet(_home_clock, known ? &ti : nullptr, _prefs);
+  if (known) {
+    char date[48];
+    fmtDate(date, sizeof(date), ti);
     lv_label_set_text(_home_date, date);
   } else {
-    lv_label_set_text(_home_clock, "--:--");
     lv_label_set_text(_home_date, "time not synced");
   }
   for (int i = 0; i < FIELDS; i++) {

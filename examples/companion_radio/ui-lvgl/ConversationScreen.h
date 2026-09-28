@@ -321,7 +321,7 @@ void UITask::messageMenu(int idx) {
     fmtClock(clk, sizeof(clk), ti, _prefs, true);
     if (clockBehind(now, ts)) {   // the clock isn't set yet: the date instead of an age
       char date[32];
-      fmtDate(date, sizeof(date), ti, nullptr);
+      fmtDate(date, sizeof(date), ti);
       snprintf(when, sizeof(when), "%s  %s", date, clk);
     } else snprintf(when, sizeof(when), "%s  -  %s ago", clk, age);
   } else {
