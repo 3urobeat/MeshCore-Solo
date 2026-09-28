@@ -20,6 +20,8 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   unsigned long _last_write;
   unsigned long adv_restart_time;
   unsigned long adv_slow_time;   // when fast advertising drops to the slow interval (0 = not pending)
+  unsigned long adv_check_time;  // next look at whether it's still findable
+  unsigned long conn_since;      // a link up but not yet paired: since when (0 = none)
 
   struct Frame {
     uint8_t len;
@@ -75,6 +77,7 @@ public:
     oldDeviceConnected = false;
     adv_restart_time = 0;
     adv_slow_time = 0;
+    adv_check_time = conn_since = 0;
     _isEnabled = false;
     _last_write = 0;
     last_conn_id = 0;

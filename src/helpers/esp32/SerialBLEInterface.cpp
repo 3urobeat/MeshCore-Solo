@@ -18,6 +18,14 @@
 #define ADV_SLOW              244
 #define ADV_FAST_MS           30000
 
+// While nothing is connected, every few seconds: is it still advertising? A
+// NimBLE host reset (controller error, timeout) ends advertising with no
+// disconnect to restart it, and it stayed unfindable until a reboot. A link
+// that never pairs (the phone's OS connecting on its own, a PIN left
+// unanswered) is dropped after a while: it stops advertising too.
+#define ADV_CHECK_MS          5000
+#define AUTH_TIMEOUT_MS       60000
+
 void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code) {
   _pin_code = pin_code;
 
@@ -113,6 +121,7 @@ void SerialBLEInterface::authDone(bool ok) {
   if (ok) {
     BLE_DEBUG_PRINTLN(" - SecurityCallback - Authentication Success");
     deviceConnected = true;
+    conn_since = 0;
   } else {
     BLE_DEBUG_PRINTLN(" - SecurityCallback - Authentication Failure*");
 
@@ -131,6 +140,7 @@ void SerialBLEInterface::onConnect(BLEServer* pServer) {
 void SerialBLEInterface::onConnect(BLEServer* pServer, ble_gap_conn_desc* desc) {
   BLE_DEBUG_PRINTLN("onConnect(), conn_handle=%d", desc->conn_handle);
   last_conn_id = desc->conn_handle;
+  conn_since = millis() | 1;
 }
 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, ble_gap_conn_desc* desc, uint16_t mtu) {
@@ -140,6 +150,7 @@ void SerialBLEInterface::onMtuChanged(BLEServer* pServer, ble_gap_conn_desc* des
 void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
   BLE_DEBUG_PRINTLN("onConnect(), conn_id=%d, mtu=%d", param->connect.conn_id, pServer->getPeerMTU(param->connect.conn_id));
   last_conn_id = param->connect.conn_id;
+  conn_since = millis() | 1;
 }
 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
@@ -150,6 +161,7 @@ void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param
 void SerialBLEInterface::onDisconnect(BLEServer* pServer) {
   BLE_DEBUG_PRINTLN("onDisconnect()");
   deviceConnected = false;
+  conn_since = 0;
   if (_isEnabled) {
     adv_restart_time = millis() + ADVERT_RESTART_DELAY;
   }
@@ -216,7 +228,7 @@ void SerialBLEInterface::disable() {
   pServer->disconnect(last_conn_id);
   pService->stop();
   oldDeviceConnected = deviceConnected = false;
-  adv_restart_time = adv_slow_time = 0;
+  adv_restart_time = adv_slow_time = conn_since = 0;
 }
 
 size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
@@ -297,6 +309,24 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
   if (adv_slow_time && (long)(millis() - adv_slow_time) >= 0) {
     adv_slow_time = 0;
     if (_isEnabled && pServer->getConnectedCount() == 0) startAdvertising(false);
+  }
+
+  if (_isEnabled && !deviceConnected && (long)(millis() - adv_check_time) >= 0) {
+    adv_check_time = millis() + ADV_CHECK_MS;
+    unsigned long since = conn_since;
+    if (pServer->getConnectedCount() > 0) {
+      if (since && millis() - since > AUTH_TIMEOUT_MS) {
+        BLE_DEBUG_PRINTLN("SerialBLEInterface -> dropping a link that never paired");
+        conn_since = 0;
+        pServer->disconnect(last_conn_id);   // onDisconnect() restarts advertising
+      }
+    }
+#if defined(CONFIG_NIMBLE_ENABLED)
+    else if (!adv_restart_time && !pServer->getAdvertising()->isAdvertising()) {
+      BLE_DEBUG_PRINTLN("SerialBLEInterface -> advertising had stopped, restarting");
+      startAdvertising(true);
+    }
+#endif
   }
   return 0;
 }
