@@ -4,6 +4,11 @@
 #include "target.h"
 #if defined(ESP32)
   #include <esp_heap_caps.h>
+  // The UI runs on Arduino's loop task: LVGL's renderer, FAT on the card and
+  // the map's decoders all nest on its stack, and the stock 8 KB left a few
+  // hundred bytes at the deepest point (Diagnostics > Stack free, the lowest
+  // ever) -- a screenshot's file write went past it and reset the device.
+  SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #endif
 #include <new>
 #include <stdarg.h>
@@ -1496,7 +1501,7 @@ void UITask::takeScreenshot() {
     put32(2, size); put32(10, 54); put32(14, 40); put32(18, W); put32(22, H);
     hdr[26] = 1; hdr[28] = 24; put32(34, row * H);
     ok = fwrite(hdr, 1, 54, f) == 54;
-    uint8_t line[320 * 3];
+    static uint8_t line[320 * 3];   // not on the loop task's stack
     for (int32_t y = H - 1; ok && y >= 0; y--) {   // bottom-up, BGR
       const uint16_t* s = px + y * W;
       for (int32_t x = 0; x < W && x < 320; x++) {

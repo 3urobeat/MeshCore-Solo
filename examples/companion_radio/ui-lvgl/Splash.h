@@ -92,6 +92,7 @@ static void dismiss() {
   anim::run(s_root, anim::setOpa, LV_OPA_COVER, LV_OPA_TRANSP, 300, freeAll);
 }
 static void onTimer(lv_timer_t* t) { (void)t; dismiss(); }
+static bool up() { return s_root != nullptr; }   // until its fade-out has finished
 static void onTap(lv_event_t* e) { (void)e; dismiss(); }
 
 // One character of the lettering: its width, and whether (x, y) is inked.

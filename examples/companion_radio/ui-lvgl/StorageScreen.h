@@ -504,10 +504,13 @@ static void usbPanel(const char* title, const char* text, bool buttons) {
   }
 }
 
+namespace splash { static bool up(); }   // Splash.h
+
 void UITask::usbPoll() {
   using namespace usbview;
   static uint32_t next = 0;
   if ((int32_t)(millis() - next) < 0) return;
+  if (splash::up()) return;   // a cable in at boot: the popup comes once the splash is gone
   next = millis() + 250;
   if (lvport::usbDriveOn()) {
     if (!lvport::usbDriveDone()) return;

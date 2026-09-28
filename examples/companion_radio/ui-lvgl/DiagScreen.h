@@ -66,7 +66,7 @@ static const Name NAMES[] = {
   { "Noise floor", SEC_RADIO, "Noise floor", false },  { "RSSI/SNR", SEC_RADIO, "Last packet", false },
   { "Queue", SEC_RADIO, "Send queue", false },         { "Errors", SEC_RADIO, "Errors", false },
   { "RXPS wd s/h", SEC_RADIO, "RX watchdog soft / hard", false },
-  { "Heap free", SEC_MEMORY, "Heap free", false },     { "Stack free", SEC_MEMORY, "Stack free", false },
+  { "Heap free", SEC_MEMORY, "Heap free", false },     { "Stack free", SEC_MEMORY, "UI stack free (lowest)", false },
   { "Pool free", SEC_MEMORY, "Packet pool free", false },
 };
 static const Name* nameOf(const char* core) {
