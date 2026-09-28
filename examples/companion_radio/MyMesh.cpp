@@ -1810,6 +1810,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   clearPendingReqs();
   next_ack_idx = 0;
   sign_data = NULL;
+  sign_data_cap = 0;
   dirty_contacts_expiry = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(send_scope.key, 0, sizeof(send_scope.key));
@@ -2819,19 +2820,27 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
     }
   } else if (cmd_frame[0] == CMD_SIGN_START) {
-    out_frame[0] = RESP_CODE_SIGN_START;
-    out_frame[1] = 0; // reserved
-    uint32_t len = MAX_SIGN_DATA_LEN;
-    memcpy(&out_frame[2], &len, 4);
-    _serial->writeFrame(out_frame, 6);
-
     if (sign_data) {
       free(sign_data);
     }
-    sign_data = (uint8_t *)malloc(MAX_SIGN_DATA_LEN);
+    // A small MCU's heap (nRF52: ~70K, most of it taken at boot) may not have
+    // 8K in one block: take the biggest buffer we can get and tell the app its size,
+    // rather than promising 8K and failing every SIGN_DATA with BAD_STATE.
     sign_data_len = 0;
+    sign_data_cap = MAX_SIGN_DATA_LEN;
+    while ((sign_data = (uint8_t *)malloc(sign_data_cap)) == NULL && sign_data_cap > 256) {
+      sign_data_cap /= 2;
+    }
+    if (sign_data == NULL) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      out_frame[0] = RESP_CODE_SIGN_START;
+      out_frame[1] = 0; // reserved
+      memcpy(&out_frame[2], &sign_data_cap, 4);
+      _serial->writeFrame(out_frame, 6);
+    }
   } else if (cmd_frame[0] == CMD_SIGN_DATA && len > 1) {
-    if (sign_data == NULL || sign_data_len + (len - 1) > MAX_SIGN_DATA_LEN) {
+    if (sign_data == NULL || sign_data_len + (len - 1) > sign_data_cap) {
       writeErrFrame(sign_data == NULL ? ERR_CODE_BAD_STATE : ERR_CODE_TABLE_FULL); // error: too long
     } else {
       memcpy(&sign_data[sign_data_len], &cmd_frame[1], len - 1);

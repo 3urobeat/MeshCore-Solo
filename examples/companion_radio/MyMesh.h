@@ -633,6 +633,7 @@ private:
   uint8_t app_target_ver;
   uint8_t *sign_data;
   uint32_t sign_data_len;
+  uint32_t sign_data_cap;   // what the malloc got: at most MAX_SIGN_DATA_LEN
   unsigned long dirty_contacts_expiry;
   unsigned long _bot_last_ch_reply_ms;
   unsigned long _bot_last_room_reply_ms;
