@@ -54,8 +54,8 @@ static uint32_t _atoi(const char* sp) {
   #include <LittleFS.h>
   DataStore store(LittleFS, rtc_clock);
 #elif defined(ESP32)
-  #include <SPIFFS.h>
-  DataStore store(SPIFFS, rtc_clock);
+  #include <helpers/esp32/InternalFS.h>
+  DataStore store(ESP32_FS, rtc_clock);
 #elif defined(SIM_PLATFORM)
   #include <SimFS.h>
   // Real files under ./sim_data/ (relative to the process's cwd) so
@@ -271,7 +271,7 @@ void setup() {
   #endif
     the_mesh.startInterface(serial_interface);
 #elif defined(ESP32)
-  SPIFFS.begin(true);
+  ESP32_FS.begin(true);
   store.begin();
   the_mesh.begin();
   resolveBLEPin(

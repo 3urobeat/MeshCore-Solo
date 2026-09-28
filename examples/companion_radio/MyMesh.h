@@ -37,7 +37,7 @@ class UITask;
 #elif defined(RP2040_PLATFORM)
 #include <LittleFS.h>
 #elif defined(ESP32)
-#include <SPIFFS.h>
+#include <helpers/esp32/InternalFS.h>
 #endif
 
 #include "DataStore.h"

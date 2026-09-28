@@ -12,7 +12,7 @@
   #include <HTTPClient.h>
   #include <WiFiClientSecure.h>
   #include <Preferences.h>
-  #include <SPIFFS.h>
+  #include <helpers/esp32/InternalFS.h>
   #include <esp_heap_caps.h>
   #include <esp_system.h>
   #include <esp_core_dump.h>
@@ -262,10 +262,14 @@ static bool crashSummary(char* out, size_t n) {
 #endif
 }
 // The internal flash file system (contacts, channels, settings, trail...).
+#ifdef ESP32_LITTLEFS
+static const char* const FLASH_ROOT = "/littlefs";
+#else
 static const char* const FLASH_ROOT = "/spiffs";
+#endif
 static bool flashInfo(uint64_t& total, uint64_t& used) {
-  total = SPIFFS.totalBytes();
-  used = SPIFFS.usedBytes();
+  total = ESP32_FS.totalBytes();
+  used = ESP32_FS.usedBytes();
   return total > 0;
 }
 
