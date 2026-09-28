@@ -41,6 +41,7 @@ class SettingsScreen : public UIScreen {
     SECTION_SOUND,
     BUZZER,
     BUZZER_VOLUME,
+    QUIET_HOURS, QUIET_FROM, QUIET_TO,
     DM_MELODY,
     CH_MELODY,
     AD_SOUND,
@@ -480,6 +481,17 @@ class SettingsScreen : public UIScreen {
       display.setCursor(valCol(display), y);
       display.print("N/A");
 #endif
+    } else if (item == QUIET_HOURS) {
+      display.print("Quiet hrs");
+      display.setCursor(valCol(display), y);
+      display.print((p && p->quiet_hours) ? "ON" : "OFF");
+    } else if (item == QUIET_FROM || item == QUIET_TO) {
+      display.print(item == QUIET_FROM ? " from" : " until");
+      display.setCursor(valCol(display), y);
+      { char hb[8]; uint8_t h = p ? (item == QUIET_FROM ? p->quiet_from : p->quiet_to) : 0;
+        if (p && p->clock_12h) snprintf(hb, sizeof(hb), "%u%s", (unsigned)(h % 12 ? h % 12 : 12), h < 12 ? "AM" : "PM");
+        else snprintf(hb, sizeof(hb), "%02u:00", (unsigned)h);
+        display.print(hb); }
     } else if (item == DM_MELODY) {
       display.print("DM sound");
       display.setCursor(valCol(display), y);
@@ -1026,6 +1038,15 @@ public:
       if (left  && lvl > 0) { _task->setBuzzerVolumeLevel(lvl - 1); _dirty = true; return true; }
 #endif
       return right || left;
+    }
+    if (_selected == QUIET_HOURS && p && (left || right || enter)) {
+      p->quiet_hours ^= 1;
+      _dirty = true; return true;
+    }
+    if ((_selected == QUIET_FROM || _selected == QUIET_TO) && p && (left || right || enter)) {
+      uint8_t& h = _selected == QUIET_FROM ? p->quiet_from : p->quiet_to;
+      h = (h + (left ? 23 : 1)) % 24;
+      _dirty = true; return true;
     }
     if (_selected == DM_MELODY && p && (left || right || enter)) {
       p->notif_melody_dm = (p->notif_melody_dm + (left ? SOUND_COUNT - 1 : 1)) % SOUND_COUNT;

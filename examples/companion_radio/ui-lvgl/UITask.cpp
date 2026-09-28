@@ -823,7 +823,7 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   user_btn.begin();
 #endif
 #ifdef PIN_BUZZER
-  soundctl::applyMode(_prefs, _buzzer, isClientConnected());
+  soundctl::applyMode(_prefs, _buzzer, isClientConnected(), rtc_clock.getCurrentTime());
   _buzzer.setVolume(_prefs ? _prefs->buzzer_volume : 4);
   _buzzer.begin();   // plays the startup sound unless muted
 #endif
@@ -852,7 +852,7 @@ MyMesh::Listener* UITask::meshListener() { return _core; }
 void UITask::toggleMute() {
 #ifdef PIN_BUZZER
   if (!_prefs) return;
-  bool on = soundctl::mode(_prefs) != soundctl::MODE_ON;
+  bool on = _buzzer.isQuiet();   // muted now, however (mode, Auto, quiet hours): sound on
   soundctl::setMode(_prefs, _buzzer, on ? soundctl::MODE_ON : soundctl::MODE_OFF, isClientConnected());
   prefsSave();
   if (on) _buzzer.playForced(soundctl::MEL_VOLUME);
@@ -988,7 +988,7 @@ void UITask::loop() {
 #endif
 #ifdef PIN_BUZZER
   _buzzer.loop();
-  if (soundctl::autoTick(_prefs, _buzzer, isClientConnected()) && !_asleep) refreshStatusBar();
+  if (soundctl::tick(_prefs, _buzzer, isClientConnected(), rtc_clock.getCurrentTime()) && !_asleep) refreshStatusBar();
   // The alarm melody repeats until dismissed or the ring window ends.
   if (_core->clock.isRinging() && !_buzzer.isPlaying()) playMelody(soundctl::MEL_ALARM);
 #endif
@@ -1289,7 +1289,7 @@ void UITask::onMessageArrived(const UiEvent& ev) {
   }
   // Wake for the message unless an app is already showing it, or the user
   // turned message-wake off.
-  bool wake_disabled = _prefs && _prefs->msg_wake_screen_off;
+  bool wake_disabled = _prefs && (_prefs->msg_wake_screen_off || inQuietHours(*_prefs, rtc_clock.getCurrentTime()));   // quiet hours: dark too
   if (_asleep && !wake_disabled && !isClientConnected()) wake();
   else if (!_asleep) lv_display_trigger_activity(NULL);
   bool open_here = _screen == SCR_THREAD &&

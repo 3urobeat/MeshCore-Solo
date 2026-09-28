@@ -25,7 +25,7 @@ enum Page : uint8_t { PG_NAV, PG_ADVERT, PG_DEVICE, PG_MESSAGES, PG_SOUND, PG_CO
 enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_ADVERT,
                          SEC_DISPLAY, SEC_POWER, SEC_TIME, SEC_UNITS,
                          SEC_MESSAGES, SEC_CONTACTS,
-                         SEC_SOUND, SEC_SOUND_FOR, SEC_COUNT };
+                         SEC_SOUND, SEC_SOUND_FOR, SEC_QUIET, SEC_COUNT };
 
 static const char* pageTitle(uint8_t p) {
   static const char* T[PG_COUNT] = { "Map options", "Advert", "Display & power", "Messages & contacts", "Sound" };
@@ -35,14 +35,14 @@ static const char* sectionTitle(uint8_t s) {
   static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "AUTOMATIC",
                                       "DISPLAY", "POWER", "TIME", "UNITS",
                                       "MESSAGES", "CONTACTS",
-                                      "SOUND", "PLAYS FOR" };
+                                      "SOUND", "PLAYS FOR", "QUIET HOURS" };
   return s < SEC_COUNT ? T[s] : "";
 }
 static uint8_t sectionPage(uint8_t s) {
   static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_ADVERT,
                                         PG_DEVICE, PG_DEVICE, PG_DEVICE, PG_DEVICE,
                                         PG_MESSAGES, PG_MESSAGES,
-                                        PG_SOUND, PG_SOUND };
+                                        PG_SOUND, PG_SOUND, PG_SOUND };
   return s < SEC_COUNT ? P[s] : PG_DEVICE;
 }
 
@@ -136,6 +136,10 @@ static void optVolume(uint8_t v, char* b, int n, const NodePrefs&) {
   static const char* L[5] = { "Quietest", "Quiet", "Medium", "Loud", "Loudest" };
   snprintf(b, n, "%s", L[v < 5 ? v : 4]);
 }
+static void optHour(uint8_t v, char* b, int n, const NodePrefs& p) {   // "22:00", or "10 PM" with the 12-hour clock
+  if (!p.clock_12h) snprintf(b, n, "%02u:00", (unsigned)v);
+  else snprintf(b, n, "%u %s", (unsigned)(v % 12 ? v % 12 : 12), v < 12 ? "AM" : "PM");
+}
 static void optSound(uint8_t v, char* b, int n, const NodePrefs&) { snprintf(b, n, "%s", soundctl::soundLabel(v)); }
 static void optAdvertScope(uint8_t v, char* b, int n, const NodePrefs&) {
   snprintf(b, n, "%s", v == ADVERT_SOUND_SCOPE_ZERO_HOP ? "Direct only" : "All");
@@ -209,6 +213,9 @@ static const Setting ALL[] = {
 
   // On / Off / Auto spans two fields (soundctl::setMode): the frontend's own row.
   IDX("Volume", nullptr, SEC_SOUND, buzzer_volume, 5, optVolume, applySound),
+  SW("Quiet hours", "Muted, screen dark; alarms ring", SEC_QUIET, quiet_hours, nullptr),
+  IDX("From", nullptr, SEC_QUIET, quiet_from, 24, optHour, nullptr),
+  IDX("Until", nullptr, SEC_QUIET, quiet_to, 24, optHour, nullptr),
 
   IDX("Direct messages", nullptr, SEC_SOUND_FOR, notif_melody_dm, soundctl::SOUND_COUNT, optSound, nullptr),
   IDX("Channels", nullptr, SEC_SOUND_FOR, notif_melody_ch, soundctl::SOUND_COUNT, optSound, nullptr),

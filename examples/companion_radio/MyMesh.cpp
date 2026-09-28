@@ -1846,6 +1846,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.radio_fem_txgain = 0;
   _prefs.display_brightness = 2; // medium brightness by default
   _prefs.buzzer_volume = 4;      // max volume by default
+  _prefs.quiet_from = 22;        // quiet hours (off by default) 22:00-07:00
+  _prefs.quiet_to = 7;
   _prefs.ringtone_bpm_idx = 2;   // 120 bpm default
   _prefs.ringtone_len = 0;       // no custom ringtone by default
   _prefs.ringtone2_bpm_idx = 2;  // 120 bpm default

@@ -1593,7 +1593,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   }
 
 #ifdef PIN_BUZZER
-  soundctl::applyMode(_node_prefs, buzzer, false);
+  soundctl::applyMode(_node_prefs, buzzer, false, rtc_clock.getCurrentTime());
   buzzer.setVolume(_node_prefs->buzzer_volume);
   buzzer.begin();
 #endif
@@ -1952,7 +1952,7 @@ void UITask::onMessageArrived(const UiEvent& ev) {
   showAlert(alert_buf, 3000);
 
   if (_display != NULL && !_locked) {
-    bool wake_disabled = _node_prefs && _node_prefs->msg_wake_screen_off;
+    bool wake_disabled = _node_prefs && (_node_prefs->msg_wake_screen_off || inQuietHours(*_node_prefs, rtc_clock.getCurrentTime()));
     if (!wake_disabled && !_display->isOn() && !isClientConnected()) {   // wake for the msg unless an app (BLE/USB) is already showing it, or the user disabled msg-wake
       _display->turnOn();
     }
@@ -2686,7 +2686,7 @@ void UITask::loop() {
   userLedHandler();
 
 #ifdef PIN_BUZZER
-  if (soundctl::autoTick(_node_prefs, buzzer, isClientConnected()))   // BLE bonded or an open USB port
+  if (soundctl::tick(_node_prefs, buzzer, isClientConnected(), rtc_clock.getCurrentTime()))   // BLE bonded or an open USB port
     _next_refresh = 0;
   if (buzzer.isPlaying())  buzzer.loop();
 #endif

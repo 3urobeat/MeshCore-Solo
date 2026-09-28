@@ -3,7 +3,7 @@
 // Ringtone) and ui-lvgl (Settings > Sound, Melodies): the On / Off / Auto mode
 // (buzzer_quiet + buzzer_auto), the volume, the built-in sounds, the labels of
 // the notification sound choices, and the two user melodies (ringtone_* /
-// ringtone2_*) as an editable note list. Which sound a message plays is
+// ringtone2_*) as an editable note list. Quiet hours mute on a schedule. Which sound a message plays is
 // SoundNotifier.h.
 
 #include "../NodePrefs.h"
@@ -44,10 +44,21 @@ static const char* soundLabel(uint8_t v) {
 static const uint8_t OVERRIDE_COUNT = 3;
 
 #ifdef PIN_BUZZER
-// The mute that goes with the mode; `connected`: an app is connected.
-static void applyMode(const NodePrefs* p, genericBuzzer& b, bool connected) {
+// Quiet hours (NodePrefs::inQuietHours) mute like the mode does. A mute or
+// unmute by hand inside the window stands until the window ends.
+static bool s_quiet_now = false;      // inside the window, as of the last tick
+static bool s_quiet_override = false; // set by hand since the window began
+
+// The mute that goes with the mode and quiet hours; `connected`: an app is
+// connected.
+static bool wantQuiet(const NodePrefs* p, bool connected) {
   uint8_t m = mode(p);
-  b.quiet(m == MODE_OFF || (m == MODE_AUTO && connected));
+  if (m == MODE_OFF || (m == MODE_AUTO && connected)) return true;
+  return s_quiet_now && !s_quiet_override;
+}
+static void applyMode(const NodePrefs* p, genericBuzzer& b, bool connected, uint32_t utc) {
+  s_quiet_now = p && inQuietHours(*p, utc);
+  b.quiet(wantQuiet(p, connected));
 }
 
 // Auto keeps buzzer_quiet (the manual choice it goes back to). The caller
@@ -56,16 +67,21 @@ static void setMode(NodePrefs* p, genericBuzzer& b, uint8_t m, bool connected) {
   if (!p || m >= MODE_COUNT) return;
   p->buzzer_auto = m == MODE_AUTO;
   if (m != MODE_AUTO) p->buzzer_quiet = m == MODE_OFF;
-  applyMode(p, b, connected);
+  s_quiet_override = s_quiet_now;   // a choice made during quiet hours wins until they end
+  b.quiet(wantQuiet(p, connected));
 }
 
-// From the loop: Auto follows the app connection. True when the mute changed.
-static bool autoTick(const NodePrefs* p, genericBuzzer& b, bool connected) {
-  if (!p || !p->buzzer_auto || b.isQuiet() == connected) return false;
-  b.quiet(connected);
+// From the loop: Auto follows the app connection, quiet hours the clock.
+// True when the mute changed.
+static bool tick(const NodePrefs* p, genericBuzzer& b, bool connected, uint32_t utc) {
+  if (!p) return false;
+  bool q = inQuietHours(*p, utc);
+  if (q != s_quiet_now) { s_quiet_now = q; s_quiet_override = false; }
+  bool want = wantQuiet(p, connected);
+  if (b.isQuiet() == want) return false;
+  b.quiet(want);
   return true;
 }
-
 // Level 0..4, with a preview beep (through mute: it answers the user's own
 // change). The caller saves the prefs.
 static void setVolume(NodePrefs* p, genericBuzzer& b, uint8_t level) {

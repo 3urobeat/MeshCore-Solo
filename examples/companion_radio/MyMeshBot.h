@@ -123,14 +123,9 @@ void MyMesh::botDmRecord(const uint8_t* pubkey) {
 // width window (start == end) disables the feature; a window where start > end
 // wraps past midnight.
 bool MyMesh::botInQuietHours() const {
-  if (_prefs.bot_quiet_start == _prefs.bot_quiet_end) return false;  // disabled
-  uint32_t utc = getRTCClock()->getCurrentTime();
-  if (utc < 1000000000UL) return false;             // clock not set — don't suppress
-  uint32_t local = utc + (int32_t)_prefs.tz_offset_hours * 3600;
-  int h = (int)((local / 3600) % 24);
-  int s = _prefs.bot_quiet_start, e = _prefs.bot_quiet_end;
-  return (s < e) ? (h >= s && h < e)                // same-day window
-                 : (h >= s || h < e);               // overnight window
+  int h;
+  if (!localHour(getRTCClock()->getCurrentTime(), _prefs.tz_offset_hours, h)) return false;   // clock not set -- don't suppress
+  return hourInWindow(h, _prefs.bot_quiet_start, _prefs.bot_quiet_end);
 }
 
 void MyMesh::tryBotReplyDM(const ContactInfo& from, const char* text, uint8_t hops) {

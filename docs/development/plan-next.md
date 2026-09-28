@@ -52,12 +52,17 @@ for a second radio). They are L2-specific and block the loop for ~90 s.
 
 ## D. Quiet hours in the core
 
-- [ ] A start and end time when the device is silent; in ui-core, so L1, L2
+- [x] A start and end time when the device is silent; in ui-core, so L1, L2
       and other boards get it. New NodePrefs fields go at the end of the
       stored layout, so an L1 keeps its settings after the update.
       To decide: the Clock alarm rings anyway (proposed yes); whether a
       message wakes the screen during quiet hours; with the clock not set,
       quiet hours are off (proposed).
+      Done 2026-09-28: NodePrefs quiet_hours / quiet_from / quiet_to
+      (sentinel 0x30, sizeof 2832), off by default, 22-7; the alarm rings, a
+      message doesn't wake the screen, a manual mute / unmute stands until
+      the window ends. hourInWindow() / localHour() shared with the bot's
+      quiet hours. L2 tested; L1 built, not flashed yet.
 
 ## E. OTA end-to-end test
 
@@ -107,5 +112,4 @@ it; implement the tiers, docs and website after the merge.
 
 ## Open decisions
 
-- D: alarm during quiet hours; messages waking the screen.
 - I: tier spec before stage F, or after the merge.

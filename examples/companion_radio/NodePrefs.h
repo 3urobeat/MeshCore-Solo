@@ -317,6 +317,13 @@ struct NodePrefs {  // persisted to file
   uint8_t  buzzer_quiet;
   uint8_t  buzzer_volume;   // 0=min..4=max, default 4
   uint8_t  buzzer_auto;        // 0=manual (default), 1=auto-mute when BT connected
+  // Quiet hours: muted from quiet_from to quiet_to (local hours 0-23, wrapping
+  // past midnight) while quiet_hours is on; the clock alarm still rings and a
+  // message doesn't wake the screen (inQuietHours() below). A manual mute /
+  // unmute during the window stands until it ends (soundctl::tick()).
+  uint8_t  quiet_hours;         // 0=off (default), 1=on
+  uint8_t  quiet_from;          // default 22
+  uint8_t  quiet_to;            // default 7
   // Settings > Display > "Msg wake". Stored inverted (same reason as
   // fav_sort_off below) so both a fresh memset and an older prefs file (no
   // bytes here at all) mean "on" -- today's behaviour, where an incoming
@@ -627,7 +634,7 @@ struct NodePrefs {  // persisted to file
   // repeat_* fields) instead of at the tail, which shifted every field after
   // them by 25 bytes when loading an older file. Never released, but a dev
   // build wrote it, so the number must not be reused for anything else.
-  static const uint32_t SCHEMA_SENTINEL = 0xC0DE002F;
+  static const uint32_t SCHEMA_SENTINEL = 0xC0DE0030;
 
   // Bit-index for each home page. Used by page_order (entries store bit+1) and
   // by home_pages_mask. Single source of truth — both HomeScreen::pageBit/bitToPage
@@ -703,6 +710,25 @@ struct NodePrefs {  // persisted to file
     if (pos < size) buf[pos] = '\0';
   }
 };
+
+// Local hour `h` inside [start, end): a window with start > end wraps past
+// midnight; start == end is no window. Shared by the bot's quiet hours and the
+// sound's.
+static inline bool hourInWindow(int h, int start, int end) {
+  if (start == end) return false;
+  return start < end ? (h >= start && h < end) : (h >= start || h < end);
+}
+// The local hour from a UTC time; false while the clock isn't set.
+static inline bool localHour(uint32_t utc, int8_t tz_hours, int& h) {
+  if (utc < 1000000000UL) return false;
+  h = (int)(((int64_t)utc + (int64_t)tz_hours * 3600) / 3600 % 24);
+  return true;
+}
+// Settings > Sound > Quiet hours in force at `utc` (never with the clock unset).
+static inline bool inQuietHours(const NodePrefs& p, uint32_t utc) {
+  int h;
+  return p.quiet_hours && localHour(utc, p.tz_offset_hours, h) && hourInWindow(h, p.quiet_from, p.quiet_to);
+}
 
 // ── Serialization tripwire ───────────────────────────────────────────────────
 // NodePrefs is written/read field-by-field, in order, by DataStore::savePrefs()
@@ -782,7 +808,10 @@ struct NodePrefs {  // persisted to file
 // (ESP32) builds, sizeof unchanged at 2824. loc_share_duration_idx (0xC0DE002E)
 // likewise (sim build; see the check below). display_brightness_pct (0xC0DE002F)
 // likewise (L2 ESP32 + L1 nRF52 builds).
-static_assert(sizeof(NodePrefs) == 2824,
+// quiet_hours / quiet_from / quiet_to (0xC0DE0030) added 8 bytes, not 3 (next
+// to buzzer_auto, rounded up to the alignment) -- sizeof 2832, confirmed via real
+// WioTrackerL1_companion_solo_dual (nRF52/ARM) and L2 (ESP32) builds.
+static_assert(sizeof(NodePrefs) == 2832,
               "NodePrefs layout changed — sync DataStore save/load + clamp, bump "
               "SCHEMA_SENTINEL, then update this size (see steps above).");
 
