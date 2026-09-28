@@ -42,6 +42,9 @@ static lv_obj_t* s_live_lbl = nullptr;       // "Delete live map tiles" row labe
 static lv_obj_t* s_live_info = nullptr;      // count / size from the index
 static uint32_t  s_live_armed_ms = 0;
 static uint32_t  s_shown_ms = 0;
+static lv_obj_t* s_fmt_overlay = nullptr;    // Format card: the popup
+static lv_obj_t* s_fmt_go_lbl = nullptr;     // its Format button's label
+static bool      s_fmt_armed = false;        // Format tapped once
 
 static void fmtBytes(char* out, size_t n, uint64_t b) {
   if (b < 1024) snprintf(out, n, "%u B", (unsigned)b);
@@ -248,6 +251,8 @@ static void onLiveCap(lv_event_t* e) {
   s_ui->storageLiveCap((int)choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onLiveClear(lv_event_t* e) { (void)e; s_ui->storageClearLive(); }
+static void onFormatAsk(lv_event_t* e) { (void)e; s_ui->storageFormatAsk(); }
+static void onFormatTap(lv_event_t* e) { s_ui->storageFormatTap(lv_event_get_user_data(e) != nullptr); }
 
 void UITask::showStorage() {
   _screen = SCR_STORAGE;
@@ -258,6 +263,8 @@ void UITask::buildStorage() {
   using namespace storeview;
   lv_obj_t* body = newScreen("Storage", true);
   s_sd_bar = s_sd_lbl = s_status = s_clear_lbl = s_live_lbl = s_live_info = nullptr;
+  s_fmt_overlay = s_fmt_go_lbl = nullptr;   // went with the old screen
+  s_fmt_armed = false;
   memset(s_cat_val, 0, sizeof(s_cat_val));
   s_clear_armed_ms = 0;
 
@@ -272,6 +279,7 @@ void UITask::buildStorage() {
     s_sd_read = false;   // read in pollStorage(): the first read of a big card takes a moment
     startWalk();
   }
+  actionRow(g, LV_SYMBOL_WARNING "  Format card", onFormatAsk, NULL, theme::FAIL);   // also one the device can't read
 
   g = group(body, "DEVICE");
   lv_obj_t* flbl;
@@ -354,7 +362,6 @@ void UITask::storageKeep(int idx) {
   lvport::saveHistKeep(idx);
   s_archive.setKeep(histstore::KEEP[idx]);
   s_archive.applyKeep();   // trims (or makes room in) every file now
-  showToast("Saved");
   storeview::startWalk();
 }
 
@@ -378,7 +385,6 @@ void UITask::storageLiveCap(int idx) {
   if (idx < 0 || idx >= mapview::LIVE_CAP_COUNT) return;
   lvport::saveLiveCap(idx);
   mapview::s_live_cache.setLimit((uint64_t)mapview::LIVE_CAP_MB[idx] << 20);   // trimmed in the background
-  showToast("Saved");
 }
 
 void UITask::storageClearLive() {
@@ -392,4 +398,147 @@ void UITask::storageClearLive() {
   mapview::s_live_cache.clearAll();   // a few files per loop (mapDownloadTick)
   if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Delete live map tiles");
   showToast("Deleting live map tiles");
+}
+
+// Format card, confirmed twice: the popup says what goes, then its Format
+// button wants a second tap. The card is formatted there and then (the loop
+// blocks: a big card takes a while), and the device restarts.
+static lv_obj_t* fmtButton(lv_obj_t* row, const char* text, uint32_t bg, bool go) {
+  lv_obj_t* b = lv_button_create(row);
+  lv_obj_set_height(b, 38);
+  lv_obj_set_flex_grow(b, 1);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(bg), 0);
+  lv_obj_add_event_cb(b, onFormatTap, LV_EVENT_CLICKED, go ? (void*)1 : nullptr);
+  lv_obj_t* l = label(b, text, THEME_FONT_BODY, theme::TEXT);
+  lv_obj_center(l);
+  return l;
+}
+
+void UITask::storageFormatAsk() {
+  using namespace storeview;
+  if (s_fmt_overlay) return;
+  s_fmt_armed = false;
+  lv_obj_t* panel = popupOpen(screen(), POP_FIT, s_fmt_overlay);
+  lv_obj_set_style_pad_row(panel, 8, 0);
+  label(panel, "Format the SD card?", THEME_FONT_TITLE, theme::TEXT);
+  lv_obj_t* t = label(panel, "Everything on it is erased: map areas, live map tiles, message history, "
+                             "trails and screenshots. The device restarts afterwards.",
+                      THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(t, LV_PCT(100));
+  lv_obj_t* row = flexBox(panel, LV_FLEX_FLOW_ROW);
+  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_style_pad_column(row, theme::GAP, 0);
+  fmtButton(row, "Cancel", theme::SURFACE_2, false);
+  s_fmt_go_lbl = fmtButton(row, "Format", theme::FAIL, true);
+}
+
+void UITask::storageFormatTap(bool go) {
+  using namespace storeview;
+  if (!go) {
+    if (s_fmt_overlay) lv_obj_delete_async(s_fmt_overlay);
+    s_fmt_overlay = s_fmt_go_lbl = nullptr;
+    return;
+  }
+  if (!s_fmt_armed) {   // the second confirmation
+    s_fmt_armed = true;
+    if (s_fmt_go_lbl) lv_label_set_text(s_fmt_go_lbl, "Tap again");
+    return;
+  }
+  if (s_fmt_go_lbl) lv_label_set_text(s_fmt_go_lbl, "Formatting...");
+  lv_refr_now(NULL);   // shown before the loop blocks
+  stopWalk();
+  if (mapview::s_dl.active()) mapDownloadStop();
+  bool ok = lvport::formatCard();
+  if (!ok) {
+    if (s_fmt_overlay) lv_obj_delete_async(s_fmt_overlay);
+    s_fmt_overlay = s_fmt_go_lbl = nullptr;
+    showToast("Couldn't format - is a card in?", 3000);
+    return;
+  }
+  if (s_fmt_overlay) { lv_obj_delete(s_fmt_overlay); s_fmt_overlay = s_fmt_go_lbl = nullptr; }
+  restartScreen("The SD card is formatted.");
+  showStorage();   // the sim goes on: the emptied card
+}
+
+// ── The card as a USB drive ──
+// Plugged into a computer, the device asks: charge only, or lend it the SD
+// card. Lent, a panel stays up over every screen until the computer ejects
+// the drive (or the cable comes out); then the device restarts to reload what
+// it keeps from the card. lvport's usbDrive*() do the USB side.
+namespace usbview {
+static lv_obj_t* s_overlay = nullptr;
+static bool s_host = false;   // a computer seen on USB
+}
+
+static void onUsbTap(lv_event_t* e) { s_ui->usbTap(lv_event_get_user_data(e) != nullptr); }
+
+static void usbPanel(const char* title, const char* text, bool buttons) {
+  using namespace usbview;
+  if (s_overlay) lv_obj_delete(s_overlay);
+  lv_obj_t* panel = popupOpen(lv_layer_top(), POP_FIT, s_overlay);
+  lv_obj_set_style_pad_row(panel, 8, 0);
+  lv_obj_t* row = flexBox(panel, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(row, 8, 0);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  label(row, LV_SYMBOL_USB, THEME_FONT_TITLE, theme::ACCENT);
+  label(row, title, THEME_FONT_TITLE, theme::TEXT);
+  lv_obj_t* t = label(panel, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(t, LV_PCT(100));
+  if (!buttons) return;
+  lv_obj_t* br = flexBox(panel, LV_FLEX_FLOW_ROW);
+  lv_obj_set_width(br, LV_PCT(100));
+  lv_obj_set_style_pad_column(br, theme::GAP, 0);
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t* b = lv_button_create(br);
+    lv_obj_set_height(b, 38);
+    lv_obj_set_flex_grow(b, 1);
+    lv_obj_set_style_shadow_width(b, 0, 0);
+    lv_obj_set_style_radius(b, theme::RADIUS, 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(i ? theme::ACCENT : theme::SURFACE_2), 0);
+    lv_obj_add_event_cb(b, onUsbTap, LV_EVENT_CLICKED, i ? (void*)1 : nullptr);
+    lv_obj_center(label(b, i ? "USB drive" : "Charge only", THEME_FONT_BODY, i ? theme::BG : theme::TEXT));
+  }
+}
+
+void UITask::usbPoll() {
+  using namespace usbview;
+  static uint32_t next = 0;
+  if ((int32_t)(millis() - next) < 0) return;
+  next = millis() + 250;
+  if (lvport::usbDriveOn()) {
+    if (!lvport::usbDriveDone()) return;
+    lvport::usbDriveStop();
+    if (s_overlay) { lv_obj_delete(s_overlay); s_overlay = nullptr; }
+    wake();
+    restartScreen("The computer has given the SD card back.");
+    return;
+  }
+  bool host = lvport::usbHost();
+  if (host == s_host) return;
+  s_host = host;
+  if (host) {   // just plugged into a computer
+    wake();
+    usbPanel("Connected to a computer",
+             "Charge only, or use the SD card as a USB drive? As a drive, the device can't use the card "
+             "(maps, message history) until you eject it on the computer.", true);
+  } else if (s_overlay) {   // unplugged before choosing
+    lv_obj_delete(s_overlay);
+    s_overlay = nullptr;
+  }
+}
+
+void UITask::usbTap(bool drive) {
+  using namespace usbview;
+  if (s_overlay) { lv_obj_delete_async(s_overlay); s_overlay = nullptr; }
+  if (!drive) return;
+  storeview::stopWalk();
+  if (mapview::s_dl.active()) mapDownloadStop();
+  if (!lvport::usbDriveStart()) { showToast("No SD card to share", 3000); return; }
+  usbPanel("USB drive",
+           "The computer has the SD card now. Eject it there (or unplug the cable) when you're done - "
+           "the device then restarts.", false);
 }

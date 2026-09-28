@@ -135,6 +135,7 @@ public:
   void setKeyboardAlphabets(int main_idx, int alt_sel);
   void openChannel(uint8_t channel_idx);
   void openDM(const uint8_t* pub_key);
+  void bannerOpen();   // the message banner tapped: its conversation
   void back();
   void sendFromCompose();
   void setKeyboardVisible(bool show);
@@ -256,6 +257,10 @@ public:
   void storageClearHistory();
   void storageLiveCap(int idx);
   void storageClearLive();
+  void storageFormatAsk();    // Storage > Format card: the popup (first confirmation)
+  void storageFormatTap(bool go);   // its buttons: Format twice (the second confirmation), or Cancel
+  void usbPoll();              // a computer plugged in: offer the SD card as a USB drive
+  void usbTap(bool drive);     // that popup's buttons
   bool locked() const;
   void pinKey(const char* key);        // the lock screen's keypad
   void pinSetupPopup();                // Settings > Display & power > Screen PIN

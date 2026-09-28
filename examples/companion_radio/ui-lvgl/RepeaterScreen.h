@@ -112,7 +112,6 @@ void UITask::repeaterSet(int which, int v) {
   switch (which) {
     case RP_ON:
       rptctl::setEnabled(p, v != 0);
-      showToast(v ? "Repeater on" : "Repeater off");
       break;
     case RP_NETWORK: rptctl::setUseProfile(p, v != 0); break;
     case RP_PRESET:  if (v == 0) return; rptctl::choosePreset(p, v - 1); break;

@@ -189,7 +189,6 @@ void UITask::wifiSetAllowed(bool on) {
     if (mapview::s_dl.active()) mapDownloadStop();
     if (_wifi_scanning) { _wifi_scanning = false; lvport::netEnd(); }
   }
-  showToast(on ? "WiFi on" : "WiFi off", 1500);
   if (_screen == SCR_SETTINGS) {   // the row's subtitle
     lv_obj_t* body = _body;
     int32_t y = body ? lv_obj_get_scroll_y(body) : 0;

@@ -915,6 +915,7 @@ void UITask::loop() {
   _core->loop();
   drainCoreEvents();
   prefsFlush();
+  usbPoll();
 #if defined(UI_HEAP_REPORT) && defined(ESP32)
   // -D UI_HEAP_REPORT: internal / PSRAM heap once, 20 s after boot (the
   // framework comparison in docs/development/l2-roadmap.md).
@@ -1153,6 +1154,105 @@ void UITask::drainCoreEvents() {
   }
 }
 
+// ── Message banner ──
+// An incoming message slides down from under the status bar: an icon, the
+// sender (or channel) and the start of the text. A tap opens the conversation
+// (not while the screen is locked), a swipe up puts it away, and it goes by
+// itself after BANNER_MS. The toast at the bottom stays for everything else.
+static lv_obj_t*   s_banner = nullptr;
+static lv_obj_t*   s_banner_icon = nullptr;
+static lv_obj_t*   s_banner_title = nullptr;
+static lv_obj_t*   s_banner_text = nullptr;
+static lv_timer_t* s_banner_timer = nullptr;
+static UIEventType s_banner_kind = UIEventType::none;
+static int16_t     s_banner_ch = -1;
+static uint8_t     s_banner_key[4];
+static const uint32_t BANNER_MS = 4000;
+
+static void bannerHidden(lv_anim_t* a) { lv_obj_add_flag((lv_obj_t*)a->var, LV_OBJ_FLAG_HIDDEN); }
+static void bannerHide() {
+  if (!s_banner || lv_obj_has_flag(s_banner, LV_OBJ_FLAG_HIDDEN)) return;
+  if (s_banner_timer) lv_timer_pause(s_banner_timer);
+  lv_anim_delete(s_banner, NULL);
+  int32_t off = -(lv_obj_get_height(s_banner) + theme::STATUS_H);
+  anim::run(s_banner, anim::setTy, lv_obj_get_style_translate_y(s_banner, LV_PART_MAIN), off, anim::OUT_MS, bannerHidden);
+}
+static void bannerTimerCb(lv_timer_t* t) { (void)t; bannerHide(); }
+static void onBanner(lv_event_t* e) {
+  if (lv_event_get_code(e) == LV_EVENT_GESTURE) {
+    if (lv_indev_get_gesture_dir(lv_indev_active()) == LV_DIR_TOP) bannerHide();
+    return;
+  }
+  bannerHide();
+  s_ui->bannerOpen();
+}
+
+// Built once, behind the status bar (made just after it on the top layer).
+static void bannerBuild() {
+  const int32_t w = lv_display_get_horizontal_resolution(NULL);
+  s_banner = lv_obj_create(lv_layer_top());
+  lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(s_banner, w - 12, LV_SIZE_CONTENT);
+  lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 2);
+  lv_obj_set_style_bg_color(s_banner, lv_color_hex(theme::SURFACE_2), 0);
+  lv_obj_set_style_bg_color(s_banner, lv_color_hex(theme::SURFACE), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(s_banner, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(s_banner, 1, 0);
+  lv_obj_set_style_radius(s_banner, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(s_banner, 12, 0);
+  lv_obj_set_style_shadow_color(s_banner, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_shadow_opa(s_banner, LV_OPA_60, 0);
+  lv_obj_set_style_pad_all(s_banner, 8, 0);
+  lv_obj_set_style_pad_column(s_banner, 10, 0);
+  lv_obj_set_flex_flow(s_banner, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(s_banner, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_event_cb(s_banner, onBanner, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(s_banner, onBanner, LV_EVENT_GESTURE, NULL);
+  s_banner_icon = label(s_banner, LV_SYMBOL_ENVELOPE, THEME_FONT_TITLE, theme::ACCENT);
+  lv_obj_set_width(s_banner_icon, 20);   // the text lines up whichever icon
+  lv_obj_set_style_text_align(s_banner_icon, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_t* col = flexBox(s_banner, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_width(col, 1);
+  lv_obj_set_flex_grow(col, 1);
+  lv_obj_set_style_pad_row(col, 1, 0);
+  s_banner_title = label(col, "", THEME_FONT_BODY, theme::TEXT);
+  lv_label_set_long_mode(s_banner_title, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(s_banner_title, LV_PCT(100));
+  s_banner_text = label(col, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(s_banner_text, LV_LABEL_LONG_DOT);   // (LONG_DOT cuts at the max height)
+  lv_obj_set_width(s_banner_text, LV_PCT(100));
+  lv_obj_set_style_max_height(s_banner_text, lv_font_get_line_height(THEME_FONT_SMALL) * 2, 0);   // two lines, then "..."
+  lv_obj_add_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void bannerShow(const char* icon, const char* title, const char* text) {
+  if (!s_banner) return;
+  lv_label_set_text(s_banner_icon, icon);
+  lv_label_set_text(s_banner_title, title);
+  lv_label_set_text(s_banner_text, text);
+  bool shown = !lv_obj_has_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+  lv_anim_delete(s_banner, NULL);
+  lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+  if (!shown) {   // a new one while it's up just changes the text
+    lv_obj_update_layout(s_banner);
+    anim::run(s_banner, anim::setTy, -(lv_obj_get_height(s_banner) + theme::STATUS_H), 0, anim::SCREEN_MS);
+  } else {
+    lv_obj_set_style_translate_y(s_banner, 0, 0);
+  }
+  if (!s_banner_timer) s_banner_timer = lv_timer_create(bannerTimerCb, BANNER_MS, NULL);
+  lv_timer_set_period(s_banner_timer, BANNER_MS);
+  lv_timer_reset(s_banner_timer);
+  lv_timer_resume(s_banner_timer);
+}
+
+void UITask::bannerOpen() {
+  if (locked()) return;   // the lock screen first
+  if (s_banner_kind == UIEventType::channelMessage && s_banner_ch >= 0) openChannel((uint8_t)s_banner_ch);
+  else if (s_banner_kind == UIEventType::contactMessage) openDM(s_banner_key);
+  else showChats();   // a room post: the list
+}
+
 void UITask::onMessageArrived(const UiEvent& ev) {
   if (ev.kind == UIEventType::contactMessage && ev.flag) {   // the sender's alert / melody overrides
     memcpy(_notif_dm_prefix, ev.key, 4);
@@ -1160,14 +1260,31 @@ void UITask::onMessageArrived(const UiEvent& ev) {
   }
   if (ev.kind == UIEventType::channelMessage) _notif_ch_idx = ev.idx;
   notify(ev.kind);
-  char buf[48];
-  snprintf(buf, sizeof(buf), "Msg: %.20s", ev.text);
+  // The banner: the name from the event, the text from the newest history entry.
+  const char* text = "";
+  const char* icon = LV_SYMBOL_ENVELOPE;
+  s_banner_kind = ev.kind;
+  s_banner_ch = ev.idx;
+  memcpy(s_banner_key, ev.key, 4);
+  if (ev.kind == UIEventType::channelMessage) {
+    icon = "#";
+    int pos = ev.idx >= 0 ? _core->history.histEntryForChannel(ev.idx, 0) : -1;
+    if (pos >= 0) text = _core->history.chAtPos(pos).text;
+  } else if (ev.kind == UIEventType::contactMessage) {
+    int pos = _core->history.dmHistEntryForContact(ev.key, 0);
+    if (pos >= 0) text = _core->history.dmAtPos(pos).text;
+  } else {
+    icon = LV_SYMBOL_LIST;   // a room
+  }
   // Wake for the message unless an app is already showing it, or the user
   // turned message-wake off.
   bool wake_disabled = _prefs && _prefs->msg_wake_screen_off;
   if (_asleep && !wake_disabled && !isClientConnected()) wake();
   else if (!_asleep) lv_display_trigger_activity(NULL);
-  showToast(buf, 3000);
+  bool open_here = _screen == SCR_THREAD &&
+      (ev.kind == UIEventType::channelMessage ? _thread_is_channel && ev.idx == _thread_channel
+                                              : !_thread_is_channel && memcmp(_thread_key, ev.key, 4) == 0);
+  if (!open_here) bannerShow(icon, ev.text, text);   // not over the very conversation it's in
   if (_screen == SCR_CHATS && !_nav_overlay) buildChats();   // new unread counts (not under an open popup)
 }
 
@@ -1182,6 +1299,25 @@ bool UITask::isViewingDM(const uint8_t* pub_key) {
 // ── Status bar + toast (top layer, over every screen) ─────────────────────────
 
 void UITask::buildStatusBar() {
+  // The banner and the toast first: the status bar, made after them, covers
+  // them as they slide in and out from under it.
+  bannerBuild();
+  _toast = lv_obj_create(lv_layer_top());
+  lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(_toast, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(_toast, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_color(_toast, lv_color_hex(theme::SURFACE_2), 0);
+  lv_obj_set_style_border_color(_toast, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(_toast, 1, 0);
+  lv_obj_set_style_radius(_toast, theme::RADIUS, 0);
+  lv_obj_set_style_pad_hor(_toast, 12, 0);
+  lv_obj_set_style_pad_ver(_toast, 6, 0);
+  lv_obj_align(_toast, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // slides down from under the status bar
+  lv_obj_t* tl = label(_toast, "", THEME_FONT_BODY, theme::TEXT);
+  lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);   // long texts wrap instead of running off the screen
+  lv_obj_set_style_max_width(tl, lv_display_get_horizontal_resolution(NULL) - 40, 0);
+  lv_obj_set_style_text_align(tl, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_add_flag(_toast, LV_OBJ_FLAG_HIDDEN);
   lv_obj_t* bar = lv_obj_create(lv_layer_top());
   styleSurface(bar, theme::BG);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -1204,22 +1340,6 @@ void UITask::buildStatusBar() {
   lv_obj_set_flex_align(_status_icons, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(_status_icons, 2, 0);
 
-  _toast = lv_obj_create(lv_layer_top());
-  lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(_toast, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(_toast, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_color(_toast, lv_color_hex(theme::SURFACE_2), 0);
-  lv_obj_set_style_border_color(_toast, lv_color_hex(theme::ACCENT), 0);
-  lv_obj_set_style_border_width(_toast, 1, 0);
-  lv_obj_set_style_radius(_toast, theme::RADIUS, 0);
-  lv_obj_set_style_pad_hor(_toast, 12, 0);
-  lv_obj_set_style_pad_ver(_toast, 6, 0);
-  lv_obj_align(_toast, LV_ALIGN_BOTTOM_MID, 0, -12);
-  lv_obj_t* tl = label(_toast, "", THEME_FONT_BODY, theme::TEXT);
-  lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);   // long texts wrap instead of running off the screen
-  lv_obj_set_style_max_width(tl, lv_display_get_horizontal_resolution(NULL) - 40, 0);
-  lv_obj_set_style_text_align(tl, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_add_flag(_toast, LV_OBJ_FLAG_HIDDEN);
 
   refreshStatusBar();
 }
@@ -1293,7 +1413,6 @@ void UITask::refreshStatusBar() {
 
 void UITask::setGps(bool on) {
   if (!_core->setGpsEnabled(on)) { showToast("No GPS on this device"); return; }
-  showToast(on ? "GPS on, waiting for a fix" : "GPS off");
   refreshStatusBar();
 }
 
@@ -1308,9 +1427,36 @@ bool UITask::ensureGps() {
 }
 
 // One persistent timer, paused between toasts: hides the toast when it fires.
-static void toastTimerCb(lv_timer_t* t) {
-  anim::fadeHide((lv_obj_t*)lv_timer_get_user_data(t));
+static void toastHidden(lv_anim_t* a) { lv_obj_add_flag((lv_obj_t*)a->var, LV_OBJ_FLAG_HIDDEN); }
+static void toastTimerCb(lv_timer_t* t) {   // back up under the status bar
+  lv_obj_t* o = (lv_obj_t*)lv_timer_get_user_data(t);
+  anim::run(o, anim::setTy, 0, -(lv_obj_get_y(o) + lv_obj_get_height(o)), anim::OUT_MS, toastHidden);
   lv_timer_pause(t);
+}
+
+// A deliberate restart (the card formatted, the USB drive given back): a full
+// screen saying so -- drawn at once, the loop stops here -- unsaved settings
+// written, then the restart. Without it the screen just froze.
+static void restartScreen(const char* why) {
+  lv_obj_t* o = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(o);
+  lv_obj_set_size(o, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(o, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+  lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(o, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(o, 8, 0);
+  label(o, LV_SYMBOL_REFRESH, THEME_FONT_LARGE, theme::ACCENT);
+  label(o, "Restarting...", THEME_FONT_LARGE, theme::TEXT);
+  lv_obj_t* w = label(o, why, THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_set_style_text_align(w, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_invalidate(o);
+  lv_refr_now(NULL);
+  prefsSaveSoon(0);
+  prefsFlush();
+  delay(1200);   // long enough to read
+  lvport::restart();
+  lv_obj_delete(o);   // the sim carries on
 }
 
 // The screen as it is, toasts and popups included, re-rendered once into a
@@ -1367,13 +1513,20 @@ void UITask::takeScreenshot() {
   free(px);
   if (!ok) { remove(path); showToast("Couldn't save the screenshot"); return; }
 
-  // A white flash, like a camera's, then where it went.
-  lv_obj_t* flash = lv_obj_create(lv_layer_top());
-  lv_obj_remove_style_all(flash);
-  lv_obj_set_size(flash, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(flash, lv_color_white(), 0);
-  lv_obj_remove_flag(flash, LV_OBJ_FLAG_CLICKABLE);
-  anim::run(flash, anim::setBgOpa, LV_OPA_70, LV_OPA_TRANSP, 300, anim::coverDone);
+  // A white frame flashing round the edges, then where it went. Four thin
+  // strips, not a full-screen layer: each frame of the fade redraws only
+  // them (a whole 320x240 frame per step tore and stuttered on the panel).
+  const int32_t T = 6;
+  const int32_t strip[4][4] = { { 0, 0, W, T }, { 0, H - T, W, T }, { 0, T, T, H - 2 * T }, { W - T, T, T, H - 2 * T } };
+  for (const auto& r : strip) {
+    lv_obj_t* f = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(f);
+    lv_obj_set_pos(f, r[0], r[1]);
+    lv_obj_set_size(f, r[2], r[3]);
+    lv_obj_set_style_bg_color(f, lv_color_white(), 0);
+    lv_obj_remove_flag(f, LV_OBJ_FLAG_CLICKABLE);
+    anim::run(f, anim::setBgOpa, LV_OPA_COVER, LV_OPA_TRANSP, 400, anim::coverDone);
+  }
   char msg[40];
   snprintf(msg, sizeof(msg), "Saved scr_%04d.bmp", n);
   showToast(msg);
@@ -1383,10 +1536,15 @@ void UITask::showToast(const char* text, uint32_t ms) {
   if (!_toast) return;
   lv_label_set_text(lv_obj_get_child(_toast, 0), text);
   bool shown = !lv_obj_has_flag(_toast, LV_OBJ_FLAG_HIDDEN);
-  lv_anim_delete(_toast, NULL);   // a fade-out in progress
-  lv_obj_set_style_opa(_toast, LV_OPA_COVER, 0);
+  lv_anim_delete(_toast, NULL);   // on its way out
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_HIDDEN);
-  if (!shown) anim::rise(_toast, 12);   // a replaced text just changes
+  // Under the message banner while that's up, else right under the status bar.
+  int32_t y = theme::STATUS_H + 4;
+  if (s_banner && !lv_obj_has_flag(s_banner, LV_OBJ_FLAG_HIDDEN)) y = lv_obj_get_y(s_banner) + lv_obj_get_height(s_banner) + 4;
+  lv_obj_align(_toast, LV_ALIGN_TOP_MID, 0, y);
+  lv_obj_update_layout(_toast);
+  if (!shown) anim::run(_toast, anim::setTy, -(y + lv_obj_get_height(_toast)), 0, anim::POP_MS);   // a replaced text just changes
+  else lv_obj_set_style_translate_y(_toast, 0, 0);
   if (!_toast_timer) _toast_timer = lv_timer_create(toastTimerCb, ms, _toast);
   lv_timer_set_period(_toast_timer, ms);
   lv_timer_reset(_toast_timer);

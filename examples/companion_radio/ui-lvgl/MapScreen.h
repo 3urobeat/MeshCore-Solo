@@ -910,8 +910,8 @@ void UITask::setTrails(bool on) {
   mapview::s_trails_on = on;
   mapview::s_cache.invalidate();
   if (_screen == SCR_MAP) layoutMap();
-  if (!on) showToast("Hiking trails off");
-  else if (lvport::liveTiles() && lvport::wifiAllowed()) showToast("Trails load with the map over WiFi", 3000);
+  if (!on) return;   // turned on: where the trails come from
+  if (lvport::liveTiles() && lvport::wifiAllowed()) showToast("Trails load with the map over WiFi", 3000);
   else showToast("Download an area again to add its trails", 3000);
 }
 
@@ -922,7 +922,7 @@ void UITask::setVectorMap(bool on) {
   mapview::s_cache.invalidate();
   mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
   if (_screen == SCR_MAP) layoutMap();
-  showToast(on ? "Vector map on (where /vmap has data)" : "Vector map off");
+  if (on) showToast("Drawn where /vmap has data");
 }
 
 void UITask::setLiveTiles(bool on) {
@@ -931,12 +931,10 @@ void UITask::setLiveTiles(bool on) {
     char ssid[33], pass[65];
     if (!lvport::wifiAllowed()) showToast("WiFi is off - Settings > WiFi");
     else if (!lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass))) showToast("Pick a WiFi network first - Settings > WiFi", 3000);
-    else showToast("Missing tiles load over WiFi");
     mapLiveBegin();
     mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
   } else {
     mapview::s_dl.liveEnd();
-    showToast("Live tiles off");
   }
   if (_screen == SCR_MAP) layoutMap();
 }

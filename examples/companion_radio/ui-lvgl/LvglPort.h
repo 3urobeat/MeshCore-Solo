@@ -18,10 +18,19 @@
   #include <esp_core_dump.h>
   #if ESP_ARDUINO_VERSION_MAJOR >= 3
     #include <esp_vfs_fat.h>
+    #include <driver/sdmmc_host.h>
+    #include <sdmmc_cmd.h>
+  #endif
+  #if ESP_ARDUINO_VERSION_MAJOR >= 3 && !ARDUINO_USB_MODE && CONFIG_TINYUSB_MSC_ENABLED
+    #define LVPORT_USB_DRIVE 1   // the SD card lent to a computer (TinyUSB mass storage)
+    #include <USB.h>
+    #include <USBMSC.h>
   #endif
   #include <mbedtls/platform.h>
 #elif defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
   #include <emscripten/fetch.h>
+  #include <dirent.h>
+  #include <sys/stat.h>
 #endif
 
 namespace lvport {
@@ -184,16 +193,137 @@ static void setBacklightPct(uint8_t pct) {
 // P14) is switched on in WioTrackerL2Board::begin(). Retried until it works --
 // at most every 5 s, a failed mount takes a while -- so a card inserted later
 // is picked up.
+static bool s_sd_mounted = false;
+static uint32_t s_sd_last_try = 0;
 static bool mountStorage() {
-  static bool mounted = false;
-  static uint32_t last_try = 0;
-  if (mounted) return true;
-  if (last_try && millis() - last_try < 5000) return false;
-  last_try = millis() | 1;
+  if (s_sd_mounted) return true;
+  if (s_sd_last_try && millis() - s_sd_last_try < 5000) return false;
+  s_sd_last_try = millis() | 1;
   SD_MMC.setPins(2, 3, 1);
-  mounted = SD_MMC.begin("/sdcard", true /* 1-bit */);
-  return mounted;
+  s_sd_mounted = SD_MMC.begin("/sdcard", true /* 1-bit */);
+  return s_sd_mounted;
 }
+// Settings > Storage > Format card: one FAT32 volume over the whole card
+// (16 KB clusters -- map tiles are small), readable or not. Blocks for a few
+// seconds to tens of seconds (the FATs of a big card). The caller restarts
+// afterwards: map, history and tile caches all hold state read off the card.
+static bool formatCard() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  SD_MMC.end();
+  s_sd_mounted = false;
+  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+  host.flags = SDMMC_HOST_FLAG_1BIT;
+  sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+  slot.width = 1;
+  slot.clk = GPIO_NUM_2;
+  slot.cmd = GPIO_NUM_3;
+  slot.d0 = GPIO_NUM_1;
+  slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+  esp_vfs_fat_mount_config_t mc = {};
+  mc.format_if_mount_failed = true;   // an unreadable card: formatted right here
+  mc.max_files = 4;
+  mc.allocation_unit_size = 16 * 1024;
+  sdmmc_card_t* card = nullptr;
+  esp_err_t e = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &mc, &card);
+  if (e == ESP_OK) {
+    e = esp_vfs_fat_sdcard_format("/sdcard", card);
+    esp_vfs_fat_sdcard_unmount("/sdcard", card);
+  }
+  s_sd_last_try = 0;
+  mountStorage();
+  return e == ESP_OK;
+#else
+  return false;   // IDF 4.4 can't format a mounted card: a computer can
+#endif
+}
+static void restart() { ESP.restart(); }
+
+// ── The card as a USB drive ──────────────────────────────────────────────────
+// A computer (not a charger: USB enumerated the device) is offered the card;
+// taken, the firmware lets go of it (the filesystem unmounted, the card kept
+// initialised) and the computer reads and writes its sectors directly. Given
+// back -- ejected on the computer, or the cable out -- the device restarts:
+// what it keeps from the card (map index, history, tile caches) is reloaded.
+#ifdef LVPORT_USB_DRIVE
+static USBMSC s_msc;   // global: its constructor adds the interface before USB starts
+static sdmmc_card_t s_msc_card;
+static bool s_usb_drive = false;
+static volatile bool s_usb_ejected = false;
+static int32_t mscRead(uint32_t lba, uint32_t offset, void* buf, uint32_t n) {
+  lba += offset / 512;
+  return sdmmc_read_sectors(&s_msc_card, buf, lba, n / 512) == ESP_OK ? (int32_t)n : -1;
+}
+static int32_t mscWrite(uint32_t lba, uint32_t offset, uint8_t* buf, uint32_t n) {
+  lba += offset / 512;
+  return sdmmc_write_sectors(&s_msc_card, buf, lba, n / 512) == ESP_OK ? (int32_t)n : -1;
+}
+static bool mscStartStop(uint8_t power, bool start, bool eject) {
+  (void)power;
+  if (eject && !start) s_usb_ejected = true;
+  return true;
+}
+// A computer on the other end: enumerated and the bus not suspended. On
+// battery the chip can't see the cable go (no VBUS sense), but the bus falls
+// idle -- a suspend -- within milliseconds; plugged back in, the computer
+// resets and enumerates it again. (A computer that sleeps suspends it too.)
+static volatile bool s_usb_suspended = false;
+static void usbEvent(void*, esp_event_base_t, int32_t id, void*) {
+  if (id == ARDUINO_USB_SUSPEND_EVENT) s_usb_suspended = true;
+  else if (id == ARDUINO_USB_RESUME_EVENT || id == ARDUINO_USB_STARTED_EVENT) s_usb_suspended = false;
+}
+static bool usbHost() {
+  static bool hooked = false;
+  if (!hooked) { hooked = true; USB.onEvent(usbEvent); }
+  return (bool)USB && !s_usb_suspended;
+}
+static bool usbDriveOn() { return s_usb_drive; }
+static bool usbDriveStart() {
+  if (s_usb_drive) return true;
+  SD_MMC.end();
+  s_sd_mounted = false;
+  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+  host.flags = SDMMC_HOST_FLAG_1BIT;
+  sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+  slot.width = 1;
+  slot.clk = GPIO_NUM_2;
+  slot.cmd = GPIO_NUM_3;
+  slot.d0 = GPIO_NUM_1;
+  slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+  bool ok = sdmmc_host_init() == ESP_OK;
+  if (ok && (sdmmc_host_init_slot(host.slot, &slot) != ESP_OK || sdmmc_card_init(&host, &s_msc_card) != ESP_OK)) {
+    sdmmc_host_deinit();
+    ok = false;
+  }
+  if (!ok) { s_sd_last_try = 0; mountStorage(); return false; }
+  s_msc.vendorID("MeshCore");
+  s_msc.productID("Wio L2 SD card");
+  s_msc.productRevision("1.0");
+  s_msc.onRead(mscRead);
+  s_msc.onWrite(mscWrite);
+  s_msc.onStartStop(mscStartStop);
+  s_msc.isWritable(true);
+  s_msc.begin(s_msc_card.csd.capacity, s_msc_card.csd.sector_size);
+  s_usb_ejected = false;
+  s_usb_drive = true;
+  s_msc.mediaPresent(true);
+  return true;
+}
+// Ejected on the computer, or the cable out: time to give the card back.
+static bool usbDriveDone() { return s_usb_drive && (s_usb_ejected || !usbHost()); }
+static void usbDriveStop() {
+  if (!s_usb_drive) return;
+  s_msc.mediaPresent(false);   // a transfer under way still finishes
+  delay(100);
+  sdmmc_host_deinit();
+  s_usb_drive = false;
+}
+#else
+static bool usbHost() { return false; }
+static bool usbDriveOn() { return false; }
+static bool usbDriveStart() { return false; }
+static bool usbDriveDone() { return false; }
+static void usbDriveStop() {}
+#endif
 
 // ── Settings kept in NVS ─────────────────────────────────────────────────────
 // Not in NodePrefs (whose on-flash layout stays fixed) and not on the
@@ -606,6 +736,26 @@ static void setBacklightPct(uint8_t pct) { (void)pct; }   // the browser canvas 
 
 // The host page preloads map tiles into the in-memory FS under /sdcard/maps.
 static bool mountStorage() { return true; }
+static void rmTree(const char* path) {
+  if (DIR* d = opendir(path)) {
+    while (struct dirent* de = readdir(d)) {
+      if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+      char p[256];
+      snprintf(p, sizeof(p), "%s/%s", path, de->d_name);
+      struct stat st;
+      if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) { rmTree(p); rmdir(p); }
+      else remove(p);
+    }
+    closedir(d);
+  }
+}
+static bool formatCard() { rmTree("/sdcard"); return true; }   // the MEMFS card: emptied
+static bool usbHost() { return false; }   // no USB in a browser
+static bool usbDriveOn() { return false; }
+static bool usbDriveStart() { return false; }
+static bool usbDriveDone() { return false; }
+static void usbDriveStop() {}
+static void restart() {}   // the page's Reset does that
 
 // The browser is always online; saved WiFi networks only live for the session.
 static void wifiStoreLoad() { s_net_count = 0; }
