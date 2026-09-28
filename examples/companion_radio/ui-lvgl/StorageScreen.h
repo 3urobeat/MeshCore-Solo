@@ -37,14 +37,11 @@ static lv_obj_t* s_sd_lbl = nullptr;
 static lv_obj_t* s_cat_val[C_COUNT];
 static lv_obj_t* s_status = nullptr;
 static lv_obj_t* s_clear_lbl = nullptr;
-static uint32_t  s_clear_armed_ms = 0;
 static lv_obj_t* s_live_lbl = nullptr;       // "Delete live map tiles" row label
 static lv_obj_t* s_live_info = nullptr;      // count / size from the index
-static uint32_t  s_live_armed_ms = 0;
 static uint32_t  s_shown_ms = 0;
 static lv_obj_t* s_fmt_overlay = nullptr;    // Format card: the popup
 static lv_obj_t* s_fmt_go_lbl = nullptr;     // its Format button's label
-static bool      s_fmt_armed = false;        // Format tapped once
 
 static void fmtBytes(char* out, size_t n, uint64_t b) {
   if (b < 1024) snprintf(out, n, "%u B", (unsigned)b);
@@ -264,9 +261,7 @@ void UITask::buildStorage() {
   lv_obj_t* body = newScreen("Storage", true);
   s_sd_bar = s_sd_lbl = s_status = s_clear_lbl = s_live_lbl = s_live_info = nullptr;
   s_fmt_overlay = s_fmt_go_lbl = nullptr;   // went with the old screen
-  s_fmt_armed = false;
   memset(s_cat_val, 0, sizeof(s_cat_val));
-  s_clear_armed_ms = 0;
 
   lv_obj_t* g = group(body, "SD CARD");
   if (!lvport::mountStorage()) {
@@ -310,7 +305,6 @@ void UITask::buildStorage() {
   choiceRow(g, "Keep up to", "Past it, the oldest go first", mapview::LIVE_CAP_OPTS, cap_idx, onLiveCap);
   s_live_lbl = actionRow(g, LV_SYMBOL_TRASH "  Delete live map tiles", onLiveClear, NULL, theme::FAIL);
   groupNote(body, "Downloaded areas stay.");
-  s_live_armed_ms = 0;
   s_shown_ms = 0;
 }
 
@@ -326,9 +320,7 @@ void UITask::pollStorage() {
       fmtBytes(t, sizeof(t), s_sd_total);
       snprintf(line, sizeof(line), "The card is %s but its FAT partition only %s. "
                "Format it as one FAT32 partition on a computer to use all of it.", c, t);
-      lv_obj_t* n = label(lv_obj_get_parent(s_sd_bar), line, THEME_FONT_SMALL, theme::ACCENT);
-      lv_label_set_long_mode(n, LV_LABEL_LONG_WRAP);
-      lv_obj_set_width(n, LV_PCT(100));
+      noteLabel(lv_obj_get_parent(s_sd_bar), line, THEME_FONT_SMALL, theme::ACCENT);
     }
   }
   if (s_walking) stepWalk(12);
@@ -347,14 +339,6 @@ void UITask::pollStorage() {
     else snprintf(t, sizeof(t), "%lu tiles, %s", (unsigned long)mapview::s_live_cache.count(), b);
     lv_label_set_text(s_live_info, t);
   }
-  if (s_live_armed_ms && millis() - s_live_armed_ms > 4000) {
-    s_live_armed_ms = 0;
-    if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Delete live map tiles");
-  }
-  if (s_clear_armed_ms && millis() - s_clear_armed_ms > 4000) {   // the confirm tap timed out
-    s_clear_armed_ms = 0;
-    if (s_clear_lbl) lv_label_set_text(s_clear_lbl, LV_SYMBOL_TRASH "  Delete message history");
-  }
 }
 
 void UITask::storageKeep(int idx) {
@@ -367,16 +351,10 @@ void UITask::storageKeep(int idx) {
 
 void UITask::storageClearHistory() {
   using namespace storeview;
-  if (!s_clear_armed_ms) {   // first tap: ask
-    s_clear_armed_ms = millis();
-    if (s_clear_lbl) lv_label_set_text(s_clear_lbl, LV_SYMBOL_TRASH "  Tap again to delete");
-    return;
-  }
-  s_clear_armed_ms = 0;
+  if (!tapConfirmed(s_clear_lbl, LV_SYMBOL_TRASH "  Tap again to delete")) return;
   s_archive.clearAll();
   _core->history.clearAll();
   _core->markAllRead();
-  if (s_clear_lbl) lv_label_set_text(s_clear_lbl, LV_SYMBOL_TRASH "  Delete message history");
   showToast("Message history deleted");
   startWalk();
 }
@@ -389,14 +367,8 @@ void UITask::storageLiveCap(int idx) {
 
 void UITask::storageClearLive() {
   using namespace storeview;
-  if (!s_live_armed_ms) {   // first tap: ask
-    s_live_armed_ms = millis();
-    if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Tap again to delete");
-    return;
-  }
-  s_live_armed_ms = 0;
+  if (!tapConfirmed(s_live_lbl, LV_SYMBOL_TRASH "  Tap again to delete")) return;
   mapview::s_live_cache.clearAll();   // a few files per loop (mapDownloadTick)
-  if (s_live_lbl) lv_label_set_text(s_live_lbl, LV_SYMBOL_TRASH "  Delete live map tiles");
   showToast("Deleting live map tiles");
 }
 
@@ -419,15 +391,11 @@ static lv_obj_t* fmtButton(lv_obj_t* row, const char* text, uint32_t bg, bool go
 void UITask::storageFormatAsk() {
   using namespace storeview;
   if (s_fmt_overlay) return;
-  s_fmt_armed = false;
   lv_obj_t* panel = popupOpen(screen(), POP_FIT, s_fmt_overlay);
   lv_obj_set_style_pad_row(panel, 8, 0);
   label(panel, "Format the SD card?", THEME_FONT_TITLE, theme::TEXT);
-  lv_obj_t* t = label(panel, "Everything on it is erased: map areas, live map tiles, message history, "
-                             "trails and screenshots. The device restarts afterwards.",
-                      THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
+  noteLabel(panel, "Everything on it is erased: map areas, live map tiles, message history, "
+                   "trails and screenshots. The device restarts afterwards.");
   lv_obj_t* row = flexBox(panel, LV_FLEX_FLOW_ROW);
   lv_obj_set_width(row, LV_PCT(100));
   lv_obj_set_style_pad_column(row, theme::GAP, 0);
@@ -442,11 +410,7 @@ void UITask::storageFormatTap(bool go) {
     s_fmt_overlay = s_fmt_go_lbl = nullptr;
     return;
   }
-  if (!s_fmt_armed) {   // the second confirmation
-    s_fmt_armed = true;
-    if (s_fmt_go_lbl) lv_label_set_text(s_fmt_go_lbl, "Tap again");
-    return;
-  }
+  if (!tapConfirmed(s_fmt_go_lbl, "Tap again")) return;   // the second confirmation
   if (s_fmt_go_lbl) lv_label_set_text(s_fmt_go_lbl, "Formatting...");
   lv_refr_now(NULL);   // shown before the loop blocks
   stopWalk();
@@ -485,9 +449,7 @@ static void usbPanel(const char* title, const char* text, bool buttons) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   label(row, LV_SYMBOL_USB, THEME_FONT_TITLE, theme::ACCENT);
   label(row, title, THEME_FONT_TITLE, theme::TEXT);
-  lv_obj_t* t = label(panel, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
+  noteLabel(panel, text);
   if (!buttons) return;
   lv_obj_t* br = flexBox(panel, LV_FLEX_FLOW_ROW);
   lv_obj_set_width(br, LV_PCT(100));

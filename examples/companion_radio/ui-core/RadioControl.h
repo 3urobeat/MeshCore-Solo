@@ -27,12 +27,6 @@ static void applyApc() { the_mesh.applyApc(); }   // (re)initialise Adaptive Pow
 // ── Presets ─────────────────────────────────────────────────────────────────
 // One list: built-ins 0..RADIO_PRESET_COUNT-1, then the non-empty user slots.
 
-static int presetCount(const NodePrefs* p) {
-  int n = RADIO_PRESET_COUNT;
-  for (int i = 0; p && i < NodePrefs::USER_RADIO_PRESET_MAX; i++) if (p->user_radio_presets[i].name[0]) n++;
-  return n;
-}
-
 // Preset `idx` of the list; false past the end.
 static bool presetAt(const NodePrefs* p, int idx, const char*& name, float& freq, float& bw, uint8_t& sf, uint8_t& cr) {
   if (idx < 0) return false;

@@ -807,10 +807,9 @@ public:
         display.drawTextCentered(display.width() / 2, mid_y + step, "Enable GPS or");
         display.drawTextCentered(display.width() / 2, mid_y + step * 2, "connect app");
       } else {
-        int8_t tz = _node_prefs ? _node_prefs->tz_offset_hours : 0;
-        unix_ts += (int32_t)tz * 3600;
-        time_t t = (time_t)unix_ts;
-        struct tm* ti = gmtime(&t);
+        struct tm lt;
+        localTm(unix_ts, _node_prefs ? _node_prefs->tz_offset_hours : 0, lt);
+        struct tm* ti = &lt;
 
         char buf[24];
         display.setColor(DisplayDriver::LIGHT);
@@ -954,10 +953,9 @@ public:
       if (unix_ts < 1000000000UL) {
         display.drawTextCentered(display.width() / 2, display.height() / 2 - step, "No time sync");
       } else {
-        int8_t tz = _node_prefs ? _node_prefs->tz_offset_hours : 0;
-        unix_ts += (int32_t)tz * 3600;
-        time_t t = (time_t)unix_ts;
-        struct tm* ti = gmtime(&t);
+        struct tm lt;
+        localTm(unix_ts, _node_prefs ? _node_prefs->tz_offset_hours : 0, lt);
+        struct tm* ti = &lt;
         char buf[12];
         bool h12 = _node_prefs && _node_prefs->clock_12h;
         int date_y = drawClockTime(display, 0, ti, h12, /*show_sec*/false);

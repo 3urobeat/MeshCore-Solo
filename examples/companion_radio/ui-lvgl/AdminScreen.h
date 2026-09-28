@@ -96,10 +96,8 @@ void UITask::buildAdminPick() {
     }
   }
   if (!rows) {
-    lv_obj_t* t = label(body, "No repeaters or room servers yet. They show up here once their advert is heard.",
-                        THEME_FONT_BODY, theme::TEXT_MUTED);
-    lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(t, LV_PCT(100));
+    noteLabel(body, "No repeaters or room servers yet. They show up here once their advert is heard.",
+              THEME_FONT_BODY, theme::TEXT_MUTED);
   }
 }
 
@@ -219,18 +217,7 @@ void UITask::adminRow(int row) {
   const char* prompt = admin::confirmPrompt(f);
   if (prompt) {   // takes the node out of service for a while: ask first
     s_confirm = &f;
-    lv_obj_t* panel = navPopupPanel(prompt, false);
-    lv_obj_t* t = label(panel, "It's offline until it comes back.",
-                        THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(t, LV_PCT(100));
-    lv_obj_t* b = lv_button_create(panel);
-    lv_obj_set_size(b, LV_PCT(100), 40);
-    lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_radius(b, theme::RADIUS, 0);
-    lv_obj_set_style_bg_color(b, lv_color_hex(theme::FAIL), 0);
-    lv_obj_add_event_cb(b, onAdminValue, LV_EVENT_CLICKED, (void*)(uintptr_t)V_CONFIRM);
-    lv_obj_center(label(b, f.label, THEME_FONT_BODY, theme::TEXT));
+    confirmBody(navPopupPanel(prompt, false), "It's offline until it comes back.", f.label, onAdminValue, V_CONFIRM);
     return;
   }
   S.run(f);
@@ -337,9 +324,7 @@ void UITask::adminValuePopup() {
     lv_obj_add_event_cb(s_choice, onAdminChoice, LV_EVENT_VALUE_CHANGED, NULL);
   }
   if (f->isRadio()) {
-    lv_obj_t* note = label(panel, "A mismatch cuts the node off.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(note, LV_PCT(100));
+    noteLabel(panel, "A mismatch cuts the node off.");
   }
   lv_obj_t* r = adminRowBox(panel);
   adminPopupButton(r, LV_SYMBOL_OK " Save", V_SAVE, true);
@@ -395,9 +380,7 @@ void UITask::adminReplyPopup(const char* text) {
     lv_obj_set_flex_grow(box, 1);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_ACTIVE);
   }
-  lv_obj_t* l = label(box, text[0] ? text : "(empty)", THEME_FONT_BODY, theme::TEXT);
-  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(l, LV_PCT(100));
+  noteLabel(box, text[0] ? text : "(empty)", THEME_FONT_BODY, theme::TEXT);
   lv_obj_t* r = adminRowBox(panel);
   adminPopupButton(r, "OK", adminview::V_CLOSE, false);
 }

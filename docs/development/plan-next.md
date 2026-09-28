@@ -76,6 +76,16 @@ for a second radio). They are L2-specific and block the loop for ~90 s.
       places to speed things up or save RAM, flash and battery.
       First a list of findings to accept, then fixes in batches, each checked
       in the sim and on the device.
+      Done 2026-09-28 (-265 lines): dead code (anim::fadeHide,
+      presetCount, the L2 board's setSdPower / setGrovePower / expanderOK);
+      one buttonBar() / barButton() for 7 copies of the button row;
+      confirmBody() for 5 red-button popups; tapConfirmed() for 11
+      "tap again" buttons, all 3 s and the label restored; noteLabel() for
+      ~30 wrapped notes; localTm() in NodePrefs.h and one MONTHS table
+      (lvgl, MsgExpand, the L1 clock); the sim keeps UI settings in an
+      in-memory nvs::, one set of load / save helpers; asleep, the loop
+      wakes every 50 ms, not 20. Left: map tables to PSRAM only if the
+      internal heap gets tight; emoji 1.25 MB of flash (fits).
 
 ## G. Core parity with L1 SOLO
 

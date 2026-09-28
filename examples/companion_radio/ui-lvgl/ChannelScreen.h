@@ -17,7 +17,6 @@ enum : uint8_t { C_NOTIF, C_SCOPE, C_MELODY };
 static int s_idx = -1;           // channel the popup / form is about (-1: adding)
 static uint8_t s_type = T_HASHTAG;
 static bool s_hex = false;
-static uint32_t s_del_armed_ms = 0;
 static lv_obj_t* s_del_lbl = nullptr;
 static lv_obj_t* s_fav_btn = nullptr;
 // Add / Edit form
@@ -69,7 +68,6 @@ void UITask::channelMenu(int idx) {
   ChannelDetails ch;
   if (!chanctl::exists(idx) || !the_mesh.getChannel(idx, ch)) return;
   s_idx = idx;
-  s_del_armed_ms = 0;
   s_del_lbl = s_fav_btn = nullptr;
   char title[40];
   snprintf(title, sizeof(title), "%s", ch.name);   // as named: "#" marks a hashtag channel
@@ -89,12 +87,7 @@ void UITask::channelMenu(int idx) {
               (void*)(uintptr_t)C_SCOPE);
   }
 
-  lv_obj_t* acts = lv_obj_create(panel);
-  styleSurface(acts, theme::BG);
-  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
+  lv_obj_t* acts = buttonBar(panel);
   bool unread = _core->history.chUnread(idx) > 0;
   struct { const char* text; uint8_t act; } btns[] = {
     { UI_SYMBOL_STAR " Fav", A_FAV },
@@ -105,21 +98,10 @@ void UITask::channelMenu(int idx) {
   };
   for (auto& b : btns) {
     if (b.act == A_READ && !unread) continue;
-    lv_obj_t* bt = lv_button_create(acts);
-    lv_obj_set_height(bt, 40);
-    lv_obj_set_flex_grow(bt, 1);
-    lv_obj_set_style_pad_hor(bt, 4, 0);
-    lv_obj_set_style_radius(bt, theme::RADIUS, 0);
-    lv_obj_set_style_shadow_width(bt, 0, 0);
-    lv_obj_set_style_bg_color(bt, lv_color_hex(theme::SURFACE), 0);
-    lv_obj_add_event_cb(bt, onChanAction, LV_EVENT_CLICKED, (void*)(uintptr_t)b.act);
-    lv_obj_t* l = label(bt, b.text, THEME_FONT_SMALL, theme::TEXT);
-    lv_obj_center(l);
-    if (b.act == A_DELETE) s_del_lbl = l;
+    lv_obj_t* bt = barButton(acts, b.text, onChanAction, b.act, b.act == A_FAV && chanctl::favourite(_prefs, idx));
+    if (b.act == A_DELETE) s_del_lbl = lv_obj_get_child(bt, 0);
     if (b.act == A_FAV) s_fav_btn = bt;
   }
-  if (s_fav_btn && chanctl::favourite(_prefs, idx))
-    lv_obj_set_style_bg_color(s_fav_btn, lv_color_hex(theme::ACCENT_DIM), 0);
 }
 
 void UITask::channelSet(uint8_t which, int v) {
@@ -140,7 +122,7 @@ void UITask::channelAction(uint8_t act) {
       bool on = !chanctl::favourite(_prefs, idx);
       chanctl::setFavourite(_prefs, idx, on);
       prefsSave();
-      if (s_fav_btn) lv_obj_set_style_bg_color(s_fav_btn, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
+      if (s_fav_btn) barButtonOn(s_fav_btn, on);
       showToast(on ? "Added to favourites" : "Removed from favourites", 1200);
       if (_screen == SCR_CHATS) { buildChats(); channelMenu(idx); }   // list order / star
       break;
@@ -158,11 +140,7 @@ void UITask::channelAction(uint8_t act) {
       pinPopup(true, (uint8_t)idx, nullptr);   // DeviceScreen.h
       break;
     case A_DELETE:
-      if (!s_del_armed_ms || millis() - s_del_armed_ms > 3000) {   // second tap within 3 s confirms
-        s_del_armed_ms = millis() | 1;
-        if (s_del_lbl) lv_label_set_text(s_del_lbl, "Delete?");
-        break;
-      }
+      if (!tapConfirmed(s_del_lbl, "Delete?")) break;
       chanctl::remove(idx);
       navClosePopup();
       showToast("Channel deleted");
@@ -201,9 +179,7 @@ void UITask::buildChannelEdit() {
     lv_obj_add_event_cb(s_types, onChanType, LV_EVENT_VALUE_CHANGED, NULL);
   }
 
-  s_hint = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(s_hint, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_hint, LV_PCT(100));
+  s_hint = noteLabel(body, "");
   s_name = chanField(body, "Name");
   lv_textarea_set_max_length(s_name, sizeof(((ChannelDetails*)0)->name) - 1);
   s_secret = chanField(body, "Passphrase");
@@ -223,9 +199,7 @@ void UITask::buildChannelEdit() {
   lv_obj_add_event_cb(save, onChanSave, LV_EVENT_CLICKED, NULL);
   lv_obj_center(label(save, LV_SYMBOL_OK " Save", THEME_FONT_BODY, theme::TEXT));
   stylePrimary(save);
-  s_status = label(body, "", THEME_FONT_SMALL, theme::FAIL);
-  lv_label_set_long_mode(s_status, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_status, LV_PCT(100));
+  s_status = noteLabel(body, "", THEME_FONT_SMALL, theme::FAIL);
 
   if (edit) {
     ChannelDetails ch;

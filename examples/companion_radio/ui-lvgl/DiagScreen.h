@@ -284,10 +284,8 @@ void UITask::buildDiag() {
 
   s_noise_status = nullptr;
   if (s_tab == TAB_NOISE) {
-    lv_obj_t* t = label(s_list, "What the radio hears with nothing on air, on the mesh frequency and 1.1 MHz "
-                                "either side. Takes about 12 seconds.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(t, LV_PCT(100));
+    noteLabel(s_list, "What the radio hears with nothing on air, on the mesh frequency and 1.1 MHz "
+                      "either side. Takes about 12 seconds.");
     lv_obj_t* b = lv_button_create(s_list);
     lv_obj_set_size(b, LV_PCT(100), 40);
     lv_obj_set_style_shadow_width(b, 0, 0);
@@ -363,18 +361,8 @@ void UITask::refreshDiag() {
 }
 
 void UITask::diagResetPopup() {
-  lv_obj_t* panel = navPopupPanel("Reset counters?", false);
-  lv_obj_t* t = label(panel, "Zeroes packet and error counts.", THEME_FONT_SMALL,
-                      theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
-  lv_obj_t* b = lv_button_create(panel);
-  lv_obj_set_size(b, LV_PCT(100), 40);
-  lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(theme::FAIL), 0);
-  lv_obj_add_event_cb(b, onDiagResetGo, LV_EVENT_CLICKED, NULL);
-  lv_obj_center(label(b, LV_SYMBOL_REFRESH "  Reset", THEME_FONT_BODY, theme::TEXT));
+  confirmBody(navPopupPanel("Reset counters?", false), "Zeroes packet and error counts.", LV_SYMBOL_REFRESH "  Reset",
+              onDiagResetGo, 0);
 }
 
 void UITask::diagReset() {

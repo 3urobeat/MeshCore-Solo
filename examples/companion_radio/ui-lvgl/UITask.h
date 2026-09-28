@@ -455,7 +455,6 @@ private:
   lv_obj_t* _ota_btn_lbl = nullptr;
   uint32_t _map_left_ms = 0;          // when the map was left, for dropping live tiles' WiFi
   bool     _admin_from_pick = false;   // Admin opened from its Home tile (back returns there)
-  uint32_t _prune_armed_ms = 0;
   uint16_t _batt_mv = 0;         // smoothed, read every 8 s: the status bar and the low-battery shutdown
   uint32_t _next_batt_ms = 0;
   lv_obj_t* _prune_lbl = nullptr;
@@ -508,7 +507,6 @@ private:
   uint32_t  _next_nearby_ms = 0;
   bool      _pinging = false;
   uint32_t  _ping_started_ms = 0;
-  uint32_t  _delete_armed_ms = 0;
   lv_obj_t* _nearby_list = nullptr;
   lv_obj_t* _nearby_status = nullptr;
   lv_obj_t* _nearby_sort_lbl = nullptr;
@@ -553,7 +551,6 @@ private:
   lv_obj_t* _nav_ta = nullptr;
   lv_obj_t* _nav_kb = nullptr;
   lv_obj_t* _nav_del_lbl = nullptr;
-  uint32_t  _nav_del_armed_ms = 0;
   int       _nav_wp = -1;             // waypoint the menu / rename is about
   lv_obj_t* _nav_rec = nullptr;       // "REC 1.2 km  LIVE 58m" pill
   lv_obj_t* _nav_avg_pill = nullptr;  // GPS averaging progress (tap: cancel)
@@ -563,7 +560,6 @@ private:
   lv_obj_t* _nav_share_lbl = nullptr;
   lv_obj_t* _nav_share_btn = nullptr;
   lv_obj_t* _nav_tb_btn = nullptr;
-  uint32_t  _nav_reset_armed_ms = 0;
   int32_t   _nav_spot_lat = 0, _nav_spot_lon = 0;   // the spot a long-press picked
   char      _share_text[96] = "";     // waiting for a conversation to be picked (shareToMessage)
 

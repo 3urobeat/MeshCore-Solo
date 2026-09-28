@@ -68,20 +68,8 @@ public:
       expWritePin(EXP_PIN_GNSS_EN, LOW);
     }
   }
-  // microSD rail (unmount first)
-  void setSdPower(bool on) { expWritePin(EXP_PIN_TF_EN, on); }
-  // Grove expansion port rail (nothing on-board depends on it)
-  void setGrovePower(bool on) { expWritePin(EXP_PIN_GROVE_EN, on); }
 
   bool gnssPowered() const { return (out_shadow[EXP_PIN_GNSS_EN >> 3] >> (EXP_PIN_GNSS_EN & 7)) & 1; }
-
-  // hardware reset pulse to the L76K GNSS (active HIGH on this board); the
-  // module keeps almanac/ephemeris across it, so this is a warm restart
-  void gnssReset() {
-    expWritePin(EXP_PIN_GNSS_RST, HIGH);
-    delay(10);
-    expWritePin(EXP_PIN_GNSS_RST, LOW);
-  }
 
   // WAKE button on expander P00: pressed = level differs from boot baseline
   bool readWakeButton();
@@ -93,9 +81,6 @@ public:
 
   // VBUS presence via the AW35615 USB-C controller (I2C 0x22)
   bool isExternalPowered() override;
-  int awRead(uint8_t reg);   // AW35615 register, -1 on error
-
-  bool expanderOK() const { return expander_ok; }
 
 private:
   uint8_t out_shadow[2] = { 0xFF, 0xFF };  // TCA9535 output regs default high
@@ -107,6 +92,15 @@ private:
   uint32_t batt_read_ms = 0;       // when it was taken (reads closer together reuse it)
 
   int expReadInputs();   // 16-bit input register pair, -1 on error
+  int awRead(uint8_t reg);   // AW35615 register, -1 on error
+
+  // hardware reset pulse to the L76K GNSS (active HIGH on this board); the
+  // module keeps almanac/ephemeris across it, so this is a warm restart
+  void gnssReset() {
+    expWritePin(EXP_PIN_GNSS_RST, HIGH);
+    delay(10);
+    expWritePin(EXP_PIN_GNSS_RST, LOW);
+  }
 
   bool expWriteReg(uint8_t reg, uint8_t val);
   void expSetOutput(uint8_t pin, bool initial_level);

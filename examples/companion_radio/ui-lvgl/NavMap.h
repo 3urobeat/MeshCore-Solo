@@ -496,7 +496,6 @@ void UITask::navClosePopup() {
   if (_nav_overlay) lv_obj_delete_async(_nav_overlay);   // may be closing from its own button
   _nav_overlay = _nav_ta = _nav_kb = _nav_del_lbl = nullptr;
   _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
-  _nav_del_armed_ms = 0;
 }
 
 static void navRowRight(lv_obj_t* row, const char* text, uint32_t col, int right) {
@@ -543,10 +542,7 @@ void UITask::navTargetsPopup() {
     if (d[0]) navRowRight(row, d, theme::TEXT_MUTED, 52);
   }
   if (wp.count() == 0) {
-    lv_obj_t* l = label(list, "None yet. Hold the map to drop one, or tap the pin to mark where you are.",
-                        THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(l, LV_PCT(100));
+    noteLabel(list, "None yet. Hold the map to drop one, or tap the pin to mark where you are.");
   }
   TrailStore& ts = _core->trail.store();
   if (!ts.empty()) {
@@ -598,12 +594,7 @@ void UITask::navWaypointMenu(int idx) {
   lv_obj_t* panel = navPopupPanel(w.label[0] ? w.label : "(unnamed)", false);
   placeCard(panel, w.lat_1e6, w.lon_1e6);
 
-  lv_obj_t* acts = lv_obj_create(panel);
-  styleSurface(acts, theme::BG);
-  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
+  lv_obj_t* acts = buttonBar(panel);
   struct { const char* text; uint8_t act; bool accent; } btns[] = {
     { UI_SYMBOL_COMPASS " Go", navmap::WP_NAV, true },
     { LV_SYMBOL_EDIT " Name", navmap::WP_RENAME, false },
@@ -611,17 +602,8 @@ void UITask::navWaypointMenu(int idx) {
     { LV_SYMBOL_TRASH, navmap::WP_DELETE, false },
   };
   for (auto& b : btns) {
-    lv_obj_t* bt = lv_button_create(acts);
-    lv_obj_set_height(bt, 40);
-    lv_obj_set_flex_grow(bt, 1);
-    lv_obj_set_style_pad_hor(bt, 4, 0);
-    lv_obj_set_style_radius(bt, theme::RADIUS, 0);
-    lv_obj_set_style_shadow_width(bt, 0, 0);
-    lv_obj_set_style_bg_color(bt, lv_color_hex(b.accent ? theme::ACCENT_DIM : theme::SURFACE), 0);
-    lv_obj_add_event_cb(bt, onNavWpAction, LV_EVENT_CLICKED, (void*)(uintptr_t)b.act);
-    lv_obj_t* l = label(bt, b.text, THEME_FONT_SMALL, theme::TEXT);
-    lv_obj_center(l);
-    if (b.act == navmap::WP_DELETE) _nav_del_lbl = l;
+    lv_obj_t* bt = barButton(acts, b.text, onNavWpAction, b.act, b.accent);
+    if (b.act == navmap::WP_DELETE) _nav_del_lbl = lv_obj_get_child(bt, 0);
   }
 }
 
@@ -643,11 +625,7 @@ void UITask::navWaypointAction(uint8_t act) {
       break;
     }
     case navmap::WP_DELETE:
-      if (!_nav_del_armed_ms || millis() - _nav_del_armed_ms > 3000) {   // second tap within 3 s confirms
-        _nav_del_armed_ms = millis() | 1;
-        if (_nav_del_lbl) lv_label_set_text(_nav_del_lbl, "Delete?");
-        break;
-      }
+      if (!tapConfirmed(_nav_del_lbl, "Delete?")) break;
       _core->waypoints.remove(i);
       navClosePopup();
       showToast("Waypoint deleted");
@@ -805,15 +783,13 @@ static const int ST_MAX = 40;
 static char s_st_names[ST_MAX][28];   // newest first
 static int  s_st_n = 0;
 static int  s_st_sel = -2;            // the one the popup is about; -1 = the internal slot
-static uint32_t s_st_del_armed_ms = 0;
 static lv_obj_t* s_st_del_lbl = nullptr;
 
 // "trail-20260926-1405.trl" -> "26 Sep 2026  14:05" (else the name).
 static void trailTitle(const char* name, char* out, size_t n) {
-  static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
   int y, mo, d, h, mi;
   if (sscanf(name, "trail-%4d%2d%2d-%2d%2d", &y, &mo, &d, &h, &mi) == 5 && mo >= 1 && mo <= 12)
-    snprintf(out, n, "%d %s %d  %02d:%02d", d, MON[mo - 1], y, h, mi);
+    snprintf(out, n, "%d %s %d  %02d:%02d", d, MONTHS[mo - 1], y, h, mi);
   else snprintf(out, n, "%s", name);
 }
 
@@ -871,29 +847,9 @@ static void onNavShareTarget(lv_event_t* e) {
   s_ui->navSetShareTarget(choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 
-static lv_obj_t* toolRow(lv_obj_t* parent) {
-  lv_obj_t* r = lv_obj_create(parent);
-  styleSurface(r, theme::BG);
-  lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(r, theme::GAP, 0);
-  return r;
-}
-
-static lv_obj_t* toolButton(lv_obj_t* row, const char* text, uint8_t act, bool accent) {
-  lv_obj_t* b = lv_button_create(row);
-  lv_obj_set_height(b, 36);
-  lv_obj_set_flex_grow(b, 1);
-  lv_obj_set_style_pad_hor(b, 4, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS, 0);
-  lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? theme::ACCENT_DIM : theme::SURFACE), 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
-  lv_obj_add_event_cb(b, onNavTool, LV_EVENT_CLICKED, (void*)(uintptr_t)act);
-  lv_obj_t* l = label(b, text, THEME_FONT_SMALL, theme::TEXT);
-  lv_obj_center(l);
-  return l;
+// A map tool's button (UITask.cpp's barButton); returns its label.
+static lv_obj_t* toolButton(lv_obj_t* bar, const char* text, uint8_t act, bool accent) {
+  return lv_obj_get_child(barButton(bar, text, onNavTool, act, accent), 0);
 }
 
 void UITask::navToolsPopup() {
@@ -902,11 +858,11 @@ void UITask::navToolsPopup() {
 
   sectionTitle(list, "TRAIL");
   _nav_trail_lbl = label(list, "", THEME_FONT_SMALL, theme::TEXT);
-  lv_obj_t* r = toolRow(list);
+  lv_obj_t* r = buttonBar(list);
   _nav_trail_btn = toolButton(r, "", navmap::TL_TRAIL_TOGGLE, true);
   toolButton(r, LV_SYMBOL_SAVE " Save", navmap::TL_TRAIL_SAVE, false);
   toolButton(r, LV_SYMBOL_DIRECTORY " Load", navmap::TL_TRAIL_LOAD, false);
-  r = toolRow(list);
+  r = buttonBar(list);
   _nav_tb_btn = toolButton(r, "", navmap::TL_TRACKBACK, false);
   toolButton(r, LV_SYMBOL_SD_CARD " GPX", navmap::TL_TRAIL_GPX, false);
   _nav_reset_lbl = toolButton(r, LV_SYMBOL_TRASH " Reset", navmap::TL_TRAIL_RESET, false);
@@ -914,9 +870,7 @@ void UITask::navToolsPopup() {
           (void*)(uintptr_t)navmap::TL_OPT_TRAIL);
 
   sectionTitle(list, "LIVE SHARE");
-  _nav_share_lbl = label(list, "", THEME_FONT_SMALL, theme::TEXT);
-  lv_label_set_long_mode(_nav_share_lbl, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(_nav_share_lbl, LV_PCT(100));
+  _nav_share_lbl = noteLabel(list, "", THEME_FONT_SMALL, theme::TEXT);
   // Target: channels (as named -- "#" marks a hashtag channel), then
   // favourite contacts (starred, so the two stay apart).
   char opts[MAX_GROUP_CHANNELS * 24 + 16 * 40];
@@ -943,7 +897,7 @@ void UITask::navToolsPopup() {
     favs++;
   }
   choiceRow(group(list, nullptr), "Send to", nullptr, o ? opts : "(no channels)", sel, onNavShareTarget);
-  r = toolRow(list);
+  r = buttonBar(list);
   _nav_share_btn = toolButton(r, "", navmap::TL_SHARE_TOGGLE, true);
   toolButton(r, LV_SYMBOL_UPLOAD " Send once", navmap::TL_SHARE_ONCE, false);
 
@@ -978,7 +932,6 @@ void UITask::navToolsPopup() {
   snprintf(vr, sizeof(vr), nv ? "%d on the card" : "None - packs go in /vmap", nv);
   listRow(g, "Vector regions", vr, onNavTool, (void*)(uintptr_t)navmap::TL_REGIONS);
 
-  _nav_reset_armed_ms = 0;
   refreshNavTools();
 }
 
@@ -995,10 +948,6 @@ void UITask::refreshNavTools() {
   else lv_label_set_text_fmt(_nav_trail_lbl, "%s  -  %s, %s, %d points", state, dist, dur, ts.count());
   lv_label_set_text(_nav_trail_btn, ts.isActive() ? LV_SYMBOL_STOP " Stop" : LV_SYMBOL_PLAY " Record");
   lv_label_set_text(_nav_tb_btn, navmap::s_tb.active() ? LV_SYMBOL_STOP " Stop back" : LV_SYMBOL_LOOP " Track back");
-  if (_nav_reset_armed_ms && millis() - _nav_reset_armed_ms > 3000) {
-    _nav_reset_armed_ms = 0;
-    lv_label_set_text(_nav_reset_lbl, LV_SYMBOL_TRASH " Reset");
-  }
 
   if (_prefs->loc_share_enabled) {
     char left[12];
@@ -1024,11 +973,10 @@ void UITask::navSetShareTarget(int sel) {
 static void trailFilePath(char* path, size_t n, const char* ext, const NodePrefs* p) {
   char stem[40];
   uint32_t now = rtc_clock.getCurrentTime();
-  if (now > 1000000000UL) {
-    time_t t = (time_t)((int64_t)now + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
-    struct tm* ti = gmtime(&t);
-    snprintf(stem, sizeof(stem), "%s/trail-%04d%02d%02d-%02d%02d", navmap::TRAILS_DIR, ti->tm_year + 1900,
-             ti->tm_mon + 1, ti->tm_mday, ti->tm_hour, ti->tm_min);
+  struct tm ti;
+  if (localTime(p, ti, now)) {
+    snprintf(stem, sizeof(stem), "%s/trail-%04d%02d%02d-%02d%02d", navmap::TRAILS_DIR, ti.tm_year + 1900,
+             ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min);
   } else {
     snprintf(stem, sizeof(stem), "%s/trail-%lu", navmap::TRAILS_DIR, (unsigned long)(millis() / 1000));
   }
@@ -1090,7 +1038,6 @@ void UITask::savedTrailsPopup() {
 void UITask::savedTrailPopup(int idx) {
   if (idx >= navmap::s_st_n) return;
   navmap::s_st_sel = idx;
-  navmap::s_st_del_armed_ms = 0;
   char title[32];
   if (idx < 0) snprintf(title, sizeof(title), "Saved on the device");
   else navmap::trailTitle(navmap::s_st_names[idx], title, sizeof(title));
@@ -1113,7 +1060,7 @@ void UITask::savedTrailPopup(int idx) {
   label(panel, info, THEME_FONT_BODY, theme::TEXT);
   if (!_core->trail.store().empty())
     label(panel, "Loading replaces the trail on the map.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_obj_t* r = toolRow(panel);
+  lv_obj_t* r = buttonBar(panel);
   lv_obj_t* lb = toolButton(r, LV_SYMBOL_DIRECTORY " Load", navmap::TL_ST_LOAD, true);
   stylePrimary(lv_obj_get_parent(lb));
   if (idx >= 0) toolButton(r, LV_SYMBOL_SD_CARD " GPX", navmap::TL_ST_GPX, false);
@@ -1126,11 +1073,7 @@ void UITask::savedTrailAction(uint8_t act) {
   char path[64] = "";
   if (idx >= 0) snprintf(path, sizeof(path), "%s/%s", navmap::TRAILS_DIR, navmap::s_st_names[idx]);
   if (act == navmap::TL_ST_DELETE) {
-    if (!navmap::s_st_del_armed_ms || millis() - navmap::s_st_del_armed_ms > 3000) {   // second tap confirms
-      navmap::s_st_del_armed_ms = millis() | 1;
-      if (navmap::s_st_del_lbl) lv_label_set_text(navmap::s_st_del_lbl, "Delete?");
-      return;
-    }
+    if (!tapConfirmed(navmap::s_st_del_lbl, "Delete?")) return;
     bool ok = idx >= 0 ? remove(path) == 0
                        : (the_mesh.getDataStore() && the_mesh.getDataStore()->removeFile(TrailEngine::TRAIL_FILE));
     showToast(ok ? "Trail deleted" : "Delete failed");
@@ -1209,13 +1152,8 @@ void UITask::navToolAction(uint8_t act) {
       savedTrailAction(act);
       return;
     case navmap::TL_TRAIL_RESET:
-      if (!_nav_reset_armed_ms || millis() - _nav_reset_armed_ms > 3000) {   // second tap within 3 s confirms
-        _nav_reset_armed_ms = millis() | 1;
-        lv_label_set_text(_nav_reset_lbl, "Reset?");
-        return;
-      }
+      if (!tapConfirmed(_nav_reset_lbl, "Reset?")) return;
       tr.reset();
-      _nav_reset_armed_ms = 0;
       showToast("Trail cleared");
       rebuildMapMarkers();
       layoutMap();
@@ -1312,7 +1250,7 @@ void UITask::navWaypointsPopup() {
   char title[32];
   snprintf(title, sizeof(title), "Waypoints  %d/%d", wp.count(), WaypointStore::CAPACITY);
   lv_obj_t* panel = navPopupPanel(title, true);
-  lv_obj_t* r = toolRow(panel);
+  lv_obj_t* r = buttonBar(panel);
   toolButton(r, UI_SYMBOL_PIN " Here (GPS)", navmap::TL_WP_HERE, true);
   toolButton(r, LV_SYMBOL_KEYBOARD " Coordinates", navmap::TL_WP_COORDS, false);
 
@@ -1332,10 +1270,7 @@ void UITask::navWaypointsPopup() {
     }
   }
   if (wp.count() == 0) {
-    lv_obj_t* l = label(list, "None yet. Add one here, type its coordinates, or hold the map on a spot.",
-                        THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(l, LV_PCT(100));
+    noteLabel(list, "None yet. Add one here, type its coordinates, or hold the map on a spot.");
   }
 }
 
@@ -1398,7 +1333,7 @@ void UITask::navSpotPopup(int32_t lat, int32_t lon) {
   _nav_spot_lon = lon;
   lv_obj_t* panel = navPopupPanel("This spot", false);
   placeCard(panel, lat, lon);
-  lv_obj_t* r = toolRow(panel);
+  lv_obj_t* r = buttonBar(panel);
   toolButton(r, UI_SYMBOL_FLAG " Add waypoint", navmap::TL_SPOT_ADD, true);
   toolButton(r, UI_SYMBOL_COMPASS " Go here", navmap::TL_SPOT_GO, false);
 }

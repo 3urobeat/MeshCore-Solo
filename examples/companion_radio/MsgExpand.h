@@ -4,6 +4,7 @@
 #include <ctime>
 #include <cstdint>
 #include <helpers/SensorManager.h>
+#include "NodePrefs.h"   // localTm()
 #include <helpers/sensors/LPPDataHelpers.h>
 
 // Expands placeholders in tmpl into out (out_len bytes).
@@ -85,12 +86,10 @@ inline void expandMsg(const char* tmpl, char* out, int out_len,
       else           strcpy(lb, "no GPS");
       APPEND(lb, strlen(lb)); p += 5;
     } else if (strncmp(p, "{time}", 6) == 0) {
-      if (utc_ts > 1000000000UL) {
-        uint32_t local_ts = utc_ts + (int32_t)tz_hours * 3600;
-        time_t t = (time_t)local_ts;
-        struct tm* ti = gmtime(&t);
+      struct tm ti;
+      if (localTm(utc_ts, tz_hours, ti)) {
         char tb[8];
-        snprintf(tb, sizeof(tb), "%02d:%02d", ti->tm_hour, ti->tm_min);
+        snprintf(tb, sizeof(tb), "%02d:%02d", ti.tm_hour, ti.tm_min);
         APPEND(tb, strlen(tb));
       }
       p += 6;

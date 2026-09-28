@@ -186,9 +186,7 @@ void UITask::buildOta() {
   lv_obj_t* card = infoCard(body);
   infoRow(card, "Installed", FIRMWARE_VERSION);
   s_ota_latest = infoRow(card, "Latest release", "");
-  _ota_status = label(body, "", THEME_FONT_BODY, theme::TEXT);
-  lv_label_set_long_mode(_ota_status, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(_ota_status, LV_PCT(100));
+  _ota_status = noteLabel(body, "", THEME_FONT_BODY, theme::TEXT);
   _ota_bar = lv_bar_create(body);
   lv_obj_set_size(_ota_bar, LV_PCT(100), 10);
   lv_bar_set_range(_ota_bar, 0, 1000);

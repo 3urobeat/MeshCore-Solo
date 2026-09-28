@@ -75,15 +75,4 @@ namespace anim {
     lv_obj_set_style_translate_x(o, 0, 0);
     run(o, setOpa, LV_OPA_TRANSP, LV_OPA_COVER, ms);
   }
-
-  static void hideDone(lv_anim_t* a) {
-    lv_obj_t* o = (lv_obj_t*)a->var;
-    lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_opa(o, LV_OPA_COVER, 0);
-  }
-  // Fade out, then hide (the object stays for reuse).
-  static void fadeHide(lv_obj_t* o) {
-    lv_anim_delete(o, setOpa);
-    run(o, setOpa, lv_obj_get_style_opa(o, LV_PART_MAIN), LV_OPA_TRANSP, OUT_MS, hideDone);
-  }
 }

@@ -34,7 +34,6 @@ static int       s_prev_z;
 static bool      s_prev_follow;
 static int       s_idx = -1;             // area in the open popup
 static lv_obj_t* s_del_lbl = nullptr;
-static uint32_t  s_del_armed_ms = 0;
 static const int BAR_H = 84;
 static const int HANDLE = 26;
 
@@ -69,11 +68,9 @@ static void boxWorld(const mapview::TileArea& b, double& x0, double& y0, double&
 }
 
 static void fmtDate(char* out, size_t n, uint32_t t, const NodePrefs* p) {
-  if (t < 1000000000UL) { out[0] = '\0'; return; }
-  time_t tt = (time_t)((int64_t)t + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
-  struct tm tm = *gmtime(&tt);
-  static const char* const MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-  snprintf(out, n, "%d %s %d", tm.tm_mday, MON[tm.tm_mon], tm.tm_year + 1900);
+  struct tm tm;
+  if (!localTime(p, tm, t)) { out[0] = '\0'; return; }
+  snprintf(out, n, "%d %s %d", tm.tm_mday, MONTHS[tm.tm_mon], tm.tm_year + 1900);
 }
 
 static void onHandle(lv_event_t* e) {
@@ -387,9 +384,7 @@ void UITask::mapAreasPopup() {
       listRow(g, m.name, sub, onArea, (void*)(intptr_t)i);
     }
   } else {
-    lv_obj_t* l = label(list, "No areas yet. Maps downloaded before this list are still on the card.", THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(l, LV_PCT(100));
+    noteLabel(list, "No areas yet. Maps downloaded before this list are still on the card.");
   }
   lv_obj_t* add = lv_button_create(list);
   lv_obj_set_size(add, LV_PCT(100), 38);
@@ -412,16 +407,13 @@ void UITask::mapAreaPopup(int idx) {
   snprintf(info, sizeof(info), "Zoom %d-%d, %lu tiles%s%s%s%s", m.box.zmin, m.box.zmax, (unsigned long)n,
            (m.flags & mapview::AreaStore::F_TRAILS) ? ", trails" : "", date[0] ? "  -  " : "", date,
            (m.flags & mapview::AreaStore::F_COMPLETE) ? "" : "\nUnfinished - Fill gaps completes it");
-  lv_obj_t* l = label(panel, info, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(l, LV_PCT(100));
-  lv_obj_t* r = toolRow(panel);
+  noteLabel(panel, info);
+  lv_obj_t* r = buttonBar(panel);
   actButton(r, LV_SYMBOL_EDIT, "Rename", A_RENAME);
   actButton(r, LV_SYMBOL_DOWNLOAD, "Fill", A_FILL);
   actButton(r, LV_SYMBOL_REFRESH, "Refresh", A_REFRESH);
   actButton(r, (m.flags & mapview::AreaStore::F_TRAILS) ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS, "Trails", A_TRAILS);
   s_del_lbl = actButton(r, LV_SYMBOL_TRASH, "Delete", A_DELETE);
-  s_del_armed_ms = 0;
 
   // Framed in the map above the sheet: the view is kept to go back to.
   lv_obj_update_layout(panel);
@@ -492,11 +484,7 @@ void UITask::mapAreaAction(uint8_t act) {
       showToast("Fetching its trails");
       return;
     case A_DELETE:
-      if (!s_del_armed_ms || millis() - s_del_armed_ms > 3000) {   // a second tap within 3 s confirms
-        s_del_armed_ms = millis() | 1;
-        if (s_del_lbl) lv_label_set_text(s_del_lbl, "Delete?");
-        return;
-      }
+      if (!tapConfirmed(s_del_lbl, "Delete?")) return;
       if (mapview::s_areas.deleting()) { showToast("Still deleting - try again shortly"); return; }
       if (mapview::s_dl.active() && mapview::s_areas.find(mapview::s_dl.area()) == s_idx) mapview::s_dl.cancel();
       if (s_show == s_idx) s_show = -1;

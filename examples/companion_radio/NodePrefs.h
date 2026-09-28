@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <stdio.h>
+#include <time.h>
 
 // Firmware's own boot-default radio params — used both as the companion's
 // initial freq/sf/bw/cr (MyMesh.cpp) and, here, as the seed for a never-
@@ -722,6 +723,13 @@ static inline bool hourInWindow(int h, int start, int end) {
 static inline bool localHour(uint32_t utc, int8_t tz_hours, int& h) {
   if (utc < 1000000000UL) return false;
   h = (int)(((int64_t)utc + (int64_t)tz_hours * 3600) / 3600 % 24);
+  return true;
+}
+// A UTC time as the local calendar date and time; false while the clock isn't set.
+static inline bool localTm(uint32_t utc, int8_t tz_hours, struct tm& out) {
+  if (utc < 1000000000UL) return false;
+  time_t t = (time_t)((int64_t)utc + (int64_t)tz_hours * 3600);
+  out = *gmtime(&t);
   return true;
 }
 // Settings > Sound > Quiet hours in force at `utc` (never with the clock unset).

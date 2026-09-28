@@ -132,6 +132,14 @@ static lv_obj_t* label(lv_obj_t* parent, const char* text, const lv_font_t* font
   lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
   return l;
 }
+// A sentence across the parent's width, wrapping: a hint, a note, a status.
+static lv_obj_t* noteLabel(lv_obj_t* parent, const char* text, const lv_font_t* font = THEME_FONT_SMALL,
+                           uint32_t color = theme::TEXT_MUTED) {
+  lv_obj_t* l = label(parent, text, font, color);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  return l;
+}
 
 // A list filling the rest of a flex column, scrolling on its own (the
 // scrollbar only while it moves).
@@ -277,9 +285,7 @@ static lv_obj_t* infoNote(lv_obj_t* card, const char* key, const char* text) {
   lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(r, 2, 0);
   label(r, key, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_obj_t* t = label(r, text, THEME_FONT_SMALL, theme::TEXT);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
+  lv_obj_t* t = noteLabel(r, text, THEME_FONT_SMALL, theme::TEXT);
   return t;
 }
 
@@ -322,9 +328,7 @@ static lv_obj_t* group(lv_obj_t* parent, const char* title) {
 }
 
 static lv_obj_t* groupNote(lv_obj_t* parent, const char* text) {
-  lv_obj_t* l = label(parent, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(l, LV_PCT(100));
+  lv_obj_t* l = noteLabel(parent, text);
   lv_obj_set_style_pad_hor(l, theme::PAD, 0);
   return l;
 }
@@ -357,13 +361,9 @@ static lv_obj_t* groupText(lv_obj_t* row, const char* text, const char* hint, ui
   // after its flex layout, which then sits everything at the top.
   lv_obj_set_style_min_height(t, theme::ROW_H - 12, 0);
   lv_obj_set_flex_align(t, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_t* l = label(t, text, THEME_FONT_BODY, col);
-  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(l, LV_PCT(100));
+  lv_obj_t* l = noteLabel(t, text, THEME_FONT_BODY, col);
   if (hint) {
-    lv_obj_t* h = label(t, hint, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(h, LV_PCT(100));
+    noteLabel(t, hint);
   }
   lv_obj_set_user_data(row, l);   // rowTitle()
   return l;
@@ -656,6 +656,77 @@ static void stylePrimary(lv_obj_t* b) {
     lv_obj_set_style_text_color(lv_obj_get_child(b, i), lv_color_hex(theme::BG), 0);
 }
 
+// A row of equal buttons at the foot of a popup or screen: buttonBar(), then
+// barButton() for each -- `accent` for the main action or one that's on
+// (barButtonOn() flips it later). Returns the button; its label is child 0.
+static lv_obj_t* buttonBar(lv_obj_t* parent) {
+  lv_obj_t* bar = lv_obj_create(parent);
+  styleSurface(bar, theme::BG);
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(bar, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(bar, theme::GAP, 0);
+  return bar;
+}
+static void barButtonOn(lv_obj_t* b, bool on) {
+  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
+}
+static lv_obj_t* barButton(lv_obj_t* bar, const char* text, lv_event_cb_t cb, uintptr_t user, bool accent = false) {
+  lv_obj_t* b = lv_button_create(bar);
+  lv_obj_set_height(b, 40);
+  lv_obj_set_flex_grow(b, 1);
+  lv_obj_set_style_pad_hor(b, 4, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  barButtonOn(b, accent);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void*)user);
+  lv_obj_center(label(b, text, THEME_FONT_SMALL, theme::TEXT));
+  return b;
+}
+
+// Asking before something that can't be undone: under navPopupPanel("...?"),
+// what happens in a sentence and the red button that does it.
+static lv_obj_t* confirmBody(lv_obj_t* panel, const char* text, const char* button, lv_event_cb_t cb, uintptr_t user) {
+  noteLabel(panel, text);
+  lv_obj_t* b = lv_button_create(panel);
+  lv_obj_set_size(b, LV_PCT(100), 40);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(theme::FAIL), 0);
+  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void*)user);
+  lv_obj_center(label(b, button, THEME_FONT_BODY, theme::TEXT));
+  return b;
+}
+
+// A button that asks by itself before it destroys: the first tap puts `ask`
+// on its label, a second tap within 3 s is the yes. Left alone, the label
+// comes back and the next tap asks again. One button asks at a time.
+static lv_obj_t* s_ask_lbl = nullptr;
+static char s_ask_text[64];
+static lv_timer_t* s_ask_timer = nullptr;
+static void onAskDeleted(lv_event_t* e);
+static void askReset() {
+  if (s_ask_timer) { lv_timer_delete(s_ask_timer); s_ask_timer = nullptr; }
+  if (!s_ask_lbl) return;
+  lv_obj_remove_event_cb(s_ask_lbl, onAskDeleted);
+  lv_label_set_text(s_ask_lbl, s_ask_text);
+  s_ask_lbl = nullptr;
+}
+static void onAskDeleted(lv_event_t* e) { (void)e; s_ask_lbl = nullptr; askReset(); }
+static bool tapConfirmed(lv_obj_t* lbl, const char* ask) {
+  bool yes = lbl && lbl == s_ask_lbl;
+  askReset();
+  if (yes || !lbl) return yes;
+  s_ask_lbl = lbl;
+  snprintf(s_ask_text, sizeof(s_ask_text), "%s", lv_label_get_text(lbl));
+  lv_label_set_text(lbl, ask);
+  lv_obj_add_event_cb(lbl, onAskDeleted, LV_EVENT_DELETE, NULL);
+  s_ask_timer = lv_timer_create([](lv_timer_t*) { s_ask_timer = nullptr; askReset(); }, 3000, NULL);
+  lv_timer_set_repeat_count(s_ask_timer, 1);
+  return false;
+}
+
 // "@[nick]" -> "@nick" in place, for one-line text (previews, quotes) where
 // the bubble's highlight doesn't reach.
 static void plainMentions(char* t) {
@@ -698,14 +769,12 @@ static void tileBadge(lv_obj_t* tile, int n) {
   lv_obj_align(lv_obj_get_child(tile, -1), LV_ALIGN_TOP_RIGHT, -2, 2);
 }
 
-// Local time (NodePrefs::tz_offset_hours); false before the clock is set.
-static bool localTime(const NodePrefs* p, struct tm& out) {
-  uint32_t now = rtc_clock.getCurrentTime();
-  if (now <= 1000000000UL) return false;
-  time_t t = (time_t)((int64_t)now + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
-  out = *gmtime(&t);
-  return true;
+// Local time (NodePrefs::tz_offset_hours), now or at `utc`; false before the clock is set.
+static bool localTime(const NodePrefs* p, struct tm& out, uint32_t utc = rtc_clock.getCurrentTime()) {
+  return localTm(utc, p ? p->tz_offset_hours : 0, out);
 }
+static const char* const MONTHS[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 // "14:05", or "2:05" (+ " PM" with suffix) with Settings > 12-hour clock;
 // with `seconds`, ":09" follows unless Settings > Clock seconds is off.
 static void fmtClock(char* b, size_t n, const struct tm& ti, const NodePrefs* p, bool suffix, bool seconds = false) {
@@ -721,9 +790,7 @@ static void fmtClock(char* b, size_t n, const struct tm& ti, const NodePrefs* p,
 // "Thu 25 Sep 2026".
 static void fmtDate(char* b, size_t n, const struct tm& ti) {
   static const char* DOW[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-  static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-  snprintf(b, n, "%s %d %s %d", DOW[ti.tm_wday], ti.tm_mday, MON[ti.tm_mon], ti.tm_year + 1900);
+  snprintf(b, n, "%s %d %s %d", DOW[ti.tm_wday], ti.tm_mday, MONTHS[ti.tm_mon], ti.tm_year + 1900);
 }
 
 // Settings changed here reach flash once their screen is left (as on the L1:
@@ -777,13 +844,11 @@ static const NodePrefs* s_prefs = nullptr;   // for the free helpers below; set 
 static bool clockBehind(uint32_t now, uint32_t ts) { return ts > 1000000000UL && ts > now + 120; }
 static void fmtMsgAge(char* b, size_t n, uint32_t now, uint32_t ts, const NodePrefs* p) {
   if (!clockBehind(now, ts)) { geo::fmtAgeShort(b, (int)n, now, ts ? ts : now); return; }
-  static const char* MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-  time_t t = (time_t)((int64_t)ts + (int64_t)(p ? p->tz_offset_hours : 0) * 3600);
-  struct tm ti = *gmtime(&t);
+  struct tm ti;
+  localTime(p, ti, ts);   // set: clockBehind() says ts is
   char clk[12];
   fmtClock(clk, sizeof(clk), ti, p, true);
-  snprintf(b, n, "%d %s %s", ti.tm_mday, MON[ti.tm_mon], clk);
+  snprintf(b, n, "%d %s %s", ti.tm_mday, MONTHS[ti.tm_mon], clk);
 }
 
 static void contactName(const uint8_t* prefix, char* out, size_t n) {
@@ -1056,7 +1121,7 @@ uint32_t UITask::idleMillis(uint32_t lv_next) {
   if (_buzzer.isPlaying()) return 1;
 #endif
   if (isClientConnected()) return 2;
-  if (_asleep) return 20;   // the buttons and tap to wake are polled every 50 ms
+  if (_asleep) return 50;   // as often as the buttons and tap to wake are polled
   return lv_next < 10 ? lv_next : 10;   // LVGL's next timer: a refresh, an animation, input
 }
 
@@ -2204,11 +2269,9 @@ void UITask::refreshScanPopup() {
     lv_obj_align(label(row, right, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
   }
   if (n == 0) {
-    lv_obj_t* l = label(_scan_list, _scanning ? "Repeaters and rooms in range will answer."
-                                              : "Nobody answered. Try again later or move.",
-                        THEME_FONT_BODY, theme::TEXT_MUTED);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(l, LV_PCT(100));
+    lv_obj_t* l = noteLabel(_scan_list, _scanning ? "Repeaters and rooms in range will answer."
+                            : "Nobody answered. Try again later or move.",
+                            THEME_FONT_BODY, theme::TEXT_MUTED);
     lv_obj_set_style_pad_top(l, 8, 0);
   }
 }
@@ -2220,7 +2283,6 @@ void UITask::openScanNode(int row) {
   _node_from_map = false;
   _scanning = false;
   _pinging = false;
-  _delete_armed_ms = 0;
   _screen = SCR_NODE;
   buildNode();
 }
@@ -2292,24 +2354,8 @@ void UITask::openNode(int row) {
   _node_from_scan = false;
   _node_from_map = false;
   _pinging = false;
-  _delete_armed_ms = 0;
   _screen = SCR_NODE;
   buildNode();
-}
-
-static lv_obj_t* actionButton(lv_obj_t* parent, const char* text, uint8_t action, bool accent) {
-  lv_obj_t* b = lv_button_create(parent);
-  lv_obj_set_height(b, 40);
-  lv_obj_set_flex_grow(b, 1);
-  lv_obj_set_style_pad_hor(b, 4, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS, 0);
-  lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? theme::ACCENT_DIM : theme::SURFACE), 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
-  lv_obj_add_event_cb(b, onNodeAction, LV_EVENT_CLICKED, (void*)(uintptr_t)action);
-  lv_obj_t* l = label(b, text, THEME_FONT_SMALL, theme::TEXT);
-  lv_obj_center(l);
-  return l;
 }
 
 void UITask::buildNode() {
@@ -2327,12 +2373,7 @@ void UITask::buildNode() {
   s_nd_id = infoRow(_node_info, "ID", "");
   _node_ping = label(info, "", THEME_FONT_BODY, theme::ACCENT);
 
-  lv_obj_t* acts = lv_obj_create(body);
-  styleSurface(acts, theme::BG);
-  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
+  lv_obj_t* acts = buttonBar(body);
   bool contact = e.contact_idx >= 0;
   bool admin = contact && (e.type == ADV_TYPE_REPEATER || e.type == ADV_TYPE_ROOM);
   bool pos = e.lat_e6 != 0 || e.lon_e6 != 0;
@@ -2350,8 +2391,8 @@ void UITask::buildNode() {
   for (int i = 0; i < n; i++) {   // five or more: icons only, so every button fits one row
     char t[24];
     snprintf(t, sizeof(t), "%s%s", list[i].icon, n >= 5 ? "" : list[i].text);
-    lv_obj_t* l = actionButton(acts, t, list[i].action, list[i].accent);
-    if (list[i].action == NODE_DELETE) _node_delete_lbl = l;
+    lv_obj_t* b = barButton(acts, t, onNodeAction, list[i].action, list[i].accent);
+    if (list[i].action == NODE_DELETE) _node_delete_lbl = lv_obj_get_child(b, 0);
   }
 
   refreshNode();
@@ -2420,10 +2461,6 @@ void UITask::refreshNode() {
       _pinging = false;
     }
   }
-  if (_node_delete_lbl && _delete_armed_ms && millis() - _delete_armed_ms > 3000) {
-    _delete_armed_ms = 0;
-    lv_label_set_text(_node_delete_lbl, LV_SYMBOL_TRASH);
-  }
 }
 
 void UITask::nodeAction(uint8_t action) {
@@ -2488,10 +2525,7 @@ void UITask::nodeAction(uint8_t action) {
       pinPopup(false, 0, e.pub_key);
       break;
     case NODE_DELETE:
-      if (!_delete_armed_ms) {   // destructive: second tap within 3 s confirms
-        _delete_armed_ms = millis();
-        if (_delete_armed_ms == 0) _delete_armed_ms = 1;
-        lv_label_set_text(_node_delete_lbl, LV_SYMBOL_TRASH "?");   // fits an icon-only button
+      if (!tapConfirmed(_node_delete_lbl, LV_SYMBOL_TRASH "?")) {   // "?" fits an icon-only button
         showToast("Tap again to delete the contact", 2500);
         break;
       }
@@ -3121,17 +3155,13 @@ void UITask::pruneContacts() {
     showToast(_prefs && _prefs->contact_expiry_idx == 0 ? "Contact expiry is off" : "No inactive contacts");
     return;
   }
-  if (!_prune_armed_ms || millis() - _prune_armed_ms > 3000) {
-    _prune_armed_ms = millis() | 1;
-    if (_prune_lbl) lv_label_set_text_fmt(_prune_lbl, LV_SYMBOL_TRASH "  Remove %d contact%s?", n, n == 1 ? "" : "s");
-    return;
-  }
-  _prune_armed_ms = 0;
+  char ask[40];
+  snprintf(ask, sizeof(ask), LV_SYMBOL_TRASH "  Remove %d contact%s?", n, n == 1 ? "" : "s");
+  if (!tapConfirmed(_prune_lbl, ask)) return;
   int removed = the_mesh.pruneStaleContacts();
   char t[40];
   snprintf(t, sizeof(t), "Removed %d contact%s", removed, removed == 1 ? "" : "s");
   showToast(t);
-  if (_prune_lbl) lv_label_set_text(_prune_lbl, LV_SYMBOL_TRASH "  Remove inactive contacts now");
 }
 
 void UITask::applyDisplayPrefs() {
@@ -3171,7 +3201,6 @@ void UITask::buildSchemaSettings() {
           : s_nav_section == settings::SEC_LIVE_SHARE ? "Share options" : "Alert options";
   lv_obj_t* body = newScreen(title, true);
   _prune_lbl = nullptr;
-  _prune_armed_ms = 0;
   switch (_settings_page) {
     case PG_KEYBOARD: buildKeyboardPage(body); return;
     case PG_ABOUT:    buildAboutPage(body); return;

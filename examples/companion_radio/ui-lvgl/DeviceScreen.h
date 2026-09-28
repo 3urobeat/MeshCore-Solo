@@ -147,19 +147,10 @@ void UITask::nodeNameDone(bool ok) {
 }
 
 void UITask::powerPopup(bool restart) {
-  lv_obj_t* panel = navPopupPanel(restart ? "Reboot?" : "Power off?", false);
-  lv_obj_t* t = label(panel, restart ? "Restarts the device. Messages and settings are kept."
-                                     : "Turns the device off. Messages and settings are kept; no messages arrive while it is off.",
-                      THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
-  lv_obj_t* b = lv_button_create(panel);
-  lv_obj_set_size(b, LV_PCT(100), 40);
-  lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(theme::FAIL), 0);
-  lv_obj_add_event_cb(b, onPowerGo, LV_EVENT_CLICKED, (void*)(uintptr_t)(restart ? 1 : 0));
-  lv_obj_center(label(b, restart ? LV_SYMBOL_REFRESH "  Reboot" : LV_SYMBOL_POWER "  Power off", THEME_FONT_BODY, theme::TEXT));
+  confirmBody(navPopupPanel(restart ? "Reboot?" : "Power off?", false),
+              restart ? "Restarts the device. Messages and settings are kept."
+                      : "Turns the device off. Messages and settings are kept; no messages arrive while it is off.",
+              restart ? LV_SYMBOL_REFRESH "  Reboot" : LV_SYMBOL_POWER "  Power off", onPowerGo, restart ? 1 : 0);
 }
 
 // ── Lock screen ───────────────────────────────────────────────────────────────
@@ -503,9 +494,9 @@ void UITask::favHold(int slot) {
   if (!contactctl::favName(_prefs, slot, name, sizeof(name))) { favPickPopup(slot); return; }
   devview::s_fav_slot = slot;
   lv_obj_t* panel = navPopupPanel(name, false);
-  lv_obj_t* acts = convview::actionRow(panel);
-  convview::actionButton(acts, LV_SYMBOL_EDIT " Change", onFavAction, devview::F_CHANGE, false);
-  convview::actionButton(acts, LV_SYMBOL_TRASH " Remove", onFavAction, devview::F_REMOVE, false);
+  lv_obj_t* acts = buttonBar(panel);
+  barButton(acts, LV_SYMBOL_EDIT " Change", onFavAction, devview::F_CHANGE, false);
+  barButton(acts, LV_SYMBOL_TRASH " Remove", onFavAction, devview::F_REMOVE, false);
 }
 
 void UITask::favAction(uint8_t act) {

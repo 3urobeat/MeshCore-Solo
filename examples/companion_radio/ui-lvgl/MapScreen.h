@@ -744,9 +744,7 @@ void UITask::mapDownloadPopup() {
   headerButton(_dl_job_row, LV_SYMBOL_TRASH, onDlDiscard, 4, NULL);
   lv_obj_add_flag(_dl_job_row, LV_OBJ_FLAG_HIDDEN);
 
-  _dl_info = label(panel, "", THEME_FONT_SMALL, theme::TEXT);
-  lv_label_set_long_mode(_dl_info, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(_dl_info, LV_PCT(100));
+  _dl_info = noteLabel(panel, "", THEME_FONT_SMALL, theme::TEXT);
   lv_obj_set_style_text_line_space(_dl_info, 2, 0);
   _dl_bar = lv_bar_create(panel);
   lv_obj_set_size(_dl_bar, LV_PCT(100), 6);
@@ -758,21 +756,8 @@ void UITask::mapDownloadPopup() {
   lv_obj_set_width(_dl_err, LV_PCT(100));
   lv_obj_add_flag(_dl_err, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_t* acts = lv_obj_create(panel);
-  styleSurface(acts, theme::BG);
-  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
-  lv_obj_t* go = lv_button_create(acts);
-  lv_obj_set_height(go, 38);
-  lv_obj_set_flex_grow(go, 1);
-  lv_obj_set_style_shadow_width(go, 0, 0);
-  lv_obj_set_style_radius(go, theme::RADIUS, 0);
-  lv_obj_set_style_bg_color(go, lv_color_hex(theme::ACCENT_DIM), 0);
-  lv_obj_add_event_cb(go, onDlStart, LV_EVENT_CLICKED, NULL);
-  _dl_start_lbl = label(go, "", THEME_FONT_SMALL, theme::TEXT);
-  lv_obj_center(_dl_start_lbl);
+  lv_obj_t* go = barButton(buttonBar(panel), "", onDlStart, 0, true);
+  _dl_start_lbl = lv_obj_get_child(go, 0);
   stylePrimary(go);
 
   refreshDownloadPopup();

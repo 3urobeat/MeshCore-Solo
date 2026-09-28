@@ -387,47 +387,6 @@ static void wifiStoreWrite() {
     }
   }
 }
-// Settings > WiFi's switch: off keeps the radio off for everything (scan, map
-// download). Kept with the credentials.
-static int8_t s_wifi_allowed = -1;   // read once (the status bar asks every second)
-static bool wifiAllowed() {
-  if (s_wifi_allowed < 0) s_wifi_allowed = nvs::getBool("mc_wifi", "on", true);
-  return s_wifi_allowed;
-}
-static void setWifiAllowed(bool on) { s_wifi_allowed = on; nvs::putBool("mc_wifi", "on", on); }
-// Map tools > Live tiles: missing tiles fetched over WiFi while the map is open.
-static bool liveTiles() { return nvs::getBool("mc_wifi", "live", true); }
-static void setLiveTiles(bool on) { nvs::putBool("mc_wifi", "live", on); }
-// Map tools > Hiking trails: the Waymarked Trails overlay over the map.
-static bool trailsOn() { return nvs::getBool("mc_ui", "trails", false); }
-static void setTrailsOn(bool on) { nvs::putBool("mc_ui", "trails", on); }
-// Map tools > Vector map (test).
-static bool vectorOn() { return nvs::getBool("mc_ui", "vector", false); }
-static void setVectorOn(bool on) { nvs::putBool("mc_ui", "vector", on); }
-
-// Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
-static void loadPin(char* out, size_t n) { nvs::getStr("mc_lock", "pin", out, n); }
-static void savePin(const char* pin) { nvs::putStr("mc_lock", "pin", pin); }
-
-// Accent colour (Settings > Display & power): an index into theme::ACCENTS.
-static int loadAccent() { return nvs::getU8("mc_ui", "accent", 0); }
-static void saveAccent(int idx) { nvs::putU8("mc_ui", "accent", idx); }
-// Settings > Storage > Kept per conversation (an index into histstore::KEEP).
-static int loadHistKeep() { return nvs::getI8("mc_ui", "hkeep", -1); }
-static void saveHistKeep(int idx) { nvs::putI8("mc_ui", "hkeep", idx); }
-// Settings > Storage > Live map tiles: index into mapview::LIVE_CAP_MB, -1 = default.
-static int loadLiveCap() { return nvs::getI8("mc_ui", "ltcap", -1); }
-static void saveLiveCap(int idx) { nvs::putI8("mc_ui", "ltcap", idx); }
-// Settings > Display & power > Tap to wake: a touch turns the dark screen on
-// (off: only the top button does).
-static bool loadTapWake() { return nvs::getBool("mc_ui", "tapwake", true); }
-static void saveTapWake(bool on) { nvs::putBool("mc_ui", "tapwake", on); }
-// Messages: which sections are folded (bit per section).
-static int loadChatFold() { return nvs::getU8("mc_ui", "chfold", 0); }
-static void saveChatFold(int bits) { nvs::putU8("mc_ui", "chfold", bits); }
-// Home's apps: their letters in the user's order, a hidden one in lower case.
-static void loadHomeApps(char* out, size_t n) { nvs::getStr("mc_ui", "apps", out, n); }
-static void saveHomeApps(const char* v) { nvs::putStr("mc_ui", "apps", v); }
 // Filesystem size and space in use (Settings > Storage), plus the card's own
 // size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
 // imager) shows both. The first free-space count on a big card takes a moment.
@@ -697,6 +656,32 @@ static const char* fetchError() { return s_ferr; }
 // Browser simulator (variants/sim/build_wasm_lvgl.sh): SimLcdDisplay blits to
 // a <canvas>, the host page feeds the mouse in as touch.
 
+// The device's NVS (Preferences) as a table for the session: the UI settings
+// below read and write it by the same names.
+namespace nvs {
+struct Kv { char ns[10]; char key[10]; char val[40]; };
+static Kv s_kv[24];
+static int s_kv_n = 0;
+static Kv* find(const char* ns, const char* key, bool add) {
+  for (int i = 0; i < s_kv_n; i++) if (!strcmp(s_kv[i].ns, ns) && !strcmp(s_kv[i].key, key)) return &s_kv[i];
+  if (!add || s_kv_n >= (int)(sizeof(s_kv) / sizeof(s_kv[0]))) return nullptr;
+  Kv* k = &s_kv[s_kv_n++];
+  snprintf(k->ns, sizeof(k->ns), "%s", ns);
+  snprintf(k->key, sizeof(k->key), "%s", key);
+  return k;
+}
+static int getInt(const char* ns, const char* key, int def) { Kv* k = find(ns, key, false); return k ? atoi(k->val) : def; }
+static void putInt(const char* ns, const char* key, int v) { if (Kv* k = find(ns, key, true)) snprintf(k->val, sizeof(k->val), "%d", v); }
+static bool getBool(const char* ns, const char* key, bool def) { return getInt(ns, key, def) != 0; }
+static void putBool(const char* ns, const char* key, bool v) { putInt(ns, key, v); }
+static int  getI8(const char* ns, const char* key, int def) { return getInt(ns, key, def); }
+static void putI8(const char* ns, const char* key, int v) { putInt(ns, key, v); }
+static int  getU8(const char* ns, const char* key, int def) { return getInt(ns, key, def); }
+static void putU8(const char* ns, const char* key, int v) { putInt(ns, key, v); }
+static void getStr(const char* ns, const char* key, char* out, size_t n) { Kv* k = find(ns, key, false); snprintf(out, n, "%s", k ? k->val : ""); }
+static void putStr(const char* ns, const char* key, const char* v) { if (Kv* k = find(ns, key, true)) snprintf(k->val, sizeof(k->val), "%s", v); }
+}  // namespace nvs
+
 static bool s_swallow = false;
 
 static void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
@@ -763,27 +748,6 @@ static void restart() {}   // the page's Reset does that
 // The browser is always online; saved WiFi networks only live for the session.
 static void wifiStoreLoad() { s_net_count = 0; }
 static void wifiStoreWrite() {}
-static char s_pin[9] = "";   // the screen PIN, for the session
-static void loadPin(char* out, size_t n) { snprintf(out, n, "%s", s_pin); }
-static void savePin(const char* pin) { snprintf(s_pin, sizeof(s_pin), "%s", pin); }
-static int s_accent = 0;
-static int loadAccent() { return s_accent; }
-static void saveAccent(int idx) { s_accent = idx; }
-static int s_hist_keep = -1;
-static int loadHistKeep() { return s_hist_keep; }
-static void saveHistKeep(int idx) { s_hist_keep = idx; }
-static int s_live_cap = -1;
-static int loadLiveCap() { return s_live_cap; }
-static void saveLiveCap(int idx) { s_live_cap = idx; }
-static bool s_tap_wake = true;
-static bool loadTapWake() { return s_tap_wake; }
-static void saveTapWake(bool on) { s_tap_wake = on; }
-static int s_chat_fold = 0;
-static int loadChatFold() { return s_chat_fold; }
-static void saveChatFold(int bits) { s_chat_fold = bits; }
-static char s_home_apps[24] = "";
-static void loadHomeApps(char* out, size_t n) { snprintf(out, n, "%s", s_home_apps); }
-static void saveHomeApps(const char* v) { snprintf(s_home_apps, sizeof(s_home_apps), "%s", v); }
 // The browser has no card: a nominal 32 GB, used = what the files add up to
 // (the storage screen counts them anyway; it passes that in).
 static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) { total = card = 32ULL << 30; used = 0; return true; }
@@ -791,18 +755,6 @@ static const char* const FLASH_ROOT = "/sim_data";
 static const char* resetReason() { return "Power on"; }
 static bool crashSummary(char*, size_t) { return false; }
 static bool flashInfo(uint64_t& total, uint64_t& used) { total = 1536ULL << 10; used = 0; return true; }
-static bool s_wifi_on = true;
-static bool wifiAllowed() { return s_wifi_on; }
-static void setWifiAllowed(bool on) { s_wifi_on = on; }
-static bool s_live_tiles = true;
-static bool liveTiles() { return s_live_tiles; }
-static void setLiveTiles(bool on) { s_live_tiles = on; }
-static bool s_trails = false;
-static bool trailsOn() { return s_trails; }
-static void setTrailsOn(bool on) { s_trails = on; }
-static bool s_vector = false;
-static bool vectorOn() { return s_vector; }
-static void setVectorOn(bool on) { s_vector = on; }
 static bool s_net_on = false;
 static void netBegin(const char*, const char*) { s_net_on = true; }
 static void netJoin(const char*, const char*) { s_net_on = true; }
@@ -875,5 +827,48 @@ static const char* fetchError() { return s_fcode > 0 && s_fcode != 200 ? "HTTP e
 #else
   #error "ui-lvgl: no LVGL port for this board (see LvglPort.h)"
 #endif
+
+// ── UI settings kept outside NodePrefs (nvs:: above: NVS, or the session) ──
+// Settings > WiFi's switch: off keeps the radio off for everything (scan, map
+// download). Kept with the credentials.
+static int8_t s_wifi_allowed = -1;   // read once (the status bar asks every second)
+static bool wifiAllowed() {
+  if (s_wifi_allowed < 0) s_wifi_allowed = nvs::getBool("mc_wifi", "on", true);
+  return s_wifi_allowed;
+}
+static void setWifiAllowed(bool on) { s_wifi_allowed = on; nvs::putBool("mc_wifi", "on", on); }
+// Map tools > Live tiles: missing tiles fetched over WiFi while the map is open.
+static bool liveTiles() { return nvs::getBool("mc_wifi", "live", true); }
+static void setLiveTiles(bool on) { nvs::putBool("mc_wifi", "live", on); }
+// Map tools > Hiking trails: the Waymarked Trails overlay over the map.
+static bool trailsOn() { return nvs::getBool("mc_ui", "trails", false); }
+static void setTrailsOn(bool on) { nvs::putBool("mc_ui", "trails", on); }
+// Map tools > Vector map (test).
+static bool vectorOn() { return nvs::getBool("mc_ui", "vector", false); }
+static void setVectorOn(bool on) { nvs::putBool("mc_ui", "vector", on); }
+
+// Screen-lock PIN (Settings > Display & power > Screen PIN): digits, "" = none.
+static void loadPin(char* out, size_t n) { nvs::getStr("mc_lock", "pin", out, n); }
+static void savePin(const char* pin) { nvs::putStr("mc_lock", "pin", pin); }
+
+// Accent colour (Settings > Display & power): an index into theme::ACCENTS.
+static int loadAccent() { return nvs::getU8("mc_ui", "accent", 0); }
+static void saveAccent(int idx) { nvs::putU8("mc_ui", "accent", idx); }
+// Settings > Storage > Kept per conversation (an index into histstore::KEEP).
+static int loadHistKeep() { return nvs::getI8("mc_ui", "hkeep", -1); }
+static void saveHistKeep(int idx) { nvs::putI8("mc_ui", "hkeep", idx); }
+// Settings > Storage > Live map tiles: index into mapview::LIVE_CAP_MB, -1 = default.
+static int loadLiveCap() { return nvs::getI8("mc_ui", "ltcap", -1); }
+static void saveLiveCap(int idx) { nvs::putI8("mc_ui", "ltcap", idx); }
+// Settings > Display & power > Tap to wake: a touch turns the dark screen on
+// (off: only the top button does).
+static bool loadTapWake() { return nvs::getBool("mc_ui", "tapwake", true); }
+static void saveTapWake(bool on) { nvs::putBool("mc_ui", "tapwake", on); }
+// Messages: which sections are folded (bit per section).
+static int loadChatFold() { return nvs::getU8("mc_ui", "chfold", 0); }
+static void saveChatFold(int bits) { nvs::putU8("mc_ui", "chfold", bits); }
+// Home's apps: their letters in the user's order, a hidden one in lower case.
+static void loadHomeApps(char* out, size_t n) { nvs::getStr("mc_ui", "apps", out, n); }
+static void saveHomeApps(const char* v) { nvs::putStr("mc_ui", "apps", v); }
 
 }  // namespace lvport

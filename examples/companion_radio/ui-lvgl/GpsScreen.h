@@ -245,9 +245,7 @@ void UITask::buildGps() {
   lv_obj_set_style_pad_row(col, 2, 0);
   lv_obj_set_style_pad_top(col, 4, 0);
   s_status = label(col, "", THEME_FONT_LARGE, theme::TEXT);
-  s_used = label(col, "", THEME_FONT_BODY, theme::TEXT);
-  lv_label_set_long_mode(s_used, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_used, LV_PCT(100));
+  s_used = noteLabel(col, "", THEME_FONT_BODY, theme::TEXT);
   lv_obj_set_style_pad_bottom(s_used, 4, 0);
   lv_obj_t* facts = infoCard(col);   // no card of its own: rows on the page
   lv_obj_set_style_bg_opa(facts, LV_OPA_TRANSP, 0);

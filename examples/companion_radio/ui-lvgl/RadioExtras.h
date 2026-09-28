@@ -22,24 +22,6 @@ static uint8_t s_naming = N_PRESET;
 static int s_slot = -1;    // user preset slot the popup is about
 static int s_scope = -1;   // scope list index the popup is about
 
-static lv_obj_t* redButton(lv_obj_t* panel, const char* text, lv_event_cb_t cb, uint8_t act) {
-  lv_obj_t* b = lv_button_create(panel);
-  lv_obj_set_size(b, LV_PCT(100), 40);
-  lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(theme::FAIL), 0);
-  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void*)(uintptr_t)act);
-  lv_obj_center(label(b, text, THEME_FONT_BODY, theme::TEXT));
-  return b;
-}
-
-static lv_obj_t* note(lv_obj_t* parent, const char* text) {
-  lv_obj_t* t = label(parent, text, THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(t, LV_PCT(100));
-  return t;
-}
-
 }  // namespace radiox
 
 static void onPresetRow(lv_event_t* e)    { s_ui->presetMenu((int)(uintptr_t)lv_event_get_user_data(e)); }
@@ -86,9 +68,9 @@ void UITask::presetMenu(int slot) {
   char info[64];
   snprintf(info, sizeof(info), "%.3f MHz, SF%u, BW %g kHz, CR 4/%u", u.freq, (unsigned)u.sf, (double)u.bw, (unsigned)u.cr);
   label(panel, info, THEME_FONT_BODY, theme::TEXT);
-  lv_obj_t* acts = convview::actionRow(panel);
-  convview::actionButton(acts, LV_SYMBOL_OK " Use", onPresetAction, radiox::P_USE, true);
-  convview::actionButton(acts, LV_SYMBOL_TRASH " Delete", onPresetAction, radiox::P_DELETE, false);
+  lv_obj_t* acts = buttonBar(panel);
+  barButton(acts, LV_SYMBOL_OK " Use", onPresetAction, radiox::P_USE, true);
+  barButton(acts, LV_SYMBOL_TRASH " Delete", onPresetAction, radiox::P_DELETE, false);
 }
 
 void UITask::presetAction(uint8_t act) {
@@ -108,9 +90,8 @@ void UITask::presetAction(uint8_t act) {
     case P_DELETE: {
       char t[40];
       snprintf(t, sizeof(t), "Delete %s?", u.name);
-      lv_obj_t* panel = navPopupPanel(t, false);
-      note(panel, "Removes the saved preset. The radio settings stay as they are.");
-      redButton(panel, LV_SYMBOL_TRASH "  Delete", onPresetAction, P_DELETE_GO);
+      confirmBody(navPopupPanel(t, false), "Removes the saved preset. The radio settings stay as they are.",
+                  LV_SYMBOL_TRASH "  Delete", onPresetAction, P_DELETE_GO);
       break;
     }
     case P_DELETE_GO:
@@ -199,13 +180,13 @@ void UITask::scopeMenu(int idx) {
   radiox::s_scope = idx;
   bool def = idx == sl.default_idx;
   lv_obj_t* panel = navPopupPanel(idx == 0 ? "* (no scope)" : sl.name((uint8_t)idx), false);
-  if (def) radiox::note(panel, "This is the default: direct messages and relaying use it.");
+  if (def) noteLabel(panel, "This is the default: direct messages and relaying use it.");
   if (idx == 0 && def) return;   // nothing else to do with "*"
-  lv_obj_t* acts = convview::actionRow(panel);
-  if (!def) convview::actionButton(acts, LV_SYMBOL_OK " Default", onScopeAction, radiox::S_DEFAULT, true);
+  lv_obj_t* acts = buttonBar(panel);
+  if (!def) barButton(acts, LV_SYMBOL_OK " Default", onScopeAction, radiox::S_DEFAULT, true);
   if (idx > 0) {
-    convview::actionButton(acts, LV_SYMBOL_EDIT " Rename", onScopeAction, radiox::S_RENAME, false);
-    convview::actionButton(acts, LV_SYMBOL_TRASH " Delete", onScopeAction, radiox::S_DELETE, false);
+    barButton(acts, LV_SYMBOL_EDIT " Rename", onScopeAction, radiox::S_RENAME, false);
+    barButton(acts, LV_SYMBOL_TRASH " Delete", onScopeAction, radiox::S_DELETE, false);
   }
 }
 
@@ -227,9 +208,9 @@ void UITask::scopeAction(uint8_t act) {
       if (s_scope == 0) break;
       char t[40];
       snprintf(t, sizeof(t), "Delete %s?", sl.name((uint8_t)s_scope));
-      lv_obj_t* panel = navPopupPanel(t, false);
-      note(panel, "Channels using it go back to no scope. If it is the default, * becomes the default.");
-      redButton(panel, LV_SYMBOL_TRASH "  Delete", onScopeAction, S_DELETE_GO);
+      confirmBody(navPopupPanel(t, false),
+                  "Channels using it go back to no scope. If it is the default, * becomes the default.",
+                  LV_SYMBOL_TRASH "  Delete", onScopeAction, S_DELETE_GO);
       break;
     }
     case S_DELETE_GO:

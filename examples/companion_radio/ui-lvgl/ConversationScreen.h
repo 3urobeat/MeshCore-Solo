@@ -25,28 +25,6 @@ static bool s_login_wait = false;       // open the room once this login answers
 static lv_obj_t* s_fav_btn = nullptr;
 static int s_msg = -1;                  // s_msg_meta index the message popup is about
 
-static lv_obj_t* actionRow(lv_obj_t* panel) {
-  lv_obj_t* acts = lv_obj_create(panel);
-  styleSurface(acts, theme::BG);
-  lv_obj_remove_flag(acts, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(acts, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(acts, theme::GAP, 0);
-  return acts;
-}
-
-static lv_obj_t* actionButton(lv_obj_t* acts, const char* text, lv_event_cb_t cb, uint8_t act, bool on) {
-  lv_obj_t* bt = lv_button_create(acts);
-  lv_obj_set_height(bt, 40);
-  lv_obj_set_flex_grow(bt, 1);
-  lv_obj_set_style_pad_hor(bt, 4, 0);
-  lv_obj_set_style_radius(bt, theme::RADIUS, 0);
-  lv_obj_set_style_shadow_width(bt, 0, 0);
-  lv_obj_set_style_bg_color(bt, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
-  lv_obj_add_event_cb(bt, cb, LV_EVENT_CLICKED, (void*)(uintptr_t)act);
-  lv_obj_center(label(bt, text, THEME_FONT_SMALL, theme::TEXT));
-  return bt;
-}
 
 }  // namespace convview
 
@@ -172,13 +150,13 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
     lv_obj_set_width(st, LV_PCT(100));
   }
 
-  lv_obj_t* acts = actionRow(panel);
-  s_fav_btn = actionButton(acts, UI_SYMBOL_STAR " Fav", onConvAction, A_FAV, contactctl::favourite(ci));
-  if (!room && _core->dmUnread(ci.id.pub_key) > 0) actionButton(acts, LV_SYMBOL_OK " Read", onConvAction, A_READ, false);
-  actionButton(acts, UI_SYMBOL_PIN, onConvAction, A_PIN, favslots::findContact(_prefs, ci.id.pub_key) >= 0);
+  lv_obj_t* acts = buttonBar(panel);
+  s_fav_btn = barButton(acts, UI_SYMBOL_STAR " Fav", onConvAction, A_FAV, contactctl::favourite(ci));
+  if (!room && _core->dmUnread(ci.id.pub_key) > 0) barButton(acts, LV_SYMBOL_OK " Read", onConvAction, A_READ, false);
+  barButton(acts, UI_SYMBOL_PIN, onConvAction, A_PIN, favslots::findContact(_prefs, ci.id.pub_key) >= 0);
   if (room) {
-    actionButton(acts, LV_SYMBOL_EDIT " Login", onConvAction, A_LOGIN, false);
-    if (_core->rooms.isLoggedIn(ci.id.pub_key)) actionButton(acts, LV_SYMBOL_CLOSE " Logout", onConvAction, A_LOGOUT, false);
+    barButton(acts, LV_SYMBOL_EDIT " Login", onConvAction, A_LOGIN, false);
+    if (_core->rooms.isLoggedIn(ci.id.pub_key)) barButton(acts, LV_SYMBOL_CLOSE " Logout", onConvAction, A_LOGOUT, false);
   }
 }
 
@@ -196,7 +174,7 @@ void UITask::conversationAction(uint8_t act) {
     case A_FAV: {
       bool on = !contactctl::favourite(ci);
       if (!contactctl::setFavourite(ci.id.pub_key, on)) break;
-      if (s_fav_btn) lv_obj_set_style_bg_color(s_fav_btn, lv_color_hex(on ? theme::ACCENT_DIM : theme::SURFACE), 0);
+      if (s_fav_btn) barButtonOn(s_fav_btn, on);
       showToast(on ? "Added to favourites" : "Removed from favourites", 1200);
       if (_screen == SCR_CHATS) { buildChats(); conversationMenu(s_key); }   // star / filter
       break;
@@ -314,9 +292,8 @@ void UITask::messageMenu(int idx) {
   char when[64], age[16];
   uint32_t now = rtc_clock.getCurrentTime();
   geo::fmtAgeShort(age, sizeof(age), now, ts ? ts : now);
-  if (ts > 1000000000UL) {
-    time_t t = (time_t)((int64_t)ts + (int64_t)(_prefs ? _prefs->tz_offset_hours : 0) * 3600);
-    struct tm ti = *gmtime(&t);
+  struct tm ti;
+  if (localTime(_prefs, ti, ts)) {
     char clk[12];
     fmtClock(clk, sizeof(clk), ti, _prefs, true);
     if (clockBehind(now, ts)) {   // the clock isn't set yet: the date instead of an age
@@ -372,9 +349,9 @@ void UITask::messageMenu(int idx) {
 
   bool can_reply = !m.own && m.from[0] && _compose_ta;
   if (!can_reply && m.loc < 0) return;
-  lv_obj_t* acts = actionRow(panel);
-  if (can_reply) actionButton(acts, LV_SYMBOL_EDIT " Reply", onMsgAction, M_REPLY, false);
-  if (m.loc >= 0) actionButton(acts, UI_SYMBOL_COMPASS " Set target", onMsgAction, M_TARGET, false);
+  lv_obj_t* acts = buttonBar(panel);
+  if (can_reply) barButton(acts, LV_SYMBOL_EDIT " Reply", onMsgAction, M_REPLY, false);
+  if (m.loc >= 0) barButton(acts, UI_SYMBOL_COMPASS " Set target", onMsgAction, M_TARGET, false);
 }
 
 void UITask::messageAction(uint8_t act) {

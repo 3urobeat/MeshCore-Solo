@@ -105,9 +105,7 @@ void UITask::buildCompass() {
   s_deg = label(num, "", THEME_FONT_CLOCK, theme::TEXT);
   s_degsign = label(num, "", THEME_FONT_LARGE, theme::TEXT);
   s_card = label(col, "", THEME_FONT_LARGE, theme::ACCENT);
-  s_hint = label(col, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_label_set_long_mode(s_hint, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(s_hint, LV_PCT(100));
+  s_hint = noteLabel(col, "");
   lv_obj_set_style_text_align(s_hint, LV_TEXT_ALIGN_CENTER, 0);
   refreshCompass();
 }
