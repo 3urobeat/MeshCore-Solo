@@ -16,6 +16,7 @@
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
 #include "../ui-core/UiCoreHost.h"
+#include "../ui-core/ScreenLock.h"
 
 class UiCore;
 class NearbyModel;
@@ -458,13 +459,12 @@ private:
   uint16_t _batt_mv = 0;         // smoothed, read every 8 s: the status bar and the low-battery shutdown
   uint32_t _next_batt_ms = 0;
   lv_obj_t* _prune_lbl = nullptr;
-  // Screen PIN (DeviceScreen.h); stored in NVS (lvport::loadPin)
-  char      _pin[9] = "";          // "" = no PIN
+  // Screen PIN (DeviceScreen.h): a salted hash in NodePrefs (ui-core/ScreenLock.h)
+  bool pinSet() const { return _prefs && screenlock::isSet(*_prefs); }
   bool      _tap_wake = true;      // a touch wakes the dark screen (NVS)
   char      _pin_entry[9] = "";    // digits typed so far
   char      _pin_new[9] = "";      // setup: the first entry, waiting for its confirmation
-  uint8_t   _pin_fails = 0;
-  uint32_t  _pin_block_until = 0;  // millis() until which entry is refused after 5 misses
+  screenlock::Attempts _pin_tries;
 
   // Open conversation (SCR_THREAD)
   bool     _thread_is_channel = false;

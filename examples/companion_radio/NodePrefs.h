@@ -548,6 +548,14 @@ struct NodePrefs {  // persisted to file
   // ── Custom messages ────────────────────────────────────────────────────
   char custom_msgs[10][140];   // user-defined quick messages (supports {loc}, {time})
 
+  // ── Screen lock PIN (0xC0DE0031) ───────────────────────────────────────
+  // SHA-256 of salt + PIN (see ScreenLock.h); all zeros = no PIN. It locks the
+  // screen only: the radio and the app link keep working.
+  static const uint8_t LOCK_HASH_LEN = 32;
+  static const uint8_t LOCK_SALT_LEN = 16;
+  uint8_t lock_screen_password[LOCK_HASH_LEN];
+  uint8_t lock_screen_password_salt[LOCK_SALT_LEN];
+
   // Single source of truth for the live-share option tables (shared by the Map
   // UI labels and the auto-send engine in UITask).
   static const uint8_t LOC_SHARE_MOVE_COUNT = 4;
@@ -635,7 +643,7 @@ struct NodePrefs {  // persisted to file
   // repeat_* fields) instead of at the tail, which shifted every field after
   // them by 25 bytes when loading an older file. Never released, but a dev
   // build wrote it, so the number must not be reused for anything else.
-  static const uint32_t SCHEMA_SENTINEL = 0xC0DE0030;
+  static const uint32_t SCHEMA_SENTINEL = 0xC0DE0031;
 
   // Bit-index for each home page. Used by page_order (entries store bit+1) and
   // by home_pages_mask. Single source of truth — both HomeScreen::pageBit/bitToPage
@@ -819,7 +827,8 @@ static inline bool inQuietHours(const NodePrefs& p, uint32_t utc) {
 // quiet_hours / quiet_from / quiet_to (0xC0DE0030) added 8 bytes, not 3 (next
 // to buzzer_auto, rounded up to the alignment) -- sizeof 2832, confirmed via real
 // WioTrackerL1_companion_solo_dual (nRF52/ARM) and L2 (ESP32) builds.
-static_assert(sizeof(NodePrefs) == 2832,
+// lock_screen_password / _salt (0xC0DE0031) added 48 bytes -- sizeof 2880.
+static_assert(sizeof(NodePrefs) == 2880,
               "NodePrefs layout changed — sync DataStore save/load + clamp, bump "
               "SCHEMA_SENTINEL, then update this size (see steps above).");
 

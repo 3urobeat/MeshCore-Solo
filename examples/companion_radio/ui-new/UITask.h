@@ -23,6 +23,7 @@
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
 #include "../Trail.h"
+#include "../ui-core/ScreenLock.h"
 
 // Optional M5Stack CardKB (I2C keyboard, addr 0x5F). CARDKB_I2C names which
 // TwoWire it lives on -- set at file scope (not inside the class body, and
@@ -65,6 +66,9 @@ class UITask : public UITaskBase, public UiCoreHost {
   int  _lock_seq_count;            // Enter presses while Back held (lock/unlock sequence)
   unsigned long _lock_seq_ms;      // millis() of last lock-sequence press (for timeout)
   bool _lock_seq_used;             // true = suppress next back_btn CLICK (post-sequence release)
+  // True while the lock screen shows the on-screen keyboard and waits for submission
+  bool _unlock_kb = false;
+  screenlock::Attempts _pin_tries;
   char _alert[80];
   char _notif_mel_buf[220];  // persistent RTTTL buffer for custom notification melodies
   // Persistent RTTTL buffer for the bot !buzz command (see botBuzz()) -- sized
@@ -225,6 +229,13 @@ private:
   // dedicated lock-screen code path in loop().
   void syncLockToHome();
 
+  // Handles (un)locking and requesting password input when one is set
+  void toggleLock();
+  void beginUnlockPrompt();
+  void cancelUnlockPrompt();
+  // Handles shortcuts during lockscreen password input
+  void handleUnlockKey(char c);
+
   // Centred alert overlay (the showAlert() box). Wraps long text to up to
   // three lines inside the box instead of letting it overflow the border.
   // Shared by the normal render path and the lock screen (so a ringing
@@ -232,6 +243,9 @@ private:
   void renderAlertOverlay();
 
 public:
+  // A new screen PIN (see ui-core/ScreenLock.h); "" clears it. The caller saves the prefs.
+  void setNodeLockPassword(const char* plain);
+  bool passwordLockEnabled() const;
 
   UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial), _display(NULL), _sensors(NULL), _node_prefs(NULL) {
     next_batt_chck = _next_refresh = 0;
@@ -411,7 +425,7 @@ public:
 #endif
   }
 
-  bool isBuzzerQuiet() { 
+  bool isBuzzerQuiet() {
 #ifdef PIN_BUZZER
     return buzzer.isQuiet();
 #else

@@ -898,8 +898,15 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   buildStatusBar();
   applyDisplayPrefs();   // a slider percentage overrides the level main.cpp set
   showHome();
-  lvport::loadPin(_pin, sizeof(_pin));
-  if (_pin[0]) lockScreen();   // a reboot doesn't get round the PIN
+  // Before the PIN moved into NodePrefs it was kept in NVS in plain text.
+  char old_pin[9];
+  lvport::takeOldPin(old_pin, sizeof(old_pin));
+  if (old_pin[0] && _prefs && !pinSet()) {
+    screenlock::set(*_prefs, old_pin, the_mesh.getRNG());
+    the_mesh.savePrefs();
+  }
+  memset(old_pin, 0, sizeof(old_pin));
+  if (pinSet()) lockScreen();   // a reboot doesn't get round the PIN
   showSplash();                // over both; fades out by itself
 }
 
@@ -1175,7 +1182,7 @@ void UITask::sleep() {
   if (_display) _display->turnOff();
   prefsSaveSoon(0);   // nothing to stall now
   lvport::powerSave(true, _tap_wake);
-  if ((_prefs && _prefs->auto_lock) || _pin[0]) lockScreen();   // Lock screen, or a screen PIN
+  if ((_prefs && _prefs->auto_lock) || pinSet()) lockScreen();   // Lock screen, or a screen PIN
 }
 
 void UITask::wake() {
@@ -3212,7 +3219,7 @@ void UITask::buildSchemaSettings() {
       lv_obj_add_event_cb(tw, onTapWake, LV_EVENT_VALUE_CHANGED, NULL);
       g = group(body, "LOCK");
       schemaRow(g, SETTING(auto_lock));
-      listRow(g, "Screen PIN", _pin[0] ? "On  -  asked when the screen wakes" : "Off", onPinSetup, NULL);
+      listRow(g, "Screen PIN", pinSet() ? "On  -  asked when the screen wakes" : "Off", onPinSetup, NULL);
       accentRow(group(body, "LOOK"));   // DeviceScreen.h
       return;
     }

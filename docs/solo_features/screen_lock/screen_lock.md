@@ -63,3 +63,23 @@ Fully autonomous, independent of Auto-lock and of any key combo:
 
 - **Magnet near (cover closed)** — locks and blanks the display immediately, no wake grace.
 - **Magnet away (cover opened)** — unlocks and wakes the display right away.
+
+---
+
+### Lock PIN
+
+**Settings › Display › Lock PIN** asks for a PIN before the screen unlocks,
+also right after power-up, and when the magnet cover opens.
+
+- Enter on the row opens a number pad: type the PIN (at least 4 characters),
+  confirm with ✓, then type it again. The pad's keyboard key switches to the
+  normal keyboard for a PIN with letters.
+- Unlocking (Back + Enter three times, or opening the cover) shows the pad
+  with the input masked. A wrong PIN says how many tries are left; after 5 in
+  a row, entry pauses for 30 seconds.
+- Enter on the row again removes the PIN.
+
+The PIN is kept as a salted SHA-256 hash, never as the PIN itself. It locks
+the screen only: messages still arrive and the phone app still connects.
+On the Wio Tracker L2 it's **Settings › Display & power › Screen PIN**
+(digits only).

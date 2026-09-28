@@ -636,6 +636,12 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
   if (_prefs.quiet_from > 23) _prefs.quiet_from = 22;
   if (_prefs.quiet_to > 23) _prefs.quiet_to = 7;
 
+  // lock_screen_password / _salt: a salted SHA-256 of the screen PIN, all
+  // zeros = no PIN. An older file's sentinel bytes landing here are cleared
+  // below on the mismatch.
+  rd(_prefs.lock_screen_password, sizeof(_prefs.lock_screen_password));
+  rd(_prefs.lock_screen_password_salt, sizeof(_prefs.lock_screen_password_salt));
+
   // Schema sentinel: bumped on layout changes. Mismatch means an older file
   // (or a different schema); rd() and the clamps above already keep every
   // field within its valid range regardless, so we just log it here —
@@ -645,12 +651,18 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
   if (sentinel != NodePrefs::SCHEMA_SENTINEL) {
     MESH_DEBUG_PRINTLN("prefs schema sentinel mismatch: got 0x%08X, expected 0x%08X — re-saving on next change",
                        (unsigned)sentinel, (unsigned)NodePrefs::SCHEMA_SENTINEL);
+    // 0xC0DE0030 → 0xC0DE0031: the lock-screen PIN appended; from an older
+    // file it holds its sentinel's bytes, which would read as a PIN nobody knows.
+    if (sentinel < 0xC0DE0031) {
+      memset(_prefs.lock_screen_password, 0, sizeof(_prefs.lock_screen_password));
+      memset(_prefs.lock_screen_password_salt, 0, sizeof(_prefs.lock_screen_password_salt));
+    }
     // 0xC0DE002F → 0xC0DE0030: quiet hours appended; from an older file they
     // hold its sentinel's bytes, so start off, 22:00-07:00.
     if (sentinel < 0xC0DE0030) { _prefs.quiet_hours = 0; _prefs.quiet_from = 22; _prefs.quiet_to = 7; }
     // 0xC0DE002E → 0xC0DE002F: display_brightness_pct appended; from an older
     // file it holds a stray sentinel byte (0x2E = "46 %"), so start from the level.
-    _prefs.display_brightness_pct = 0;
+    if (sentinel < 0xC0DE002F) _prefs.display_brightness_pct = 0;
     // 0xC0DE002A (v1.27) → 0xC0DE002B: repeat_extra_scope_mask + ch_scope_idx
     // appended. Unlike the range-clamped fields, these can't be left with whatever
     // stray bytes rd() picked up from a pre-0x2B file's own sentinel tail:
@@ -843,6 +855,8 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.quiet_hours, sizeof(_prefs.quiet_hours));
     file.write((uint8_t *)&_prefs.quiet_from, sizeof(_prefs.quiet_from));
     file.write((uint8_t *)&_prefs.quiet_to, sizeof(_prefs.quiet_to));
+    file.write((uint8_t *)_prefs.lock_screen_password, sizeof(_prefs.lock_screen_password));
+    file.write((uint8_t *)_prefs.lock_screen_password_salt, sizeof(_prefs.lock_screen_password_salt));
 
     // Tail sentinel — must be last. See NodePrefs::SCHEMA_SENTINEL. Its write is
     // the one we check: once the flash fills, writes return 0, so a good

@@ -70,7 +70,9 @@ class SettingsScreen : public UIScreen {
     SCHEMA_MESSAGES,
     MSG_SLOT_0, MSG_SLOT_1, MSG_SLOT_2, MSG_SLOT_3, MSG_SLOT_4,
     MSG_SLOT_5, MSG_SLOT_6, MSG_SLOT_7, MSG_SLOT_8, MSG_SLOT_9,
-    Count
+    Count,
+    // Not walked from the enum: placed right after the schema's "Lock screen" row.
+    LOCK_PIN
   };
   // A schema setting's row: SCHEMA_ITEM + its index in settings::ALL.
   static const int SCHEMA_ITEM = 128;
@@ -161,8 +163,11 @@ class SettingsScreen : public UIScreen {
         _sec_count[cur]  = 0;
       } else if (cur >= 0 && isSchemaGroup(i)) {
         for (int k = 0; k < settings::COUNT && _sec_count[cur] < MAX_PER_SEC; k++)
-          if (schemaIn(i, settings::ALL[k].section) && schemaShown(settings::ALL[k]))
+          if (schemaIn(i, settings::ALL[k].section) && schemaShown(settings::ALL[k])) {
             _sec_items[cur][_sec_count[cur]++] = (uint8_t)(SCHEMA_ITEM + k);
+            if (settings::ALL[k].offset == offsetof(NodePrefs, auto_lock) && _sec_count[cur] < MAX_PER_SEC)
+              _sec_items[cur][_sec_count[cur]++] = (uint8_t)LOCK_PIN;
+          }
       } else if (cur >= 0 && _sec_count[cur] < MAX_PER_SEC) {
         _sec_items[cur][_sec_count[cur]++] = (uint8_t)i;
       }
@@ -213,6 +218,11 @@ class SettingsScreen : public UIScreen {
   // A schema setting: its short label, the value in the value column (a
   // switch as ON / OFF, brightness and volume as bars). A value too long for
   // the column starts further left, clear of the label, else scrolls.
+  void beginPinEntry(const char* prompt) {
+    _kb->beginPin("", KeyboardWidget::PIN_MAX_LEN, false, prompt);
+    _kb->clearPlaceholders();   // a PIN is literal, not a template message
+  }
+
   int renderSchema(DisplayDriver& display, const settings::Setting& st, NodePrefs* p, int y, bool sel) {
     const char* label = settings::shortLabel(st);
     display.print(label);
@@ -545,6 +555,10 @@ class SettingsScreen : public UIScreen {
       int r = display.drawTextEllipsized(vx, y, display.width() - vx - _reserve,
                                   sl.name(sl.default_idx), sel);
       if (sel && r > 0) mq_delay = r;
+    } else if (item == LOCK_PIN) {
+      display.print("Lock PIN");
+      display.setCursor(valCol(display), y);
+      display.print(_task->passwordLockEnabled() ? "ON" : "OFF");
     } else if (item == DEVICE_NAME) {
       display.print("Name");
       int vx = valCol(display);
@@ -620,6 +634,8 @@ class SettingsScreen : public UIScreen {
   // Keyboard state for editing message slots
   int            _edit_slot = -1;  // -1 = not editing, 0..9 = slot being edited
   bool           _edit_name = false;  // editing DEVICE_NAME via the keyboard
+  bool           _edit_lock_pass = false; // setting the screen PIN via the keyboard
+  char           _lock_pass_first[KeyboardWidget::PIN_MAX_LEN + 1] = "";   // the first entry, awaiting its repeat
   KeyboardWidget* _kb;
 
   // Scope list management (SCOPE_NAME row -> a full-screen add/rename/
@@ -691,6 +707,8 @@ public:
     _scope_action_menu.active = false;
     _scope_delete_confirm_active = false;
     _prune_confirm.active = false;
+    _edit_lock_pass = false;
+    _lock_pass_first[0] = '\0';
     resetList();
     _editor.freq.active = false;
   }
@@ -698,7 +716,7 @@ public:
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
 
-    if (_edit_slot >= 0 || _edit_name || _scope_rename_idx != -2 || _picker.saving) {
+    if (_edit_slot >= 0 || _edit_name || _edit_lock_pass || _scope_rename_idx != -2 || _picker.saving) {
       return _kb->render(display);
     }
 
@@ -762,6 +780,36 @@ public:
         _edit_name = false;
       } else if (res == KeyboardWidget::CANCELLED) {
         _edit_name = false;
+      }
+      return true;
+    }
+
+    // Keyboard editing mode for the lock-screen password
+    if (_edit_lock_pass) {
+      auto res = _kb->handleInput(c);
+      if (res == KeyboardWidget::DONE) {
+        // Entered twice: a typo here would lock the owner out.
+        if (strlen(_kb->buf) < 4) {
+          _kb->pin_prompt = "Min 4";
+        } else if (!_lock_pass_first[0]) {
+          strncpy(_lock_pass_first, _kb->buf, sizeof(_lock_pass_first) - 1);
+          _lock_pass_first[sizeof(_lock_pass_first) - 1] = '\0';
+          beginPinEntry("Again");
+        } else if (strcmp(_lock_pass_first, _kb->buf) != 0) {
+          _lock_pass_first[0] = '\0';
+          beginPinEntry("No match");
+        } else {
+          if (p) {
+            _task->setNodeLockPassword(_kb->buf);
+            the_mesh.savePrefs();   // now, not on leaving: a PIN must survive a power-off right after
+          }
+          _edit_lock_pass = false;
+          _lock_pass_first[0] = '\0';
+          _task->showAlert("PIN set", 900);
+        }
+      } else if (res == KeyboardWidget::CANCELLED) {
+        _edit_lock_pass = false;
+        _lock_pass_first[0] = '\0';
       }
       return true;
     }
@@ -972,6 +1020,19 @@ public:
       p->tx_apc ^= 1;
       _task->applyApc();
       _dirty = true;
+      return true;
+    }
+    // Lock PIN: Enter sets one, or clears the one set
+    if (_selected == LOCK_PIN && p && enter) {
+      if (_task->passwordLockEnabled()) {
+        _task->setNodeLockPassword("");
+        the_mesh.savePrefs();
+        _task->showAlert("PIN cleared", 900);
+      } else {
+        _edit_lock_pass = true;
+        _lock_pass_first[0] = '\0';
+        beginPinEntry("New PIN");
+      }
       return true;
     }
     if (_selected == DEVICE_NAME && p && enter) {

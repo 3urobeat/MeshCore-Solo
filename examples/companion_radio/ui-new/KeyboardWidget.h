@@ -44,6 +44,17 @@ static const char* const KB_T9_GROUPS[KB_PAGES][9] = {
   { "@#&", "*()", "-_+", "=/\\", ":;'\"", "<>[]", "{}|~", "^$%`", ",." },  // page 1 — symbols
 };
 
+// PIN input layout: Classic number pad
+static const int KB_PIN_ROWS     = 4;
+static const int KB_PIN_COLS     = 3;
+static const int KB_PIN_SPECIAL  = 3;   // backspace, abc kb switch & submit
+static const char KB_PIN_DIGITS[KB_PIN_ROWS][KB_PIN_COLS] = {
+  {'1','2','3'},
+  {'4','5','6'},
+  {'7','8','9'},
+  {' ','0',' '},
+};
+
 // Non-Latin keyboard scripts. NodePrefs::keyboard_main_alphabet/
 // keyboard_alt_alphabet (Settings > Keyboard's Main/Additional rows) pick
 // which script occupies page 0 (the keyboard's default/opening page) and
@@ -250,6 +261,12 @@ struct KeyboardWidget {
   bool accent_active = false;   // true while the Hold-Enter accent popup is open
   int  accent_group  = -1;      // index into KB_ACCENT_VARIANTS for the held cell's base letter
   int  accent_sel    = 0;       // selected variant within that group
+  bool pin_kb_mask_enabled = false; // Whether pin keyboard should mask input
+  // The number pad (beginPin) instead of the user's ABC / T9 layout; its ABC
+  // key drops back to that layout for a password with letters.
+  bool pin_mode = false;
+  const char* pin_prompt = nullptr;   // e.g. "New PIN", shown in the preview; kept past the ABC switch
+  static const int PIN_MAX_LEN = 16;
   int  row, col;
   int  page;        // see totalPages()/scriptAt()/pageIsSymbols() below
   bool caps;
@@ -289,6 +306,7 @@ struct KeyboardWidget {
   // to ABC and mainScript()/altScript() default to Latin-only.
   NodePrefs* prefs = nullptr;
   bool isT9() const { return prefs && prefs->keyboard_type == 1; }
+  bool isPin() const { return pin_mode; }
   // Which script occupies page 0 (the keyboard's default/opening page) and
   // which occupies page 1 (reached by the #@/abc cycle key) -- Settings >
   // Keyboard's Main/Additional rows. Additional equal to Main collapses to no
@@ -310,8 +328,8 @@ struct KeyboardWidget {
   // lowercase regardless of Shift.
   bool     t9_caps = false;
 
-  int gridRows() const { return isT9() ? KB_T9_ROWS : KB_ROWS_CHAR; }
-  int gridCols() const { return isT9() ? KB_T9_COLS : KB_COLS_CHAR; }
+  int gridRows() const { return isPin() ? KB_PIN_ROWS : (isT9() ? KB_T9_ROWS : KB_ROWS_CHAR); }
+  int gridCols() const { return isPin() ? KB_PIN_COLS : (isT9() ? KB_T9_COLS : KB_COLS_CHAR); }
 
   // ── Page model ────────────────────────────────────────────────────────────
   // Logical page order: 0 = mainScript(), [1 = altScript(), if it differs],
@@ -390,6 +408,9 @@ struct KeyboardWidget {
     page = 0;
     caps = false;
     caps_lock = false;
+    pin_kb_mask_enabled = false;
+    pin_mode = false;
+    pin_prompt = nullptr;
     t9_cell = -1;
     t9_cycle = 0;
     _ph_menu.active = false;
@@ -400,6 +421,14 @@ struct KeyboardWidget {
     _ph_count = 0;
     addPlaceholder("{loc}");
     addPlaceholder("{time}");
+  }
+
+  // Open keyboard in PIN mode
+  void beginPin(const char* initial = "", int max = PIN_MAX_LEN, bool mask = false, const char* prompt = nullptr) {
+    begin(initial, max);
+    pin_mode = true;
+    pin_prompt = prompt;
+    pin_kb_mask_enabled = mask; // Mask input of number field
   }
 
   // Insert one UTF-8 codepoint (a grid cell's own glyph, or a picked accent
@@ -568,11 +597,28 @@ struct KeyboardWidget {
       } else {
         linebuf[0] = '\0';
       }
+      // Mask input when pin_kb_mask is enabled
+      if (pin_kb_mask_enabled) {
+        char masked[KB_PREVIEW_BYTES + 2];
+        int mi = 0;
+        int blen = (int)strlen(linebuf);
+        for (int bi = 0; bi < blen; ) {
+          int u = kbUtf8CharBytesAt(linebuf, bi, blen);
+          masked[mi++] = (u == 1 && linebuf[bi] == '_') ? '_' : '*';
+          bi += u;
+        }
+        masked[mi] = '\0';
+        strncpy(linebuf, masked, sizeof(linebuf));
+      }
       char linebuf_t[KB_PREVIEW_BYTES + 2];
       display.translateUTF8ToBlocks(linebuf_t, linebuf, sizeof(linebuf_t));
       display.setCursor(0, pl * lh);
       display.print(linebuf_t);
       ps = pe;
+    }
+    if (pin_prompt) {   // what the PIN is for, bottom-right of the preview (alerts don't show over the keyboard)
+      display.setCursor(display.width() - display.getTextWidth(pin_prompt), (prev_lines - 1) * lh);
+      display.print(pin_prompt);
     }
     display.fillRect(0, sep_y, display.width(), display.sepH());
 
@@ -589,6 +635,41 @@ struct KeyboardWidget {
       display.setColor(DisplayDriver::LIGHT);
       display.drawTextCentered(display.width() / 2, chars_y + hh + 2, "L/R move");
       display.drawTextCentered(display.width() / 2, chars_y + hh + 2 + lh, "U/D start/end");
+      return 50;
+    }
+
+    // PIN mode
+    if (isPin()) {
+      const int s = miniIconScale(display);
+      for (int r = 0; r < rows; r++) {
+        int y = chars_y + r * cell_h;
+        for (int c = 0; c < cols; c++) {
+          bool sel = (row == r && col == c);
+          int cx = c * cell_w;
+          display.drawSelectionRow(cx, y - 1, cell_w - 1, cell_h, sel);
+          char ch = KB_PIN_DIGITS[r][c];
+          if (ch == ' ') continue;   // blank cells beside 0
+          char ch_buf[2];
+          ch_buf[0] = ch;
+          ch_buf[1] = '\0';
+          int tw = display.getTextWidth(ch_buf);
+          display.setCursor(cx + (cell_w - tw) / 2, y);
+          display.print(ch_buf);
+        }
+      }
+      // special row with backspace, abc kb switch & submit
+      const int psw = display.width() / KB_PIN_SPECIAL;
+      const int icy = spec_y + (cell_h - lh) / 2;
+      for (int i = 0; i < KB_PIN_SPECIAL; i++) {
+        bool sel = (row == rows && col == i);
+        int sx = i * psw;
+        display.drawSelectionRow(sx, spec_y - 1, psw - 1, cell_h, sel);
+        const MiniIcon& ic = (i == 0) ? ICON_BACKSPACE
+                           : (i == 1) ? ICON_KEYBOARD
+                                      : ICON_CHECK;
+        int ix = sx + (psw - ic.w * s) / 2;
+        miniIconDraw(display, ix, icy, ic);
+      }
       return 50;
     }
 
@@ -755,7 +836,7 @@ struct KeyboardWidget {
   // just fine -- so this only checks that no other exclusive input mode
   // (popup/cursor-move) is already in progress, same as inPlainGridState().
   bool openAccentFor(char base) {
-    if (!isVisible() || _ph_menu.active || cursor_mode || accent_active) return false;
+    if (!isVisible() || isPin() || _ph_menu.active || cursor_mode || accent_active) return false;
     int gi = findAccentGroup(base);
     if (gi < 0) return false;
     accent_active = true;
@@ -869,6 +950,70 @@ struct KeyboardWidget {
     }
     if (c >= 0x20 && c <= 0x7E) {
       insertTyped(c);
+      return NONE;
+    }
+
+    // PIN mode: a dedicated numeric keypad
+    if (isPin()) {
+      const int rows = gridRows();
+      const int cols = gridCols();
+      if (c == KEY_CONTEXT_MENU) {
+        if (row == rows && col == 0) {          // Backspace
+          len = 0; buf[0] = '\0';
+          cursor_pos = 0;
+          t9_cell = -1;
+        }
+        return NONE;
+      }
+      if (c == KEY_UP)   {                      // Navigation
+        row = (row > 0) ? row - 1 : rows;
+        return NONE;
+      }
+      if (c == KEY_DOWN) {
+        row = (row < rows) ? row + 1 : 0;
+        return NONE;
+      }
+      if (c == KEY_LEFT) {
+        int max_col = (row == rows) ? KB_PIN_SPECIAL - 1 : cols - 1;
+        col = (col > 0) ? col - 1 : max_col;
+        return NONE;
+      }
+      if (c == KEY_RIGHT) {
+        int max_col = (row == rows) ? KB_PIN_SPECIAL - 1 : cols - 1;
+        col = (col < max_col) ? col + 1 : 0;
+        return NONE;
+      }
+      if (c == KEY_ENTER) {
+        if (row < rows) {
+          char d = KB_PIN_DIGITS[row][col];
+          if (d == ' ') return NONE;          // ignore blanks
+          if (len < max_len) {                // Digit
+            memmove(buf + cursor_pos + 1, buf + cursor_pos, len - cursor_pos);
+            buf[cursor_pos] = d;
+            len++; cursor_pos++;
+            buf[len] = '\0';
+          }
+          return NONE;
+        }
+        // special row
+        if (col == 0) {
+          t9_cell = -1;
+          if (cursor_pos > 0) {
+            int n = kbUtf8LastCharBytes(buf, cursor_pos);
+            memmove(buf + cursor_pos - n, buf + cursor_pos, len - cursor_pos);
+            len -= n; cursor_pos -= n;
+            buf[len] = '\0';
+          }
+        } else if (col == 1) {
+          pin_mode = false;   // ABC switch: the user's own layout
+          row = col = 0;
+          page = 0;
+          t9_cell = -1;
+        } else {
+          return DONE;                           // Submit
+        }
+        return NONE;
+      }
       return NONE;
     }
 

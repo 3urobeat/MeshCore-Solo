@@ -4,7 +4,7 @@
 //  - lock screen (Settings > Display & power > Lock screen, NodePrefs::auto_lock):
 //    once the screen turns off, waking shows a clock card and nothing reacts
 //    until "slide to unlock" -- against touches in a pocket; with a screen PIN
-//    (NVS, lvport::loadPin) the card always comes up, also after a reboot, and
+//    (NodePrefs, ui-core/ScreenLock.h) the card always comes up, also after a reboot, and
 //    asks for the PIN on a keypad instead of the slider;
 //  - favourites dial (Home > Favourites, NodePrefs::favourite_contacts): six
 //    slots holding a contact, room or channel; tap opens it, hold changes /
@@ -24,8 +24,6 @@ static lv_obj_t* s_lock_slider = nullptr;
 static lv_obj_t* s_pin_dots = nullptr;    // lock card / setup popup: one dot per digit typed
 static lv_obj_t* s_pin_msg = nullptr;     // "Wrong PIN" / "Try again in 30 s" / setup step
 static const uint8_t PIN_MIN = 4, PIN_MAX = 8;
-static const uint8_t PIN_TRIES = 5;       // misses before a pause
-static const uint32_t PIN_PAUSE_MS = 30000;
 static const char* const PIN_MAP[] = { "1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n",
                                        LV_SYMBOL_BACKSPACE, "0", LV_SYMBOL_OK, "" };
 
@@ -174,7 +172,7 @@ void UITask::lockScreen() {
   lv_obj_set_flex_align(s_lock, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_top(s_lock, 18, 0);
   lv_obj_set_style_pad_row(s_lock, 4, 0);
-  if (_pin[0]) {   // compact card: the time and unread on one line, the keypad below
+  if (pinSet()) {   // compact card: the time and unread on one line, the keypad below
     lv_obj_set_style_pad_top(s_lock, 4, 0);
     lv_obj_set_style_pad_row(s_lock, 2, 0);
     lv_obj_t* top = lv_obj_create(s_lock);
@@ -297,9 +295,9 @@ void UITask::refreshLock() {
     if (unread > 0) lv_label_set_text_fmt(s_lock_unread, LV_SYMBOL_ENVELOPE " %d", unread);
     else lv_label_set_text(s_lock_unread, "");
     if (!s_pin_msg) return;
-    int32_t left = (int32_t)(_pin_block_until - millis());
-    if (_pin_block_until && left > 0) lv_label_set_text_fmt(s_pin_msg, "Too many tries - wait %ld s", (long)((left + 999) / 1000));
-    else if (_pin_block_until) { _pin_block_until = 0; lv_label_set_text(s_pin_msg, "Enter PIN"); }
+    bool was = _pin_tries.block_until != 0;
+    if (_pin_tries.blocked()) lv_label_set_text_fmt(s_pin_msg, "Too many tries - wait %lu s", (unsigned long)_pin_tries.secondsLeft());
+    else if (was) lv_label_set_text(s_pin_msg, "Enter PIN");
     else if (!lv_label_get_text(s_pin_msg)[0]) lv_label_set_text(s_pin_msg, "Enter PIN");
     return;
   }
@@ -309,28 +307,28 @@ void UITask::refreshLock() {
 
 // ── Screen PIN ────────────────────────────────────────────────────────────────
 
-// Lock card keypad: the PIN unlocks as soon as it's complete (OK checks a
-// shorter entry); five misses pause entry for 30 s.
+// Lock card keypad: the PIN unlocks as soon as it matches (from 4 digits on;
+// only its hash is kept, so not its length); OK or a full 8 digits that
+// don't match count a miss, and five misses pause entry for 30 s.
 void UITask::pinKey(const char* key) {
   using namespace devview;
-  if (!s_lock || !_pin[0]) return;
-  if (_pin_block_until && (int32_t)(_pin_block_until - millis()) > 0) return;
+  if (!s_lock || !pinSet()) return;
+  if (_pin_tries.blocked()) return;
   bool ok = pinEdit(_pin_entry, key);
   size_t n = strlen(_pin_entry);
-  if (!ok && n < strlen(_pin)) {
+  if (n >= PIN_MIN && screenlock::check(*_prefs, _pin_entry)) { _pin_tries.ok(); unlockScreen(); return; }
+  if (!ok && n < PIN_MAX) {
     if (n && s_pin_msg) lv_label_set_text(s_pin_msg, "Enter PIN");
     return;
   }
   if (!n) return;
-  if (!strcmp(_pin_entry, _pin)) { _pin_fails = 0; unlockScreen(); return; }
   _pin_entry[0] = '\0';
   showDots(_pin_entry);
-  if (++_pin_fails >= PIN_TRIES) {
-    _pin_fails = 0;
-    _pin_block_until = (millis() + PIN_PAUSE_MS) | 1;
+  if (_pin_tries.miss()) {
     refreshLock();
   } else if (s_pin_msg) {
-    lv_label_set_text_fmt(s_pin_msg, "Wrong PIN - %d tr%s left", PIN_TRIES - _pin_fails, PIN_TRIES - _pin_fails == 1 ? "y" : "ies");
+    int left = _pin_tries.left();
+    lv_label_set_text_fmt(s_pin_msg, "Wrong PIN - %d tr%s left", left, left == 1 ? "y" : "ies");
   }
 }
 
@@ -339,10 +337,10 @@ void UITask::pinKey(const char* key) {
 void UITask::pinSetupPopup() {
   using namespace devview;
   _pin_entry[0] = _pin_new[0] = '\0';
-  lv_obj_t* panel = navPopupPanel(_pin[0] ? "Change PIN" : "Set screen PIN", true);
+  lv_obj_t* panel = navPopupPanel(pinSet() ? "Change PIN" : "Set screen PIN", true);
   lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(panel, 2, 0);
-  if (_pin[0]) {   // next to the close button
+  if (pinSet()) {   // next to the close button
     lv_obj_t* l;
     headerButton(lv_obj_get_child(panel, 0), LV_SYMBOL_TRASH " Remove", onPinRemove, 44, &l);
     lv_obj_set_style_text_color(l, lv_color_hex(theme::FAIL), 0);
@@ -369,8 +367,10 @@ void UITask::pinSetupKey(const char* key) {
     lv_label_set_text(s_pin_msg, "Didn't match - new PIN again");
     return;
   }
-  strcpy(_pin, _pin_new);
-  lvport::savePin(_pin);
+  if (_prefs) {
+    screenlock::set(*_prefs, _pin_new, the_mesh.getRNG());
+    the_mesh.savePrefs();
+  }
   _pin_new[0] = _pin_entry[0] = '\0';
   navClosePopup();
   showToast("PIN set - asked each time the screen wakes", 3000);
@@ -378,8 +378,10 @@ void UITask::pinSetupKey(const char* key) {
 }
 
 void UITask::pinRemove() {
-  _pin[0] = '\0';
-  lvport::savePin("");
+  if (_prefs) {
+    screenlock::clear(*_prefs);
+    the_mesh.savePrefs();
+  }
   navClosePopup();
   showToast("PIN removed");
   pinRowRefresh();
