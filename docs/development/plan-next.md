@@ -43,9 +43,12 @@ found the interference source (noise floor with the board's parts off one by
 one, the 850-930 MHz and mesh-channel sweeps, the spike hunt, the 15 s states
 for a second radio). They are L2-specific and block the loop for ~90 s.
 
-- [ ] Decide: remove them, or keep one universal tool (for example a noise
+- [x] Decide: remove them, or keep one universal tool (for example a noise
       floor sweep round the mesh frequency that works on any board) and drop
-      the L2 part toggling and spike hunt.
+      the L2 part toggling and spike hunt. Done: one universal Measure (the
+      floor on the mesh frequency + a +-1.1 MHz sweep, ~12 s, a legend under
+      it); the L2-only tests are gone. Left for stage F: the L2 board's
+      setGrovePower / setSdPower, now unused.
 
 ## D. Quiet hours in the core
 
@@ -104,6 +107,5 @@ it; implement the tiers, docs and website after the merge.
 
 ## Open decisions
 
-- C: remove the noise tests or keep a universal version.
 - D: alarm during quiet hours; messages waking the screen.
 - I: tier spec before stage F, or after the merge.

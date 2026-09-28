@@ -1,12 +1,12 @@
 #pragma once
 // Settings > Diagnostics -- ui-new's Tools > Diagnostics. Tabs Live / System /
-// Font; the rows come from ui-core/Diagnostics.h. Live refreshes every second
+// Font / Noise; the rows come from ui-core/Diagnostics.h. Live refreshes every second
 // and its header button resets the counters (after a confirm).
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after DeviceScreen.h.
 
-#if defined(SEEED_WIO_TRACKER_L2)
-extern RADIO_CLASS radio;   // variants/wio-tracker-l2/target.cpp (the noise sweep retunes it)
+#ifndef SIM_PLATFORM
+extern RADIO_CLASS radio;   // the variant's target.cpp (the noise sweep retunes it)
 #endif
 
 namespace diagview {
@@ -120,55 +120,16 @@ static lv_obj_t* pairLine(lv_obj_t* card, const char* name, lv_obj_t** in, lv_ob
   return r;
 }
 
-// Noise tab: the LoRa noise floor measured with the board's parts turned off
-// one at a time -- which of them is the one raising it (the L2 read ~25 dB
-// above the L1). Blocking, ~90 s: the main loop doesn't run meanwhile, so the
-// screen isn't redrawn and only what runs by itself is measured.
-enum : uint8_t { N_BL = 1, N_TOUCH = 2, N_GNSS = 4, N_GROVE = 8, N_CPU = 16, N_LCD = 32, N_SD = 64, N_SLEEP = 128 };
-struct NoiseStep { const char* name; uint8_t off; };
-static const NoiseStep NOISE_STEPS[] = {
-  { "Everything on", 0 },   { "Backlight off", N_BL }, { "Touch asleep", N_TOUCH },
-  { "Panel asleep", N_LCD }, { "GPS off", N_GNSS },    { "Grove port off", N_GROVE },
-  { "CPU at 80 MHz", N_CPU },
-  { "All of these off", N_BL | N_TOUCH | N_GNSS | N_GROVE | N_CPU | N_LCD },
-};
-// Then two sweeps: 850-930 MHz 1 MHz apart, and the mesh's frequency +-1.1
-// MHz 25 kHz apart. Flat is broadband noise (a power supply, the front end);
-// a spike is some clock's harmonic landing there.
+// Noise tab: how much the radio hears with nothing on air, on any board --
+// the floor on the mesh's frequency now (the median of 5 s of readings, and
+// the 10th percentile, which a packet can't lift), then a sweep of +-1.1 MHz
+// round it. A floor well above ~-115 dBm, flat across the sweep, is broadband
+// noise (a power supply, a charger); a spike is some clock's harmonic landing
+// there. Blocking, ~12 s. (The L2's noise was found this way: its I2S clock,
+// now stopped between sounds.)
 struct Sweep { float f0, step; int n; int16_t v[96]; };
-static Sweep s_wide = { 850.0f, 1.0f, 81, {} };
 static Sweep s_near = { 0, 0.025f, 91, {} };
-// Then +-125 kHz around the loudest of those, 5 kHz apart with the receiver
-// narrowed to 7.8 kHz: where exactly the spike is, and how wide.
-static Sweep s_zoom = { 0, 0.005f, 51, {} };
-static const int NOISE_N = sizeof(NOISE_STEPS) / sizeof(NOISE_STEPS[0]);
-// For a second radio next to this one (its noise floor read by eye): each
-// state held 15 s. The L2 radiates the noise (an L1 beside it read -96 dBm
-// instead of -108 with the L2 off), and is quiet in its bootloader.
-static const NoiseStep DETECT_STEPS[] = {
-  { "Everything on", 0 },    { "Backlight off", N_BL },    { "Panel asleep", N_LCD },
-  { "Touch asleep", N_TOUCH }, { "GPS off", N_GNSS },      { "SD card off", N_SD },
-  { "Grove port off", N_GROVE }, { "CPU at 80 MHz", N_CPU }, { "CPU light sleep", N_SLEEP },
-  { "All but sleep off", N_BL | N_LCD | N_TOUCH | N_GNSS | N_SD | N_GROVE | N_CPU },
-  { "Everything on again", 0 },
-};
-static const int DETECT_N = sizeof(DETECT_STEPS) / sizeof(DETECT_STEPS[0]);
-static const uint32_t DETECT_HOLD_MS = 15000;
-static void onDetectRun(lv_event_t* e) { (void)e; s_ui->diagNoiseDetect(); }
-// Spike hunt: one clean line (869.633 MHz, 10 kHz wide) sits in the mesh's
-// channel, from the ESP32 while awake. One frequency doesn't name the clock;
-// the spacing of its neighbours does (a clock's harmonics are a comb). So
-// 864-876 MHz 5 kHz apart through a 7.8 kHz receiver, and the lines standing
-// out of the floor listed.
-static const float HUNT_F0 = 864.0f, HUNT_STEP = 0.005f;
-static const int HUNT_N = 2401;
-static const int HUNT_MAX = 16;
-struct Spike { float f; int16_t dbm; };
-static Spike s_spikes[HUNT_MAX];
-static int s_spike_n = -1;          // -1: not run
-static int16_t s_hunt_floor = 0;
-static void onSpikeHunt(lv_event_t* e) { (void)e; s_ui->diagSpikeHunt(); }
-static int16_t s_noise_med[NOISE_N], s_noise_lo[NOISE_N];
+static int16_t s_floor_med = 0, s_floor_lo = 0;
 static bool s_noise_have = false;
 static bool s_noise_usb = false;
 static lv_obj_t* s_noise_status = nullptr;
@@ -203,37 +164,13 @@ static void plotSweep(lv_obj_t* list, const char* title, const Sweep& sw, float 
   }
   lv_obj_t* card = infoCard(list);
   char v[40];
-  const int prec = sw.step < 0.01f ? 4 : (sw.step < 1 ? 3 : 0);
-  snprintf(v, sizeof(v), "%.*f MHz: %d dBm", prec, sw.f0 + sw.step * lo, sw.v[lo]);
+  snprintf(v, sizeof(v), "%.3f MHz: %d dBm", sw.f0 + sw.step * lo, sw.v[lo]);
   infoRow(card, "Quietest", v);
-  snprintf(v, sizeof(v), "%.*f MHz: %d dBm", prec, sw.f0 + sw.step * hi, sw.v[hi]);
+  snprintf(v, sizeof(v), "%.3f MHz: %d dBm", sw.f0 + sw.step * hi, sw.v[hi]);
   infoRow(card, "Loudest", v);
-  if (mesh_i >= 0 && mesh_i < sw.n) {
-    snprintf(v, sizeof(v), "%.*f MHz: %d dBm", prec, sw.f0 + sw.step * mesh_i, sw.v[mesh_i]);
-    infoRow(card, "Mesh frequency", v);
-  }
 }
 
-#if defined(SEEED_WIO_TRACKER_L2)
-// Only what changes from `prev` is touched: GPS power back on means its
-// reset, touch wake a pulse on its line.
-static void noiseApply(uint8_t off, uint8_t prev, bool gnss_was_on, uint32_t cpu_mhz, uint8_t bright) {
-  uint8_t ch = off ^ prev;
-  if (ch & N_LCD) {   // the controller's sleep: its oscillator and charge pumps stop
-    if (off & N_LCD) display.lgfxDevice()->sleep();
-    else { display.lgfxDevice()->wakeup(); delay(120); display.setBrightness(bright); }
-  }
-  if (ch & N_BL) { if (off & N_BL) display.lgfxDevice()->setBrightness(0); else display.setBrightness(bright); }
-  if (ch & N_TOUCH) { if (off & N_TOUCH) board.touchSleep(); else board.touchWake(); }
-  if ((ch & N_GNSS) && gnss_was_on) board.setGnssPower(!(off & N_GNSS));
-  if (ch & N_GROVE) board.setGrovePower(!(off & N_GROVE));
-  if (ch & N_CPU) setCpuFrequencyMhz((off & N_CPU) ? 80 : cpu_mhz);
-  if (ch & N_SD) {   // unmounted and unpowered; back on, mounted again
-    if (off & N_SD) { SD_MMC.end(); board.setSdPower(false); }
-    else { board.setSdPower(true); delay(50); SD_MMC.setPins(2, 3, 1); SD_MMC.begin("/sdcard", true); }
-  }
-}
-
+#ifndef SIM_PLATFORM
 // 250 instantaneous RSSI readings over 5 s: the median, and the 10th
 // percentile (a packet on air only lifts the top).
 static void noiseSample(int16_t& med, int16_t& lo) {
@@ -245,12 +182,11 @@ static void noiseSample(int16_t& med, int16_t& lo) {
   lo = (int16_t)lroundf(v[N / 10]);
 }
 
-// The radio retuned step by step (50 readings each, the median), then put
+// The radio retuned step by step (the median of 20 readings each), then put
 // back on the mesh's settings and receiving again.
-static void noiseSweep(Sweep& sw, const NodePrefs* p, float bw_khz = 0) {
-  static const int K = 50;
+static void noiseSweep(Sweep& sw, const NodePrefs* p) {
+  static const int K = 20;
   float v[K];
-  if (bw_khz > 0) { radio.standby(); radio.setBandwidth(bw_khz); }
   for (int i = 0; i < sw.n; i++) {
     radio.standby();
     radio.setFrequency(sw.f0 + sw.step * i);
@@ -270,128 +206,20 @@ static void noiseSweep(Sweep& sw, const NodePrefs* p, float bw_khz = 0) {
 
 void UITask::diagNoiseRun() {
   using namespace diagview;
-#if defined(SEEED_WIO_TRACKER_L2)
-  bool gnss_on = board.gnssPowered();
-  uint32_t cpu = getCpuFrequencyMhz();
-  uint8_t bright = _prefs ? _prefs->display_brightness : 3;
-  s_noise_usb = board.isExternalPowered();
-  for (int i = 0; i < NOISE_N; i++) {
-    if (s_noise_status) {
-      char t[48];
-      snprintf(t, sizeof(t), "Measuring %d of %d: %s", i + 1, NOISE_N, NOISE_STEPS[i].name);
-      lv_label_set_text(s_noise_status, t);
-      lv_refr_now(NULL);
-    }
-    uint8_t off = NOISE_STEPS[i].off;
-    noiseApply(off, 0, gnss_on, cpu, bright);
-    delay(1500);   // rails, clocks and the receiver's AGC settle
-    noiseSample(s_noise_med[i], s_noise_lo[i]);
-    noiseApply(0, off, gnss_on, cpu, bright);
-  }
-  if (s_noise_status) {
-    lv_label_set_text(s_noise_status, "Sweeping 850-930 MHz");
-    lv_refr_now(NULL);
-  }
-  noiseSweep(s_wide, _prefs);
-  if (_prefs) {
-    if (s_noise_status) {
-      lv_label_set_text(s_noise_status, "Sweeping around the mesh frequency");
-      lv_refr_now(NULL);
-    }
-    s_near.f0 = _prefs->freq - s_near.step * (s_near.n / 2);
-    noiseSweep(s_near, _prefs);
-    int hi = 0;
-    for (int i = 1; i < s_near.n; i++) if (s_near.v[i] > s_near.v[hi]) hi = i;
-    if (s_noise_status) {
-      lv_label_set_text(s_noise_status, "Zooming in on the loudest");
-      lv_refr_now(NULL);
-    }
-    s_zoom.f0 = s_near.f0 + s_near.step * hi - s_zoom.step * (s_zoom.n / 2);
-    noiseSweep(s_zoom, _prefs, 7.8f);
-  }
-  s_noise_have = true;
-  buildDiag();
-#else
-  showToast("Only on the device");
-#endif
-}
-
-void UITask::diagNoiseDetect() {
-  using namespace diagview;
-#if defined(SEEED_WIO_TRACKER_L2)
-  auto show = [&](int i, int n, const char* name) {   // shown before the state (dark ones hide it)
+#ifndef SIM_PLATFORM
+  if (!_prefs) return;
+  auto status = [&](const char* t) {
     if (!s_noise_status) return;
-    char t[48];
-    snprintf(t, sizeof(t), "%d/%d  %s", i + 1, n, name);
     lv_label_set_text(s_noise_status, t);
     lv_refr_now(NULL);
   };
-  bool gnss_on = board.gnssPowered();
-  uint32_t cpu = getCpuFrequencyMhz();
-  uint8_t bright = _prefs ? _prefs->display_brightness : 3;
-  for (int i = 0; i < DETECT_N; i++) {
-    uint8_t off = DETECT_STEPS[i].off;
-    show(i, DETECT_N, DETECT_STEPS[i].name);
-    if (off & N_SLEEP) {
-      esp_sleep_enable_timer_wakeup((uint64_t)DETECT_HOLD_MS * 1000);
-      if (esp_light_sleep_start() != ESP_OK) delay(DETECT_HOLD_MS);   // refused (a radio busy): hold awake
-      continue;
-    }
-    noiseApply(off, 0, gnss_on, cpu, bright);
-    delay(DETECT_HOLD_MS);
-    noiseApply(0, off, gnss_on, cpu, bright);
-  }
-  buildDiag();
-  showToast("Cycle done");
-#else
-  showToast("Only on the device");
-#endif
-}
-
-void UITask::diagSpikeHunt() {
-  using namespace diagview;
-#if defined(SEEED_WIO_TRACKER_L2)
-  int16_t* v = psramBuf<int16_t>(HUNT_N);
-  if (!v) { showToast("Out of memory"); return; }
-  if (s_noise_status) {
-    lv_label_set_text(s_noise_status, "Hunting spikes 864-876 MHz");
-    lv_refr_now(NULL);
-  }
-  radio.standby();
-  radio.setBandwidth(7.8f);
-  float r[7];
-  for (int i = 0; i < HUNT_N; i++) {
-    radio.standby();
-    radio.setFrequency(HUNT_F0 + HUNT_STEP * i);
-    radio.startReceive();
-    delay(12);   // 4 ms read the register's floor (-127.5): no reading yet
-    for (int k = 0; k < 7; k++) { r[k] = radio.getRSSI(false); delay(3); }
-    std::sort(r, r + 7);
-    v[i] = (int16_t)lroundf(r[3]);
-  }
-  radio.standby();
-  if (_prefs) radio_driver.setParams(_prefs->freq, _prefs->bw, _prefs->sf, _prefs->cr);
-  radio.startReceive();
-
-  // The floor: the median. A line: 8 dB over it, the top within +-3 steps.
-  int16_t* tmp = psramBuf<int16_t>(HUNT_N);
-  if (tmp) { memcpy(tmp, v, HUNT_N * sizeof(int16_t)); std::sort(tmp, tmp + HUNT_N); s_hunt_floor = tmp[HUNT_N / 2]; free(tmp); }
-  s_spike_n = 0;
-  for (int i = 3; i < HUNT_N - 3; i++) {
-    if (v[i] < s_hunt_floor + 8) continue;
-    bool top = true;
-    for (int d = -3; d <= 3 && top; d++) if (d && (v[i + d] > v[i] || (d < 0 && v[i + d] == v[i]))) top = false;
-    if (!top) continue;
-    Spike sp = { HUNT_F0 + HUNT_STEP * i, v[i] };
-    if (s_spike_n < HUNT_MAX) s_spikes[s_spike_n++] = sp;
-    else {   // full: replace the weakest if this one is stronger
-      int w = 0;
-      for (int k = 1; k < HUNT_MAX; k++) if (s_spikes[k].dbm < s_spikes[w].dbm) w = k;
-      if (sp.dbm > s_spikes[w].dbm) s_spikes[w] = sp;
-    }
-  }
-  std::sort(s_spikes, s_spikes + s_spike_n, [](const Spike& a, const Spike& b) { return a.f < b.f; });
-  free(v);
+  s_noise_usb = board.isExternalPowered();
+  status("Listening on the mesh frequency...");
+  noiseSample(s_floor_med, s_floor_lo);
+  status("Sweeping round it...");
+  s_near.f0 = _prefs->freq - s_near.step * (s_near.n / 2);
+  noiseSweep(s_near, _prefs);
+  s_noise_have = true;
   buildDiag();
 #else
   showToast("Only on the device");
@@ -456,9 +284,8 @@ void UITask::buildDiag() {
 
   s_noise_status = nullptr;
   if (s_tab == TAB_NOISE) {
-    lv_obj_t* t = label(s_list, "LoRa noise floor with parts of the board off, one at a time (about 90 s; "
-                                "the screen goes dark for a moment). Lower is better; ~-115 dBm is a quiet receiver.",
-                        THEME_FONT_SMALL, theme::TEXT_MUTED);
+    lv_obj_t* t = label(s_list, "What the radio hears with nothing on air, on the mesh frequency and 1.1 MHz "
+                                "either side. Takes about 12 seconds.", THEME_FONT_SMALL, theme::TEXT_MUTED);
     lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(t, LV_PCT(100));
     lv_obj_t* b = lv_button_create(s_list);
@@ -467,75 +294,24 @@ void UITask::buildDiag() {
     lv_obj_set_style_radius(b, theme::RADIUS, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT_DIM), 0);
     lv_obj_add_event_cb(b, onNoiseRun, LV_EVENT_CLICKED, NULL);
-    s_noise_status = label(b, LV_SYMBOL_PLAY "  Run test", THEME_FONT_BODY, theme::TEXT);
+    s_noise_status = label(b, s_noise_have ? LV_SYMBOL_REFRESH "  Measure again" : LV_SYMBOL_PLAY "  Measure", THEME_FONT_BODY, theme::TEXT);
     lv_obj_center(s_noise_status);
-    lv_obj_t* t2 = label(s_list, "Second radio: an L1 beside this one shows the noise this device sends out. "
-                                 "Each state is held 15 s (under 3 min), its name shown first; read the L1's noise floor.",
-                         THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(t2, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(t2, LV_PCT(100));
-    lv_obj_t* b2 = lv_button_create(s_list);
-    lv_obj_set_size(b2, LV_PCT(100), 40);
-    lv_obj_set_style_shadow_width(b2, 0, 0);
-    lv_obj_set_style_radius(b2, theme::RADIUS, 0);
-    lv_obj_set_style_bg_color(b2, lv_color_hex(theme::SURFACE), 0);
-    lv_obj_add_event_cb(b2, onDetectRun, LV_EVENT_CLICKED, NULL);
-    lv_obj_t* l2 = label(b2, LV_SYMBOL_LOOP "  Slow cycle for a second radio", THEME_FONT_BODY, theme::TEXT);
-    lv_obj_center(l2);
-    lv_obj_t* b3 = lv_button_create(s_list);
-    lv_obj_set_size(b3, LV_PCT(100), 40);
-    lv_obj_set_style_shadow_width(b3, 0, 0);
-    lv_obj_set_style_radius(b3, theme::RADIUS, 0);
-    lv_obj_set_style_bg_color(b3, lv_color_hex(theme::SURFACE), 0);
-    lv_obj_add_event_cb(b3, onSpikeHunt, LV_EVENT_CLICKED, NULL);
-    lv_obj_t* l3 = label(b3, LV_SYMBOL_EYE_OPEN "  Spike hunt 864-876 MHz (~2.5 min)", THEME_FONT_BODY, theme::TEXT);
-    lv_obj_center(l3);
-    if (s_spike_n >= 0) {
-      char t[48];
-      snprintf(t, sizeof(t), "SPIKES (floor %d dBm)", s_hunt_floor);
-      sectionTitle(s_list, t);
-      lv_obj_t* card = infoCard(s_list);
-      if (s_hunt_floor <= -127) infoRow(card, "Invalid", "readings at the register's floor");
-      else if (!s_spike_n) infoRow(card, "None", "nothing 8 dB over the floor");
-      for (int i = 0; i < s_spike_n; i++) {
-        char k[24], v[32];
-        snprintf(k, sizeof(k), "%.3f MHz", s_spikes[i].f);
-        if (i) snprintf(v, sizeof(v), "%d dBm  +%.0f kHz", s_spikes[i].dbm, (s_spikes[i].f - s_spikes[i - 1].f) * 1000);
-        else snprintf(v, sizeof(v), "%d dBm", s_spikes[i].dbm);
-        infoRow(card, k, v);
-      }
-    }
     if (s_noise_have) {
+      float mesh_f = _prefs ? _prefs->freq : 0;
       lv_obj_t* card = infoCard(s_list);
       char v[40];
-      for (int i = 0; i < NOISE_N; i++) {
-        int d = s_noise_med[i] - s_noise_med[0];
-        if (i == 0) snprintf(v, sizeof(v), "%d dBm (low %d)", s_noise_med[i], s_noise_lo[i]);
-        else snprintf(v, sizeof(v), "%d dBm (%+d)", s_noise_med[i], d);
-        infoRow(card, NOISE_STEPS[i].name, v, i && d <= -3 ? theme::OK : theme::TEXT);
-      }
-      infoRow(card, "Powered from", s_noise_usb ? "USB" : "battery");
-      float mesh_f = _prefs ? _prefs->freq : 0;
-      plotSweep(s_list, "850 - 930 MHz", s_wide, mesh_f);
-      if (s_near.f0 > 0) {
-        char t[40];
-        snprintf(t, sizeof(t), "%.3f MHz +- 1.1", mesh_f);
-        plotSweep(s_list, t, s_near, mesh_f);
-      }
-      if (s_zoom.f0 > 0) {
-        char t[48];
-        float c = s_zoom.f0 + s_zoom.step * (s_zoom.n / 2);
-        snprintf(t, sizeof(t), "%.3f MHz +- 125 kHz (7.8 kHz wide)", c);
-        plotSweep(s_list, t, s_zoom, mesh_f);
-        int hi = 0, wide = 0;
-        for (int i = 1; i < s_zoom.n; i++) if (s_zoom.v[i] > s_zoom.v[hi]) hi = i;
-        for (int i = 0; i < s_zoom.n; i++) if (s_zoom.v[i] >= s_zoom.v[hi] - 6) wide++;
-        lv_obj_t* card = infoCard(s_list);
-        char v2[40];
-        snprintf(v2, sizeof(v2), "%d kHz (within 6 dB of the top)", wide * 5);
-        infoRow(card, "Spike width", v2);
-      }
+      snprintf(v, sizeof(v), "%d dBm (low %d)", s_floor_med, s_floor_lo);
+      infoRow(card, "Noise floor", v, s_floor_med <= -110 ? theme::OK : theme::TEXT);
+      snprintf(v, sizeof(v), "%.3f MHz", mesh_f);
+      infoRow(card, "Mesh frequency", v);
+      infoRow(card, "Powered from", s_noise_usb ? "USB (a charger can add noise)" : "battery");
+      plotSweep(s_list, "+- 1.1 MHz", s_near, mesh_f);
     }
+    sectionTitle(s_list, "READING IT");   // lower is better
+    lv_obj_t* key = infoCard(s_list);
+    infoRow(key, "About -115 dBm", "quiet receiver");
+    infoRow(key, "Raised, flat", "charger / power supply");
+    infoRow(key, "One spike", "a clock nearby");
     return;
   }
   lv_obj_t* card = infoCard(s_list);

@@ -278,8 +278,6 @@ public:
   void diagResetPopup();
   void diagReset();
   void diagNoiseRun();
-  void diagNoiseDetect();
-  void diagSpikeHunt();
   void showCompass();
   void favTap(int slot);
   void favHold(int slot);
