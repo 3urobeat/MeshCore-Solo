@@ -159,12 +159,18 @@ static const int KB_PREVIEW_BYTES = KB_PREVIEW_CAP * 2;
 static void kbApplyCapsUtf8(const char* in, bool caps, char* out, size_t out_size) {
   size_t o = 0;
   const uint8_t* p = (const uint8_t*)in;
-  while (*p && o + 4 < out_size) {
+  while (*p) {
     uint32_t cp = DisplayDriver::decodeCodepoint(p);
     // Shared case table (ui-core/KeyboardData.h). ß stays ß here: its
     // uppercase ẞ (U+1E9E) is outside the misc-fixed font's U+0020-04FF.
     if (caps && cp != 0x00DF) cp = kbd::toUpper(cp);
-    o += kbd::encode(cp, out + o);
+    // Copied only if it fits with the NUL: a grid cell's buffer holds just one
+    // 2-byte letter, which a flat "4 bytes free" check left empty.
+    char enc[4];
+    size_t n = kbd::encode(cp, enc);
+    if (o + n >= out_size) break;
+    memcpy(out + o, enc, n);
+    o += n;
   }
   out[o] = '\0';
 }
