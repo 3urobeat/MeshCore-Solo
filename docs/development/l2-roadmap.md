@@ -196,6 +196,46 @@ on the L1 is ~137 KB.
 So: e-ink stays on ui-new; the OLED boards get an LVGL spike (above) once
 this roadmap is done; the Cardputer follows whatever the spike shows.
 
+### L1 spike (2026-09-28): ui-oled -- LVGL doesn't fit the nRF52's RAM
+
+A throwaway frontend (ui-oled, a solo -Os env and a `SIM_UI=oled` sim page;
+the code wasn't kept -- a next try starts fresh on the device it's for): the
+companion with ui-oled in place of ui-new. Home as a strip of pages sliding
+left / right
+(clock, messages, radio, GPS, stats) with a pill page indicator, time in the
+header, a drawer pulled up from the bottom (Bluetooth, GPS, sound, advert),
+the latest channel as soft bubbles opening from the middle, the dot wave on
+the splash. LVGL 9.2 renders 1 bit (I1) into a 1 KB buffer, the flush writes
+the SH1106 page buffer; text is ui-new's misc-fixed 6x9 font wrapped as an
+LVGL font. It ran in the simulator; on the L1 it never got past building
+its screens.
+
+Flash is not the problem: LVGL 77 KB (trimmed config) + the spike's screens
+34 KB against ui-new's 133 KB -- the spike build was 25 KB smaller than
+today's solo. RAM is:
+
+- LVGL needs its own memory outside the heap: a pool for the widgets (the
+  spike peaked at 12 KB in the sim), the draw buffer, and a bigger stack --
+  the nRF52 loop task has 4 KB, so every LVGL call went through a task of its
+  own with a 5-6 KB stack.
+- UiCore wants 27 KB of heap in one piece (history rings, engines). With
+  ui-new the heap has ~47 KB free when it's made; the first spike build left
+  28 KB (UiCore failed: hang at "UI core"), the trimmed one (12 KB pool, 5 KB
+  stack, offline queue 256 -> 200) got past it and stopped building the
+  screens with 16 KB left.
+- Making room means giving features up: contacts (184 B each), the offline
+  queue (177 B a frame), message history. Not worth it for the look.
+
+Also learned: LVGL 9.2 at 1 bit drops the pixels of rounded corners (border
+and fill alike; anti-aliasing off doesn't help) -- the spike drew its soft
+corners itself. Dithering was dropped at the user's call: half-dithered text
+is only noise.
+
+**Decision (user, 2026-09-28): no LVGL on the nRF52 boards.** ui-new stays
+there; the v2 look (slide, drawer, soft bubbles, dot wave) can be done in
+ui-new's own drawing code instead. The ESP32-S3 OLED boards (Heltec V3/V4,
+56% RAM) and the Cardputer are the only LVGL candidates left.
+
 ## Backlog (found along the way)
 
 - [x] USB power detection (fixed 2026-09-26): the AW35615 at 0x22 has a
