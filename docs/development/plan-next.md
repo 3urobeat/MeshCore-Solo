@@ -102,10 +102,17 @@ for a second radio). They are L2-specific and block the loop for ~90 s.
 
 ## H. Before the merge into dev
 
-- [ ] The pull request about the lock screen.
-- [ ] The new issues.
-- [ ] Merge into dev.
-- [ ] A last review.
+- [x] The pull request about the lock screen. Done 2026-09-29: PR #37 merged
+      and adapted (ui-core/ScreenLock.h shared with L2, NodePrefs sentinel
+      0x31, number pad as a keyboard flag, PIN typed twice and saved at once,
+      no USB drive behind the PIN on L2).
+- [x] The new issues. #38 (signing ERR 4): the buffer allocated before the
+      reply, halving down; the nRF52 Solo builds' offline queue 256 -> 128,
+      so the L1 heap has ~27 KB free instead of ~5. Also fixed: L1 ABC
+      keyboard letters blank since bf1e6fca.
+- [x] A last review: all 10 CI solo envs, L1 / Heltec companion + repeater
+      and the native sim build (RAK 4631 over flash, ignored).
+- [x] Merge into dev (fast-forward).
 
 ## I. Repo, documentation, website, firmware tiers (its own detailed plan)
 
