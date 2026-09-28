@@ -7,7 +7,8 @@
 //                   user picks (hold one), as on L1 (NodePrefs::dashboard_fields)
 //   map          -- a minimap round your position, framing anyone sharing
 //                   theirs and the target; tap for the Navigation map
-//   apps         -- the tools, 3x2 to a page
+//   apps         -- the tools, 3x2 to a page, in the user's order with some
+//                   maybe hidden (Settings > Home apps, or hold an app)
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after NavMap.h (the
 // minimap draws with the map's tile cache).
@@ -18,22 +19,75 @@ namespace home {
 
 enum : int { FAVS, CLOCK, MAP, APPS };   // pages; APPS and after: the apps, PER_PAGE each
 
-struct App { const char* icon; const char* text; lv_event_cb_t cb; bool unread; };
+// Each app has a letter of its own, so the saved order survives apps being
+// added or moved in this list (a new one joins at the end, shown).
+struct App { char id; const char* icon; const char* text; lv_event_cb_t cb; bool unread; };
 static const App APP_LIST[] = {
-  { LV_SYMBOL_ENVELOPE, "Messages",    onOpenChats,     true  },
-  { UI_SYMBOL_USERS,    "Nodes",       onOpenNearby,    false },
-  { LV_SYMBOL_SETTINGS, "Settings",    onOpenSettings,  false },
-  { UI_SYMBOL_COMPASS,  "Compass",     onOpenCompass,   false },
-  { UI_SYMBOL_CLOCK,    "Clock",       onOpenClock,     false },
-  { LV_SYMBOL_GPS,      "GPS",         onOpenGps,       false },
-  { LV_SYMBOL_CHARGE,   "Bot",         onOpenBot,       false },
-  { LV_SYMBOL_LOOP,     "Repeater",    onOpenRepeater,  false },
-  { UI_SYMBOL_KEY,      "Admin",       onOpenAdminPick, false },
-  { UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,      false },
+  { 'M', LV_SYMBOL_ENVELOPE, "Messages",    onOpenChats,     true  },
+  { 'N', UI_SYMBOL_USERS,    "Nodes",       onOpenNearby,    false },
+  { 'S', LV_SYMBOL_SETTINGS, "Settings",    onOpenSettings,  false },
+  { 'C', UI_SYMBOL_COMPASS,  "Compass",     onOpenCompass,   false },
+  { 'K', UI_SYMBOL_CLOCK,    "Clock",       onOpenClock,     false },
+  { 'G', LV_SYMBOL_GPS,      "GPS",         onOpenGps,       false },
+  { 'B', LV_SYMBOL_CHARGE,   "Bot",         onOpenBot,       false },
+  { 'R', LV_SYMBOL_LOOP,     "Repeater",    onOpenRepeater,  false },
+  { 'A', UI_SYMBOL_KEY,      "Admin",       onOpenAdminPick, false },
+  { 'D', UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,      false },
 };
 static const int APP_COUNT = sizeof(APP_LIST) / sizeof(APP_LIST[0]);
 static const int PER_PAGE = 6;
-static const int PAGES = APPS + (APP_COUNT + PER_PAGE - 1) / PER_PAGE;
+static const char ALWAYS = 'S';   // Settings can't be hidden: it's the way back
+
+// ── The user's order ──
+// The letters in order, a hidden app's in lower case. Arranged on Home itself
+// (hold an app, or Settings > Home apps); saved on Done or on leaving Home,
+// not per change.
+static char s_order[APP_COUNT + 1];
+static bool s_order_loaded = false, s_order_dirty = false;
+static bool s_edit = false;   // Home's apps being arranged (every app shown, hidden ones dimmed)
+
+static int appById(char c) {
+  c = toupper((unsigned char)c);
+  for (int i = 0; i < APP_COUNT; i++) if (APP_LIST[i].id == c) return i;
+  return -1;
+}
+static bool orderShown(int pos) { return isupper((unsigned char)s_order[pos]); }
+static int orderApp(int pos) { return appById(s_order[pos]); }
+
+static void loadOrder() {
+  if (s_order_loaded) return;
+  s_order_loaded = true;
+  char saved[32];
+  lvport::loadHomeApps(saved, sizeof(saved));
+  int n = 0;
+  for (const char* p = saved; *p && n < APP_COUNT; p++) {
+    int i = appById(*p);
+    if (i < 0 || memchr(s_order, APP_LIST[i].id, n) || memchr(s_order, tolower(APP_LIST[i].id), n)) continue;
+    s_order[n++] = APP_LIST[i].id == ALWAYS ? ALWAYS : *p;
+  }
+  for (int i = 0; i < APP_COUNT; i++)
+    if (!memchr(s_order, APP_LIST[i].id, n) && !memchr(s_order, tolower(APP_LIST[i].id), n)) s_order[n++] = APP_LIST[i].id;
+  s_order[n] = '\0';
+}
+static void flushOrder() {
+  if (!s_order_dirty) return;
+  s_order_dirty = false;
+  lvport::saveHomeApps(s_order);
+}
+
+static int shownCount() {
+  loadOrder();
+  int n = 0;
+  for (int p = 0; p < APP_COUNT; p++) if (orderShown(p)) n++;
+  return n;
+}
+// The k-th app shown on Home; -1 past the last.
+static int shownApp(int k) {
+  loadOrder();
+  for (int p = 0; p < APP_COUNT; p++) if (orderShown(p) && k-- == 0) return orderApp(p);
+  return -1;
+}
+static int pageCount() { return APPS + ((s_edit ? APP_COUNT : shownCount()) + PER_PAGE - 1) / PER_PAGE; }
 
 static lv_obj_t* s_page_box = nullptr;   // the current page's content
 static lv_obj_t* s_dots = nullptr;
@@ -47,6 +101,13 @@ static bool     s_touching = false, s_swiped = false;
 static lv_point_t s_start;
 static const int SWIPE_PX = 40;
 static void onDot(lv_event_t* e) { s_ui->setHomePage((int)(uintptr_t)lv_event_get_user_data(e)); }
+// Holding an app starts arranging them (after the event: the page is rebuilt).
+static void editOn(void*) { s_ui->homeEdit(true); }
+static void onAppHold(lv_event_t* e) {
+  (void)e;
+  lv_indev_wait_release(lv_indev_active());   // the hold isn't also a tap
+  lv_async_call(editOn, nullptr);
+}
 
 // ── Telemetry fields ──
 // The values of NodePrefs::dashboard_fields, numbered as L1 has them (the
@@ -122,7 +183,7 @@ static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, 
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
-  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+  if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
   lv_obj_align(label(b, icon, THEME_FONT_LARGE, theme::ACCENT), LV_ALIGN_TOP_MID, 0, 10);
   lv_obj_t* n = label(b, text, THEME_FONT_SMALL, theme::TEXT);
   lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
@@ -131,6 +192,172 @@ static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, 
   lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -8);
   tileBadge(b, badge_n);
   return b;
+}
+
+// ── Arranging the apps ──
+// Every app is on the pages, a hidden one dimmed with a "+" (the others a
+// "-"). A tap hides / shows it; a drag lifts a copy of the tile on the top
+// layer (the tile dims in place) and drops the app into the slot under the
+// finger; held at a screen edge, it goes to that side's page. Done, or the
+// side button, ends it.
+namespace home {
+static lv_obj_t* s_ghost = nullptr;
+static int s_drag_pos = -1;          // order position of the tile under the finger
+static bool s_dragged = false;       // past the slop: the release is a drop, not a tap
+static lv_point_t s_drag_start, s_ghost_org;
+static uint32_t s_edge_since = 0;
+static const int DRAG_SLOP = 8, EDGE_PX = 20;
+static const uint32_t EDGE_MS = 600;
+
+static void dragEnd() {
+  if (s_ghost) { lv_obj_delete(s_ghost); s_ghost = nullptr; }
+  s_drag_pos = -1;
+  s_edge_since = 0;
+}
+// Leaving Home: arranging ends and the order is saved (UITask::newScreen).
+static void leave() {
+  dragEnd();
+  s_edit = false;
+  flushOrder();
+}
+
+// The tile on this page nearest the point, as a slot 0..PER_PAGE-1.
+static int slotAt(lv_point_t p) {
+  int best = 0;
+  int32_t bd = INT32_MAX;
+  for (int i = 0; i < (int)lv_obj_get_child_count(s_page_box); i++) {
+    lv_area_t a;
+    lv_obj_get_coords(lv_obj_get_child(s_page_box, i), &a);
+    int32_t dx = p.x - (a.x1 + a.x2) / 2, dy = p.y - (a.y1 + a.y2) / 2;
+    if (dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; best = i; }
+  }
+  return best;
+}
+
+// The page is rebuilt after the event that changed it, not inside it.
+static int s_pending_from, s_pending_to, s_pending_page;
+static void applyDrop(void*) { s_ui->homeAppDrop(s_pending_from, s_pending_to); if (s_pending_page >= 0) s_ui->setHomePage(s_pending_page); }
+static void applyToggle(void*) { s_ui->homeAppToggle(s_pending_from); }
+static void later(int from, int to, int page, bool toggle) {
+  s_pending_from = from; s_pending_to = to; s_pending_page = page;
+  lv_async_call(toggle ? applyToggle : applyDrop, nullptr);
+}
+
+static void onEditTile(lv_event_t* e) {
+  lv_event_code_t code = lv_event_get_code(e);
+  if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
+  lv_obj_t* t = (lv_obj_t*)lv_event_get_current_target(e);
+  int pos = (int)(uintptr_t)lv_event_get_user_data(e);
+  lv_indev_t* in = lv_indev_active();
+  lv_point_t p = { 0, 0 };
+  if (in) lv_indev_get_point(in, &p);
+  if (code == LV_EVENT_PRESSED) {
+    dragEnd();
+    s_drag_pos = pos;
+    s_dragged = false;
+    s_drag_start = p;
+    return;
+  }
+  if (s_drag_pos != pos) return;
+  if (code == LV_EVENT_PRESSING) {
+    if (!s_dragged) {
+      if (abs(p.x - s_drag_start.x) < DRAG_SLOP && abs(p.y - s_drag_start.y) < DRAG_SLOP) return;
+      s_dragged = true;
+      s_swiped = true;   // this touch is a drag, not a page swipe, to its end
+      const App& a = APP_LIST[orderApp(pos)];
+      s_ghost = homeTile(lv_layer_top(), a.icon, a.text, nullptr, 0);
+      lv_obj_remove_flag(s_ghost, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_set_style_border_width(s_ghost, 2, 0);
+      lv_obj_set_style_border_color(s_ghost, lv_color_hex(theme::ACCENT), 0);
+      lv_area_t c;
+      lv_obj_get_coords(t, &c);
+      s_ghost_org = { c.x1, c.y1 };
+      lv_obj_set_style_opa(t, LV_OPA_20, 0);
+    }
+    lv_obj_set_pos(s_ghost, s_ghost_org.x + p.x - s_drag_start.x, s_ghost_org.y + p.y - s_drag_start.y);
+    int w = lv_display_get_horizontal_resolution(NULL);
+    int side = p.x < EDGE_PX ? -1 : p.x >= w - EDGE_PX ? 1 : 0;
+    int page = s_page + side;
+    if (!side || page < APPS || page >= pageCount()) { s_edge_since = 0; return; }
+    if (!s_edge_since) { s_edge_since = millis() | 1; return; }
+    if (millis() - s_edge_since < EDGE_MS) return;
+    // Onto that page's nearest slot; the finger lifts to drag it on from there.
+    int to = side > 0 ? (page - APPS) * PER_PAGE : (page - APPS) * PER_PAGE + PER_PAGE - 1;
+    dragEnd();
+    lv_indev_wait_release(in);
+    later(pos, to < APP_COUNT ? to : APP_COUNT - 1, page, false);
+    return;
+  }
+  bool dropped = s_dragged && s_ghost;
+  dragEnd();
+  if (code == LV_EVENT_PRESS_LOST) { lv_obj_set_style_opa(t, LV_OPA_COVER, 0); return; }
+  if (!dropped) { later(pos, 0, -1, true); return; }   // a tap
+  int to = (s_page - APPS) * PER_PAGE + slotAt(p);
+  later(pos, to < APP_COUNT ? to : APP_COUNT - 1, -1, false);
+}
+
+static void editDone(void*) { s_ui->homeEdit(false); }
+static void onEditDone(lv_event_t* e) { (void)e; lv_async_call(editDone, nullptr); }
+
+// A tile being arranged: dimmed if hidden, a round "+" / "-" in its corner.
+static void editTile(lv_obj_t* box, int pos) {
+  const App& a = APP_LIST[orderApp(pos)];
+  bool on = orderShown(pos);
+  lv_obj_t* t = homeTile(box, a.icon, a.text, nullptr, 0);
+  lv_obj_add_flag(t, LV_OBJ_FLAG_PRESS_LOCK);   // still its press when the finger leaves it
+  lv_obj_add_event_cb(t, onEditTile, LV_EVENT_ALL, (void*)(uintptr_t)pos);
+  if (!on) {
+    lv_obj_set_style_bg_color(t, lv_color_hex(theme::BG), 0);
+    lv_obj_set_style_border_color(t, lv_color_hex(theme::SURFACE_2), 0);
+    lv_obj_set_style_border_width(t, 1, 0);
+    for (int i = 0; i < 2; i++) lv_obj_set_style_text_opa(lv_obj_get_child(t, i), LV_OPA_40, 0);
+  }
+  if (a.id == ALWAYS) return;
+  lv_obj_t* b = lv_obj_create(t);
+  lv_obj_remove_style_all(b);
+  lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(b, 20, 20);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::SURFACE_2 : theme::ACCENT), 0);
+  lv_obj_align(b, LV_ALIGN_TOP_RIGHT, 2, -2);
+  lv_obj_center(label(b, on ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS, THEME_FONT_SMALL, on ? theme::TEXT : theme::BG));
+}
+}  // namespace home
+
+void UITask::homeEdit(bool on) {
+  using namespace home;
+  dragEnd();
+  s_edit = on;
+  if (on) {
+    loadOrder();
+    if (s_page < APPS) s_page = APPS;
+  } else {
+    flushOrder();
+    if (s_page >= pageCount()) s_page = pageCount() - 1;
+  }
+  if (_screen == SCR_HOME) buildHome();   // in place
+  else { _fade_next = true; showHome(); }
+  if (on) showToast("Drag to move, tap to hide or show");
+}
+
+void UITask::homeAppDrop(int from, int to) {
+  using namespace home;
+  if (from == to || from < 0 || to < 0 || from >= APP_COUNT || to >= APP_COUNT) { setHomePage(s_page); return; }
+  char c = s_order[from];
+  if (from < to) memmove(s_order + from, s_order + from + 1, to - from);
+  else memmove(s_order + to + 1, s_order + to, from - to);
+  s_order[to] = c;
+  s_order_dirty = true;
+  setHomePage(s_page);
+}
+
+void UITask::homeAppToggle(int pos) {
+  using namespace home;
+  if (pos < 0 || pos >= APP_COUNT || APP_LIST[orderApp(pos)].id == ALWAYS) return;
+  s_order[pos] = orderShown(pos) ? tolower((unsigned char)s_order[pos]) : toupper((unsigned char)s_order[pos]);
+  s_order_dirty = true;
+  setHomePage(s_page);
 }
 
 void UITask::showHome() {
@@ -146,6 +373,11 @@ void UITask::goHome() {
   pickerClose();
   int was = home::s_page;
   home::s_page = home::CLOCK;
+  if (_screen == SCR_HOME && home::s_edit) {   // arranging ends; the page dots change with it
+    home::leave();
+    buildHome();
+    return;
+  }
   if (_screen == SCR_HOME) {   // another page: the clock fades up in its place
     if (was == home::CLOCK) return;
     setHomePage(home::CLOCK);
@@ -174,7 +406,9 @@ void UITask::buildHome() {
   lv_obj_set_flex_flow(home::s_dots, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(home::s_dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(home::s_dots, 12, 0);
-  for (int p = 0; p < home::PAGES; p++) {
+  int pages = home::pageCount();
+  if (home::s_page >= pages) home::s_page = pages - 1;   // apps hidden since
+  for (int p = 0; p < pages; p++) {
     lv_obj_t* d = lv_obj_create(home::s_dots);
     lv_obj_remove_style_all(d);
     lv_obj_set_size(d, 8, 8);
@@ -183,6 +417,18 @@ void UITask::buildHome() {
     lv_obj_set_ext_click_area(d, 8);
     lv_obj_add_flag(d, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(d, home::onDot, LV_EVENT_CLICKED, (void*)(uintptr_t)p);
+  }
+  if (home::s_edit) {   // Done, right of the dots
+    lv_obj_t* b = lv_button_create(body);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(b, LV_SIZE_CONTENT, 26);
+    lv_obj_set_style_pad_hor(b, 14, 0);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_shadow_width(b, 0, 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT), 0);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, 0, 24);
+    lv_obj_add_event_cb(b, home::onEditDone, LV_EVENT_CLICKED, NULL);
+    lv_obj_center(label(b, "Done", THEME_FONT_SMALL, theme::BG));
   }
   setHomePage(home::s_page);
 }
@@ -196,7 +442,7 @@ void UITask::homeSwipePoll() {
   lv_indev_get_point(in, &p);
   if (!down) { home::s_touching = false; return; }
   if (!home::s_touching) { home::s_touching = true; home::s_swiped = false; home::s_start = p; return; }
-  if (home::s_swiped) return;
+  if (home::s_swiped || home::s_drag_pos >= 0) return;   // a tile being dragged isn't a swipe
   int dx = p.x - home::s_start.x, dy = p.y - home::s_start.y;
   if (abs(dx) < home::SWIPE_PX || abs(dx) < 2 * abs(dy)) return;
   home::s_swiped = true;
@@ -207,7 +453,7 @@ void UITask::homeSwipePoll() {
 void UITask::setHomePage(int page) {
   using namespace home;
   if (_screen != SCR_HOME || !s_page_box) return;   // s_page_box went with an older screen
-  if (page < 0 || page >= PAGES) return;
+  if (page < (s_edit ? APPS : 0) || page >= pageCount()) return;
   int from = s_page;
   s_page = page;
   lv_obj_clean(s_page_box);
@@ -227,9 +473,11 @@ void UITask::setHomePage(int page) {
   else {
     lv_obj_set_flex_align(s_page_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     int first = (page - APPS) * PER_PAGE;
-    for (int i = first; i < first + PER_PAGE && i < APP_COUNT; i++) {
+    if (s_edit) for (int pos = first; pos < first + PER_PAGE && pos < APP_COUNT; pos++) editTile(s_page_box, pos);
+    else for (int k = first, i; k < first + PER_PAGE && (i = shownApp(k)) >= 0; k++) {
       const App& a = APP_LIST[i];
-      homeTile(s_page_box, a.icon, a.text, a.cb, a.unread ? unreadTotal() : 0);
+      lv_obj_t* t = homeTile(s_page_box, a.icon, a.text, a.cb, a.unread ? unreadTotal() : 0);
+      lv_obj_add_event_cb(t, onAppHold, LV_EVENT_LONG_PRESSED, NULL);
     }
   }
   for (int i = 0; s_dots && i < (int)lv_obj_get_child_count(s_dots); i++)
@@ -568,7 +816,7 @@ int UITask::unreadTotal() {
 // pages redrawn when the unread count moved (their badges).
 void UITask::refreshHome() {
   using namespace home;
-  if ((s_page == FAVS || s_page >= APPS) && s_page_box && unreadTotal() != s_unread_sig) {
+  if ((s_page == FAVS || (s_page >= APPS && !s_edit)) && s_page_box && unreadTotal() != s_unread_sig) {
     setHomePage(s_page);
     return;
   }

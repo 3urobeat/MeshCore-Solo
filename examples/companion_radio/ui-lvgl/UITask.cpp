@@ -1560,6 +1560,8 @@ static void onBack(lv_event_t* e) { (void)e; s_ui->back(); }
 // asynchronously -- this usually runs from a click on one of its own widgets.
 static uint32_t s_wifi_test_ms = 0;   // Settings > WiFi checking a just-saved network (WifiScreen.h)
 
+namespace home { static void leave(); }   // HomeScreen.h
+
 lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _home_clock = _home_date = _home_unread = nullptr;
   _thread_list = _compose_ta = _keyboard = nullptr;
@@ -1623,6 +1625,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   bool backward = _nav_back || screenDepth(_screen) < screenDepth(_shown_screen);
   _nav_back = false;
   if (!same) prefsSaveSoon(anim::FADE_MS + 60);   // left the screen they were changed on
+  if (_shown_screen == SCR_HOME && _screen != SCR_HOME) home::leave();   // arranging the apps ends, saved
   _shown_screen = _screen;
   snprintf(_shown_title, sizeof(_shown_title), "%s", title ? title : "");
   _scr = scr;
@@ -3068,6 +3071,7 @@ static void onSchemaDropdown(lv_event_t* e) {
                        choiceSelected((lv_obj_t*)lv_event_get_target(e)));
 }
 static void onOpenSchemaPage(lv_event_t* e) { s_ui->showSchemaSettings((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onHomeApps(lv_event_t* e) { (void)e; s_ui->homeEdit(true); }
 static void onPruneContacts(lv_event_t* e) { (void)e; s_ui->pruneContacts(); }
 static void onOpenQuickMsgs(lv_event_t* e);
 static void onPinSetup(lv_event_t* e);   // DeviceScreen.h
@@ -3311,6 +3315,8 @@ void UITask::buildSettings() {
     g = group(body, "DEVICE");
     listRow(g, LV_SYMBOL_EYE_OPEN "  Display", "Brightness, screen off, lock, colour",
             onOpenSchemaPage, (void*)(uintptr_t)PG_DISPLAY);
+    snprintf(sub, sizeof(sub), "Order, hide  -  %d of %d shown", home::shownCount(), home::APP_COUNT);
+    listRow(g, LV_SYMBOL_HOME "  Home apps", sub, onHomeApps, NULL);
     snprintf(sub, sizeof(sub), "Shutdown %s  -  GPS: %s", settingText(*_prefs, SETTING(low_batt_mv), v1, sizeof(v1)),
              settingText(*_prefs, SETTING(gps_interval), v2, sizeof(v2)));
     listRow(g, LV_SYMBOL_BATTERY_FULL "  Power", sub, onOpenSchemaPage, (void*)(uintptr_t)PG_POWER);

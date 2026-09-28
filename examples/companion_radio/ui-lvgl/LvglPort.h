@@ -425,6 +425,9 @@ static void saveTapWake(bool on) { nvs::putBool("mc_ui", "tapwake", on); }
 // Messages: which sections are folded (bit per section).
 static int loadChatFold() { return nvs::getU8("mc_ui", "chfold", 0); }
 static void saveChatFold(int bits) { nvs::putU8("mc_ui", "chfold", bits); }
+// Home's apps: their letters in the user's order, a hidden one in lower case.
+static void loadHomeApps(char* out, size_t n) { nvs::getStr("mc_ui", "apps", out, n); }
+static void saveHomeApps(const char* v) { nvs::putStr("mc_ui", "apps", v); }
 // Filesystem size and space in use (Settings > Storage), plus the card's own
 // size -- a card whose FAT partition is small (e.g. written by a Raspberry Pi
 // imager) shows both. The first free-space count on a big card takes a moment.
@@ -778,6 +781,9 @@ static void saveTapWake(bool on) { s_tap_wake = on; }
 static int s_chat_fold = 0;
 static int loadChatFold() { return s_chat_fold; }
 static void saveChatFold(int bits) { s_chat_fold = bits; }
+static char s_home_apps[24] = "";
+static void loadHomeApps(char* out, size_t n) { snprintf(out, n, "%s", s_home_apps); }
+static void saveHomeApps(const char* v) { snprintf(s_home_apps, sizeof(s_home_apps), "%s", v); }
 // The browser has no card: a nominal 32 GB, used = what the files add up to
 // (the storage screen counts them anyway; it passes that in).
 static bool sdInfo(uint64_t& total, uint64_t& used, uint64_t& card) { total = card = 32ULL << 30; used = 0; return true; }

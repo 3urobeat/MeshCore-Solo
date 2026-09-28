@@ -43,6 +43,9 @@ public:
   // ── Navigation (called from LVGL event callbacks) ────────────────────────
   void showHome();
   void setHomePage(int page);
+  void homeEdit(bool on);   // Home's apps: drag to move, tap to hide (hold an app, or Settings > Home apps)
+  void homeAppDrop(int from, int to);
+  void homeAppToggle(int pos);
   void goHome();                   // the side button: Home's clock page
   void homeFieldSet(int slot, int field);
   void showChats();

@@ -265,6 +265,10 @@ Ideas to come back to (2026-09-26):
 
 - [ ] Speaker click: would keeping the amplifier on at minimum volume
       remove it?
+      Tried 2026-09-28: amp switched only with the ES8311 DAC volume at the
+      bottom (codec soft ramp, reg 0x37) -- still knocks, so it's the amp's
+      power step itself. Left for later; options: amp on while the screen is
+      on, always on (check GPS), or a longer linger.
 - [ ] Import routes from the SD card (optional extra).
 - [x] Battery life without losing features (2026-09-27): the UI loop sleeps
       until something is due (none while packets are queued; 1-2 ms with a
@@ -354,4 +358,8 @@ User list, second batch (2026-09-26):
       three user-picked telemetry fields (L1's dashboard_fields; tap the
       clock for Clock) | minimap framing you, live shares and the target
       (tap: Navigation map) | apps, 3x2 per page. The side button returns
-      to the clock page. Later: pick and reorder the apps.
+      to the clock page.
+- [x] Arrange Home's apps (2026-09-28): hold an app (or Settings > Home
+      apps) -- drag a tile to move it, hold it at a screen edge for the next
+      page, tap to hide / show; Settings can't be hidden. Saved in NVS on
+      Done or on leaving Home.
