@@ -507,6 +507,7 @@ private:
   uint32_t  _next_nearby_ms = 0;
   bool      _pinging = false;
   uint32_t  _ping_started_ms = 0;
+  uint32_t  _ui_started_ms = 0;   // begin(): the side button held soon after is the CLI rescue
   lv_obj_t* _nearby_list = nullptr;
   lv_obj_t* _nearby_status = nullptr;
   lv_obj_t* _nearby_sort_lbl = nullptr;

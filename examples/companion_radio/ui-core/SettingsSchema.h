@@ -104,7 +104,7 @@ static void fmtSecs(char* b, int n, int32_t s, const char* zero) {
   else if (s < 3600) snprintf(b, n, "%ld min", (long)(s / 60));
   else snprintf(b, n, "%ld h", (long)(s / 3600));
 }
-static const int32_t AUTO_OFF[] = { 15, 30, 60, 120, 300, 0 };
+static const int32_t AUTO_OFF[] = { 5, 15, 30, 60, 120, 300, 0 };
 static void optAutoOff(uint8_t v, char* b, int n, const NodePrefs&) { fmtSecs(b, n, AUTO_OFF[v], "Never"); }
 static const int32_t GPS_DUTY[] = { 0, 60, 300, 900, 1800, 3600 };
 static void optGpsDuty(uint8_t v, char* b, int n, const NodePrefs&) { fmtSecs(b, n, GPS_DUTY[v], "Always on"); }
@@ -142,7 +142,7 @@ static void optHour(uint8_t v, char* b, int n, const NodePrefs& p) {   // "22:00
 }
 static void optSound(uint8_t v, char* b, int n, const NodePrefs&) { snprintf(b, n, "%s", soundctl::soundLabel(v)); }
 static void optAdvertScope(uint8_t v, char* b, int n, const NodePrefs&) {
-  snprintf(b, n, "%s", v == ADVERT_SOUND_SCOPE_ZERO_HOP ? "Direct only" : "All");
+  snprintf(b, n, "%s", v == ADVERT_SOUND_SCOPE_ZERO_HOP ? "Direct" : "All");
 }
 
 // ── Side effects ──────────────────────────────────────────────────────────────
@@ -222,13 +222,40 @@ static const Setting ALL[] = {
   IDX("Adverts", "A node announcing itself", SEC_SOUND_FOR, notif_melody_ad, soundctl::SOUND_COUNT, optSound, nullptr),
   IDX("Advert sound for", "Direct: no repeaters", SEC_SOUND_FOR, advert_sound_scope, 2, optAdvertScope, nullptr),
 };
+static const int COUNT = (int)(sizeof(ALL) / sizeof(ALL[0]));
+
+// The label on a small screen (ui-new: about ten characters beside an
+// eight-character value); a setting not listed uses its own.
+static const struct { uint16_t offset; const char* text; } SHORT_LABELS[] = {
+  { NP_OFF(display_brightness), "Bright" },      { NP_OFF(auto_off_secs), "Auto off" },
+  { NP_OFF(msg_wake_screen_off), "Msg wake" },   { NP_OFF(auto_lock), "Auto lock" },
+  { NP_OFF(batt_display_mode), "Batt disp" },    { NP_OFF(low_batt_mv), "Low batt" },
+  { NP_OFF(gps_interval), "GPS pwr" },           { NP_OFF(clock_12h), "12h clock" },
+  { NP_OFF(clock_hide_seconds), "Seconds" },     { NP_OFF(units_imperial), "Imperial" },
+  { NP_OFF(dm_resend_count), "Resend" },         { NP_OFF(contact_expiry_idx), "Expire" },
+  { NP_OFF(fav_sort_off), "Favs top" },          { NP_OFF(buzzer_volume), "Buzzer vol" },
+  { NP_OFF(quiet_hours), "Quiet hrs" },          { NP_OFF(quiet_from), " from" },
+  { NP_OFF(quiet_to), " until" },                { NP_OFF(notif_melody_dm), "DM sound" },
+  { NP_OFF(notif_melody_ch), "Ch sound" },       { NP_OFF(notif_melody_ad), "AD sound" },
+  { NP_OFF(advert_sound_scope), "AD scope" },
+};
+static const char* shortLabel(const Setting& s) {
+  for (auto& l : SHORT_LABELS) if (l.offset == s.offset) return l.text;
+  return s.label;
+}
+// A switch: two values, no labels of its own (on / off, however it's stored).
+static bool isSwitch(const Setting& s) { return !s.option && s.count == 2; }
+// The index of the setting over NodePrefs field `offset`; -1 if none.
+static int indexOf(uint16_t offset) {
+  for (int i = 0; i < COUNT; i++) if (ALL[i].offset == offset) return i;
+  return -1;
+}
 #undef IDX
 #undef SW
 #undef MAP
 #undef COUNT_OF
 #undef NP_SIZE
 #undef NP_OFF
-static const int COUNT = (int)(sizeof(ALL) / sizeof(ALL[0]));
 
 static int32_t readRaw(const NodePrefs& p, const Setting& s) {
   const uint8_t* f = (const uint8_t*)&p + s.offset;
@@ -261,6 +288,19 @@ static uint8_t get(const NodePrefs& p, const Setting& s) {
 static void set(NodePrefs& p, const Setting& s, uint8_t v) {
   if (v >= s.count) return;
   writeRaw(p, s, s.values ? s.values[v] : v);
+}
+// The current value as text ("UTC+2", "3.4 V"); a switch as `on` / `off`.
+static const char* text(const NodePrefs& p, const Setting& s, char* buf, int n,
+                        const char* on = "On", const char* off = "Off") {
+  uint8_t v = get(p, s);
+  if (s.option) s.option(v, buf, n, p);
+  else snprintf(buf, n, "%s", v ? on : off);
+  return buf;
+}
+// One step along the values, wrapping; then the setting's side effect.
+static void step(NodePrefs& p, const Setting& s, int dir, UiCore& core) {
+  set(p, s, (uint8_t)((get(p, s) + s.count + dir) % s.count));
+  if (s.changed) s.changed(core);
 }
 
 }  // namespace settings

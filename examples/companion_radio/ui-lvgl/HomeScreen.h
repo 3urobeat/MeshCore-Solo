@@ -110,14 +110,7 @@ static void onAppHold(lv_event_t* e) {
 }
 
 // ── Telemetry fields ──
-// The values of NodePrefs::dashboard_fields, numbered as L1 has them (the
-// prefs are shared): battery, sensors on the bus, position, counts.
-enum : uint8_t { F_NONE, F_BATT_V, F_TEMP, F_HUM, F_PRES, F_GPS, F_ALT, F_LUX, F_CO2, F_NODES, F_MSGS,
-                 F_BATT_PCT, F_SATS, F_ALT_GPS, F_COUNT };
-static const char* const FIELD_NAME[F_COUNT] = {
-  "None", "Battery (V)", "Temperature", "Humidity", "Pressure", "Position", "Altitude (sensor)",
-  "Light", "CO2", "Contacts", "Unread", "Battery (%)", "Satellites", "Altitude (GPS)",
-};
+// NodePrefs::dashboard_fields, shared with L1: ui-core/Telemetry.h.
 static const int FIELDS = 3;
 static lv_obj_t* s_field_val[FIELDS];
 static lv_obj_t* s_field_pick[FIELDS];   // hidden choices: holding a field opens its picker
@@ -507,10 +500,10 @@ void UITask::buildHomeClock(lv_obj_t* box) {
   lv_obj_set_style_pad_top(row, 12, 0);
   char opts[200];
   int o = 0;
-  for (int k = 0; k < F_COUNT; k++) o += snprintf(opts + o, sizeof(opts) - o, "%s%s", k ? "\n" : "", FIELD_NAME[k]);
+  for (int k = 0; k < telemetry::COUNT; k++) o += snprintf(opts + o, sizeof(opts) - o, "%s%s", k ? "\n" : "", telemetry::NAME[k]);
   for (int i = 0; i < FIELDS; i++) {
-    uint8_t f = _prefs ? _prefs->dashboard_fields[i] : F_NONE;
-    if (f >= F_COUNT) f = F_NONE;
+    uint8_t f = _prefs ? _prefs->dashboard_fields[i] : telemetry::NONE;
+    if (f >= telemetry::COUNT) f = telemetry::NONE;
     lv_obj_t* c = lv_obj_create(row);
     styleSurface(c, f ? theme::SURFACE : theme::BG);
     lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
@@ -530,7 +523,7 @@ void UITask::buildHomeClock(lv_obj_t* box) {
     lv_obj_add_event_cb(s_field_pick[i], onFieldPicked, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
     if (f) {
       lv_obj_add_event_cb(c, onFieldHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)i);
-      label(c, FIELD_NAME[f], THEME_FONT_SMALL, theme::TEXT_MUTED);
+      label(c, telemetry::NAME[f], THEME_FONT_SMALL, theme::TEXT_MUTED);
       s_field_val[i] = label(c, "--", THEME_FONT_TITLE, theme::TEXT);
     } else {   // a tap is enough on an empty one
       lv_obj_add_event_cb(c, onFieldHold, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
@@ -540,7 +533,7 @@ void UITask::buildHomeClock(lv_obj_t* box) {
 }
 
 void UITask::homeFieldSet(int slot, int f) {
-  if (!_prefs || slot < 0 || slot >= home::FIELDS || f < 0 || f >= home::F_COUNT) return;
+  if (!_prefs || slot < 0 || slot >= home::FIELDS || f < 0 || f >= telemetry::COUNT) return;
   _prefs->dashboard_fields[slot] = (uint8_t)f;
   prefsSave();
   setHomePage(home::CLOCK);
@@ -549,59 +542,25 @@ void UITask::homeFieldSet(int slot, int f) {
 // One field's value, as short as fits its card.
 void UITask::homeFieldText(uint8_t f, char* v, int n) {
   using namespace home;
-  snprintf(v, n, "--");
-  bool imperial = _prefs && _prefs->units_imperial;
-  uint16_t mv = _batt_mv ? _batt_mv : getBattMilliVolts();
-  LocationProvider* loc = _sensors ? _sensors->getLocationProvider() : nullptr;
-  switch (f) {
-    case F_BATT_V:   if (mv) snprintf(v, n, "%u.%02u V", mv / 1000, (mv % 1000) / 10); return;
-    case F_BATT_PCT: if (mv) snprintf(v, n, "%d%%", battery::percent(mv, _prefs ? _prefs->low_batt_mv : 0)); return;
-    case F_NODES:    snprintf(v, n, "%d", the_mesh.getNumContacts()); return;
-    case F_MSGS:     snprintf(v, n, "%d", unreadTotal()); return;
-    case F_SATS:     if (loc && _core->gpsEnabled()) snprintf(v, n, "%ld", (long)loc->satellitesCount()); return;
-    case F_GPS: {
-      int32_t lat, lon;
-      if (_core->course.currentLocation(lat, lon)) snprintf(v, n, "%.3f %.3f", lat / 1e6, lon / 1e6);
-      else snprintf(v, n, "no fix");
-      return;
+  static const telemetry::Style STYLE = { "\xC2\xB0", true, false, 3 };   // UTF-8 degree
+  telemetry::Inputs in;
+  in.batt_mv = _batt_mv ? _batt_mv : getBattMilliVolts();
+  in.low_batt_mv = _prefs ? _prefs->low_batt_mv : 0;
+  in.nodes = the_mesh.getNumContacts();
+  in.unread = unreadTotal();
+  in.imperial = _prefs && _prefs->units_imperial;
+  in.loc = _sensors ? _sensors->getLocationProvider() : nullptr;
+  in.gps_on = _core->gpsEnabled();
+  if (telemetry::isSensor(f)) {   // the sensors on the bus: read every few seconds, not per field
+    if (_sensors && (s_lpp_ms == 0 || millis() - s_lpp_ms > 5000)) {
+      s_lpp_ms = millis() | 1;
+      s_lpp.reset();
+      _sensors->querySensors(0xFF, s_lpp);
     }
-    case F_ALT_GPS:
-      if (loc && loc->isValid()) {
-        float m = loc->getAltitude() / 1000.0f;
-        snprintf(v, n, imperial ? "%.0f ft" : "%.0f m", imperial ? m * 3.28084f : m);
-      } else snprintf(v, n, "no fix");
-      return;
+    in.lpp = s_lpp.getBuffer();
+    in.lpp_len = s_lpp.getSize();
   }
-  // Sensors on the bus: read every few seconds, not per field.
-  if (_sensors && (s_lpp_ms == 0 || millis() - s_lpp_ms > 5000)) {
-    s_lpp_ms = millis() | 1;
-    s_lpp.reset();
-    _sensors->querySensors(0xFF, s_lpp);
-  }
-  uint8_t want = f == F_TEMP ? LPP_TEMPERATURE : f == F_HUM ? LPP_RELATIVE_HUMIDITY : f == F_PRES ? LPP_BAROMETRIC_PRESSURE
-               : f == F_ALT ? LPP_ALTITUDE : f == F_LUX ? LPP_LUMINOSITY : f == F_CO2 ? LPP_CONCENTRATION : 0;
-  if (!want) return;
-  LPPReader r(s_lpp.getBuffer(), s_lpp.getSize());
-  uint8_t ch, type;
-  while (r.readHeader(ch, type)) {
-    if (type != want) { r.skipData(type); continue; }
-    float x;
-    switch (type) {
-      case LPP_TEMPERATURE:
-        r.readTemperature(x);
-        snprintf(v, n, imperial ? "%.1f \xC2\xB0""F" : "%.1f \xC2\xB0""C", imperial ? x * 9 / 5 + 32 : x);
-        break;
-      case LPP_RELATIVE_HUMIDITY:   r.readRelativeHumidity(x); snprintf(v, n, "%.0f%%", x); break;
-      case LPP_BAROMETRIC_PRESSURE: r.readPressure(x); snprintf(v, n, "%.0f hPa", x); break;
-      case LPP_ALTITUDE:
-        r.readAltitude(x);
-        snprintf(v, n, imperial ? "%.0f ft" : "%.0f m", imperial ? x * 3.28084f : x);
-        break;
-      case LPP_LUMINOSITY:          r.readLuminosity(x); snprintf(v, n, "%.0f lx", x); break;
-      case LPP_CONCENTRATION:       r.readConcentration(x); snprintf(v, n, "%.0f ppm", x); break;
-    }
-    return;
-  }
+  telemetry::text(f, in, STYLE, v, n);
 }
 
 // ── Minimap page ──

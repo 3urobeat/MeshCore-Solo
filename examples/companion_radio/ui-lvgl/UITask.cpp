@@ -73,6 +73,7 @@ template <class T> static T* psramBuf(size_t n) {
 #include "../ui-core/RepeaterControl.h"
 #include "../ui-core/Diagnostics.h"
 #include "../ui-core/Battery.h"
+#include "../ui-core/Telemetry.h"
 #include "../ui-core/ChannelControl.h"
 #include "../ui-core/BotConfig.h"
 #include "../ui-core/SoundControl.h"
@@ -585,21 +586,12 @@ static lv_obj_t* rowSub(lv_obj_t* row) {
 enum : uint8_t { PG_KEYBOARD = settings::PG_COUNT, PG_ABOUT, PG_DISPLAY, PG_POWER, PG_TIME, PG_ALL };
 
 // A schema setting by its NodePrefs field; -1 if there's none.
-static int settingIdx(uint16_t offset) {
-  for (int i = 0; i < settings::COUNT; i++) if (settings::ALL[i].offset == offset) return i;
-  return -1;
-}
-#define SETTING(field) settingIdx(offsetof(NodePrefs, field))
+#define SETTING(field) settings::indexOf(offsetof(NodePrefs, field))
 
 // A setting's current value as its choice shows it ("UTC+2", "3.4 V" ...).
 static const char* settingText(const NodePrefs& p, int idx, char* buf, int n) {
   buf[0] = '\0';
-  if (idx < 0) return buf;
-  const settings::Setting& st = settings::ALL[idx];
-  uint8_t v = settings::get(p, st);
-  if (st.option) st.option(v, buf, n, p);
-  else snprintf(buf, n, "%s", v ? "On" : "Off");
-  return buf;
+  return idx < 0 ? buf : settings::text(p, settings::ALL[idx], buf, n);
 }
 static lv_obj_t* s_sec_card[settings::SEC_COUNT];   // schemaRows()' groups, by section
 static bool s_opts_from_map = false;                // Map options opened from the map: back returns there
@@ -861,6 +853,7 @@ static void contactName(const uint8_t* prefix, char* out, size_t n) {
 
 void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs* node_prefs) {
   s_ui = this;
+  _ui_started_ms = millis();
   _display = display_drv;
   _sensors = sensors;
   _prefs = node_prefs;
@@ -933,7 +926,8 @@ void UITask::loop() {
 
   // USER (BOOT, side) button: Home's clock page; held and let go, mutes / unmutes, also with the
   // screen off, which it doesn't wake. WAKE (top) button: screen off / on.
-  // Either one silences a ringing alarm first.
+  // Either one silences a ringing alarm first. Held in the first 8 s (once the
+  // screen is up -- held at power-on it's the ESP32's download mode): CLI rescue.
   bool btn_click = false, btn_hold = false, wake_press = false;
 #ifdef PIN_USER_BTN
   int ev = user_btn.check();
@@ -970,6 +964,10 @@ void UITask::loop() {
   if (shot) { if (!_asleep) takeScreenshot(); }
   else if ((btn_click || btn_hold || wake_press) && _core->clock.isRinging()) dismissRing();
   else if (wake_press) { if (_asleep) wake(); else sleep(); }
+  else if (btn_hold && millis() - _ui_started_ms < 8000) {   // held in the first 8 s: CLI rescue, as on the L1
+    the_mesh.enterCLIRescue();
+    showToast("CLI rescue on the USB serial", 4000);
+  }
   else if (btn_hold) mute_armed = true;
   else if (mute) toggleMute();
   else if (btn_click) { if (!_asleep && !locked()) goHome(); }   // the side button doesn't wake: pockets

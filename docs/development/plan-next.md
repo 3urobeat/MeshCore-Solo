@@ -89,8 +89,16 @@ for a second radio). They are L2-specific and block the loop for ~90 s.
 
 ## G. Core parity with L1 SOLO
 
-- [ ] A feature table: L1 SOLO / ui-core / L2 (ui-lvgl). What's missing goes
+- [x] A feature table: L1 SOLO / ui-core / L2 (ui-lvgl). What's missing goes
       into ui-core, not into each UI separately.
+      Done 2026-09-28: L1 sends through UiCore::sendDirectText /
+      sendChannelText; ui-core/Telemetry.h (dashboard fields, sensor
+      readings) for both; CLI rescue on L2 (side button held in the first
+      8 s); L1's repeater radio through rptctl; L1 Settings built from
+      SettingsSchema (short labels, SCHEMA_* placeholders per section; 20
+      hand-written rows gone). Kept per device: Noise measure (L2), screen
+      PIN (L2, a PR pending). Later, as settings are touched: radio switches,
+      keyboard alphabets and chat filters into the schema.
 
 ## H. Before the merge into dev
 

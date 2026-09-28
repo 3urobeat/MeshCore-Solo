@@ -15,18 +15,7 @@ class SettingsScreen : public UIScreen {
   enum SettingItem {
     // Display section
     SECTION_DISPLAY,
-#if FEAT_BRIGHTNESS_SETTING
-    BRIGHTNESS,
-#endif
-#if AUTO_OFF_MILLIS > 0
-    AUTO_OFF,
-#endif
-    AUTO_LOCK,
-    BATT_DISPLAY,
-#if FEAT_CLOCK_SECONDS_SETTING
-    CLOCK_SECONDS,
-#endif
-    CLOCK_FORMAT,
+    SCHEMA_DISPLAY,   // the schema's display and time settings (ui-core/SettingsSchema.h)
 #if FEAT_DISPLAY_ROTATION_SETTING
     ROTATION,
 #endif
@@ -36,16 +25,10 @@ class SettingsScreen : public UIScreen {
 #if FEAT_FULL_REFRESH_SETTING
     EINK_FULL_REFRESH,
 #endif
-    MSG_WAKE,
     // Sound section
     SECTION_SOUND,
     BUZZER,
-    BUZZER_VOLUME,
-    QUIET_HOURS, QUIET_FROM, QUIET_TO,
-    DM_MELODY,
-    CH_MELODY,
-    AD_SOUND,
-    AD_SOUND_SCOPE,
+    SCHEMA_SOUND,     // volume, quiet hours, what plays for what
     // Home pages section
     SECTION_HOME_PAGES,
     HOME_CLOCK, HOME_FAVOURITES, HOME_RADIO, HOME_BT, HOME_ADVERT,
@@ -70,12 +53,7 @@ class SettingsScreen : public UIScreen {
     // System section
     SECTION_SYSTEM,
     DEVICE_NAME,
-    TIMEZONE,
-    LOW_BAT,
-#if ENV_INCLUDE_GPS == 1
-    GPS_DUTY_CYCLE,
-#endif
-    UNITS,
+    SCHEMA_SYSTEM,    // power, units
     REBOOT,
     // Keyboard section
     SECTION_KEYBOARD,
@@ -86,14 +64,16 @@ class SettingsScreen : public UIScreen {
     KEYBOARD_CARDKB_COMPACT,
 #endif
     // Contacts section
-    SECTION_CONTACTS, DM_FILTER, CH_FILTER, ROOM_FILTER, FAV_SORT, EXPIRE_AFTER, PRUNE_NOW,
+    SECTION_CONTACTS, DM_FILTER, CH_FILTER, ROOM_FILTER, SCHEMA_CONTACTS, PRUNE_NOW,
     // Messages section
     SECTION_MESSAGES,
-    DM_RESEND,
+    SCHEMA_MESSAGES,
     MSG_SLOT_0, MSG_SLOT_1, MSG_SLOT_2, MSG_SLOT_3, MSG_SLOT_4,
     MSG_SLOT_5, MSG_SLOT_6, MSG_SLOT_7, MSG_SLOT_8, MSG_SLOT_9,
     Count
   };
+  // A schema setting's row: SCHEMA_ITEM + its index in settings::ALL.
+  static const int SCHEMA_ITEM = 128;
 
   // Cursor + scroll, fold state and the flattened visible list are owned by the
   // shared AccordionList helper. We keep only the section→SettingItem mapping it
@@ -110,49 +90,10 @@ class SettingsScreen : public UIScreen {
   uint8_t _sec_header[NUM_SECTIONS];             // the SECTION_* enum for each section
   int     _num_sections = 0;
 
-#if AUTO_OFF_MILLIS > 0
-  static const uint16_t AUTO_OFF_OPTS[5];
-  static const char* AUTO_OFF_LABELS[5];
-  static const int AUTO_OFF_COUNT = 5;
-#endif
-  static const uint16_t LOW_BAT_OPTS[7];
-  static const char* LOW_BAT_LABELS[7];
-  static const int LOW_BAT_COUNT = 7;
-#if ENV_INCLUDE_GPS == 1
-  // GPS duty-cycle sleep window: how long GPS naps between fix acquisitions.
-  // "OFF" (0) keeps it continuously on, today's behaviour. Backed by
-  // NodePrefs::gps_interval, seconds.
-  static const uint32_t GPS_DUTY_OPTS[6];
-  static const char* GPS_DUTY_LABELS[6];
-  static const int GPS_DUTY_COUNT = 6;
-  int gpsDutyIndex() {
-    NodePrefs* p = _task->getNodePrefs();
-    if (!p) return 0;
-    for (int i = 0; i < GPS_DUTY_COUNT; i++)
-      if (GPS_DUTY_OPTS[i] == p->gps_interval) return i;
-    return 0;
-  }
-#endif
-  static const char* BATT_DISPLAY_LABELS[3];
-  static const int BATT_DISPLAY_COUNT = 3;
-  static const char* SOUND_LABELS[4];
-  static const int SOUND_COUNT = 4;
-  static const char* AD_SCOPE_LABELS[2];
-  static const int AD_SCOPE_COUNT = 2;
-  // ("Expire" reads its labels straight from NodePrefs::contactExpiryLabel(),
-  //  which is also where MyMesh takes the matching day count from.)
 #if FEAT_FULL_REFRESH_SETTING
   static const char* EINK_FULL_REFRESH_LABELS[5];
   static const int   EINK_FULL_REFRESH_COUNT = 5;
 #endif
-
-  int lowBatIndex() {
-    NodePrefs* p = _task->getNodePrefs();
-    if (!p) return 0;
-    for (int i = 0; i < LOW_BAT_COUNT; i++)
-      if (LOW_BAT_OPTS[i] == p->low_batt_mv) return i;
-    return 0;
-  }
 
   // The companion's own radio fields, as the shared preset picker's target
   // (Tools › Repeater points the same picker at the dedicated repeater profile).
@@ -185,15 +126,6 @@ class SettingsScreen : public UIScreen {
     }
   }
 
-#if AUTO_OFF_MILLIS > 0
-  int autoOffIndex() {
-    NodePrefs* p = _task->getNodePrefs();
-    if (!p) return 1;
-    for (int i = 0; i < AUTO_OFF_COUNT; i++)
-      if (AUTO_OFF_OPTS[i] == p->auto_off_secs) return i;
-    return 1;
-  }
-#endif
 
 
   bool isSection(int item) const {
@@ -218,6 +150,8 @@ class SettingsScreen : public UIScreen {
 
   // Walk the SettingItem enum once, bucketing items under their section header.
   // #if-guarded items need no special handling — they simply aren't in the enum.
+  // A SCHEMA_* placeholder becomes the schema's settings of its sections, in
+  // the schema's order -- so a setting added there shows here too.
   void buildSections() {
     int cur = -1;
     for (int i = 0; i < (int)Count; i++) {
@@ -225,11 +159,78 @@ class SettingsScreen : public UIScreen {
         if (++cur >= NUM_SECTIONS) break;
         _sec_header[cur] = (uint8_t)i;
         _sec_count[cur]  = 0;
+      } else if (cur >= 0 && isSchemaGroup(i)) {
+        for (int k = 0; k < settings::COUNT && _sec_count[cur] < MAX_PER_SEC; k++)
+          if (schemaIn(i, settings::ALL[k].section) && schemaShown(settings::ALL[k]))
+            _sec_items[cur][_sec_count[cur]++] = (uint8_t)(SCHEMA_ITEM + k);
       } else if (cur >= 0 && _sec_count[cur] < MAX_PER_SEC) {
         _sec_items[cur][_sec_count[cur]++] = (uint8_t)i;
       }
     }
     _num_sections = cur + 1;
+  }
+
+  static bool isSchemaGroup(int item) {
+    return item == SCHEMA_DISPLAY || item == SCHEMA_SOUND || item == SCHEMA_SYSTEM ||
+           item == SCHEMA_CONTACTS || item == SCHEMA_MESSAGES;
+  }
+  // Which schema sections a placeholder stands for.
+  static bool schemaIn(int group, uint8_t sec) {
+    using namespace settings;
+    switch (group) {
+      case SCHEMA_DISPLAY:  return sec == SEC_DISPLAY || sec == SEC_TIME;
+      case SCHEMA_SOUND:    return sec == SEC_SOUND || sec == SEC_QUIET || sec == SEC_SOUND_FOR;
+      case SCHEMA_SYSTEM:   return sec == SEC_POWER || sec == SEC_UNITS;
+      case SCHEMA_CONTACTS: return sec == SEC_CONTACTS;
+      case SCHEMA_MESSAGES: return sec == SEC_MESSAGES;
+    }
+    return false;
+  }
+  // Settings this board has no use for.
+  static bool schemaShown(const settings::Setting& st) {
+    uint16_t o = st.offset;
+    (void)o;
+#if !FEAT_BRIGHTNESS_SETTING
+    if (o == offsetof(NodePrefs, display_brightness)) return false;
+#endif
+#if AUTO_OFF_MILLIS == 0
+    if (o == offsetof(NodePrefs, auto_off_secs)) return false;
+#endif
+#if !FEAT_CLOCK_SECONDS_SETTING
+    if (o == offsetof(NodePrefs, clock_hide_seconds)) return false;
+#endif
+#if ENV_INCLUDE_GPS != 1
+    if (o == offsetof(NodePrefs, gps_interval)) return false;
+#endif
+#ifndef PIN_BUZZER
+    if (o == offsetof(NodePrefs, buzzer_volume) || o == offsetof(NodePrefs, notif_melody_dm) ||
+        o == offsetof(NodePrefs, notif_melody_ch) || o == offsetof(NodePrefs, notif_melody_ad) ||
+        o == offsetof(NodePrefs, advert_sound_scope)) return false;
+#endif
+    return true;
+  }
+
+  // A schema setting: its short label, the value in the value column (a
+  // switch as ON / OFF, brightness and volume as bars). A value too long for
+  // the column starts further left, clear of the label, else scrolls.
+  int renderSchema(DisplayDriver& display, const settings::Setting& st, NodePrefs* p, int y, bool sel) {
+    const char* label = settings::shortLabel(st);
+    display.print(label);
+    if (!p) return 0;
+    if (st.offset == offsetof(NodePrefs, display_brightness) || st.offset == offsetof(NodePrefs, buzzer_volume)) {
+      renderBar(display, valCol(display), y, settings::get(*p, st) + 1, st.count);
+      return 0;
+    }
+    char v[24];
+    settings::text(*p, st, v, sizeof(v), "ON", "OFF");
+    int right = display.width() - _reserve;
+    int x = valCol(display), w = display.getTextWidth(v);
+    if (x + w > right) {
+      int min_x = 2 + display.getTextWidth(label) + display.getCharWidth();
+      x = right - w > min_x ? right - w : min_x;
+    }
+    int r = display.drawTextEllipsized(x, y, right - x, v, sel);
+    return sel && r > 0 ? r : 0;
   }
 
   // (Re)load the section sizes into the accordion (folds all, resets the cursor).
@@ -457,13 +458,9 @@ class SettingsScreen : public UIScreen {
 
     display.setCursor(2, y);
 
-#if FEAT_BRIGHTNESS_SETTING
-    if (item == BRIGHTNESS) {
-      display.print("Bright");
-      renderBar(display, valCol(display), y, (p ? p->display_brightness : 2) + 1, 5);
-    } else
-#endif
-    if (item == BUZZER) {
+    if (item >= SCHEMA_ITEM) {
+      mq_delay = renderSchema(display, settings::ALL[item - SCHEMA_ITEM], p, y, sel);
+    } else if (item == BUZZER) {
       display.print("Buzzer");
       display.setCursor(valCol(display), y);
 #ifdef PIN_BUZZER
@@ -473,49 +470,6 @@ class SettingsScreen : public UIScreen {
 #else
       display.print("N/A");
 #endif
-    } else if (item == BUZZER_VOLUME) {
-      display.print("Buzzer vol");
-#ifdef PIN_BUZZER
-      renderBar(display, valCol(display), y, _task->getBuzzerVolume() + 1, 5);
-#else
-      display.setCursor(valCol(display), y);
-      display.print("N/A");
-#endif
-    } else if (item == QUIET_HOURS) {
-      display.print("Quiet hrs");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->quiet_hours) ? "ON" : "OFF");
-    } else if (item == QUIET_FROM || item == QUIET_TO) {
-      display.print(item == QUIET_FROM ? " from" : " until");
-      display.setCursor(valCol(display), y);
-      { char hb[8]; uint8_t h = p ? (item == QUIET_FROM ? p->quiet_from : p->quiet_to) : 0;
-        if (p && p->clock_12h) snprintf(hb, sizeof(hb), "%u%s", (unsigned)(h % 12 ? h % 12 : 12), h < 12 ? "AM" : "PM");
-        else snprintf(hb, sizeof(hb), "%02u:00", (unsigned)h);
-        display.print(hb); }
-    } else if (item == DM_MELODY) {
-      display.print("DM sound");
-      display.setCursor(valCol(display), y);
-      { uint8_t v = p ? p->notif_melody_dm : 0;
-        display.print(SOUND_LABELS[v < SOUND_COUNT ? v : 0]); }
-    } else if (item == CH_MELODY) {
-      display.print("Ch sound");
-      display.setCursor(valCol(display), y);
-      { uint8_t v = p ? p->notif_melody_ch : 0;
-        display.print(SOUND_LABELS[v < SOUND_COUNT ? v : 0]); }
-    } else if (item == AD_SOUND) {
-      display.print("AD sound");
-      display.setCursor(valCol(display), y);
-      { uint8_t v = p ? p->notif_melody_ad : 0;
-        display.print(SOUND_LABELS[v < SOUND_COUNT ? v : 0]); }
-    } else if (item == AD_SOUND_SCOPE) {
-      display.print("AD scope");
-      display.setCursor(valCol(display), y);
-      { uint8_t v = p ? p->advert_sound_scope : ADVERT_SOUND_SCOPE_ALL;
-        display.print(AD_SCOPE_LABELS[v < AD_SCOPE_COUNT ? v : 0]); }
-    } else if (item == MSG_WAKE) {
-      display.print("Msg wake");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->msg_wake_screen_off) ? "OFF" : "ON");
     } else if (isHomePage(item)) {
       if (p) ensurePageOrderInit(p);
       int pos = homePagePosition(item, p);
@@ -591,38 +545,6 @@ class SettingsScreen : public UIScreen {
       int r = display.drawTextEllipsized(vx, y, display.width() - vx - _reserve,
                                   sl.name(sl.default_idx), sel);
       if (sel && r > 0) mq_delay = r;
-#if AUTO_OFF_MILLIS > 0
-    } else if (item == AUTO_OFF) {
-      display.print("Auto off");
-      display.setCursor(valCol(display), y);
-      display.print(AUTO_OFF_LABELS[autoOffIndex()]);
-#endif
-    } else if (item == AUTO_LOCK) {
-      display.print("Auto lock");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->auto_lock) ? "ON" : "OFF");
-    } else if (item == TIMEZONE) {
-      display.print("Time zone");
-      char buf[8];
-      int8_t tz = p ? p->tz_offset_hours : 0;
-      if (tz >= 0) snprintf(buf, sizeof(buf),"UTC+%d", (int)tz);
-      else         snprintf(buf, sizeof(buf),"UTC%d",  (int)tz);
-      display.setCursor(valCol(display), y);
-      display.print(buf);
-    } else if (item == LOW_BAT) {
-      display.print("Low batt");
-      display.setCursor(valCol(display), y);
-      display.print(LOW_BAT_LABELS[lowBatIndex()]);
-#if ENV_INCLUDE_GPS == 1
-    } else if (item == GPS_DUTY_CYCLE) {
-      display.print("GPS pwr");
-      display.setCursor(valCol(display), y);
-      display.print(GPS_DUTY_LABELS[gpsDutyIndex()]);
-#endif
-    } else if (item == UNITS) {
-      display.print("Units");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->units_imperial) ? "Imperial" : "Metric");
     } else if (item == DEVICE_NAME) {
       display.print("Name");
       int vx = valCol(display);
@@ -648,21 +570,6 @@ class SettingsScreen : public UIScreen {
       display.setCursor(valCol(display), y);
       display.print((p && p->keyboard_cardkb_compact) ? "Compact" : "Full");
 #endif
-    } else if (item == BATT_DISPLAY) {
-      display.print("Batt disp");
-      display.setCursor(valCol(display), y);
-      uint8_t mode = p ? p->batt_display_mode : 0;
-      display.print(BATT_DISPLAY_LABELS[mode < BATT_DISPLAY_COUNT ? mode : 0]);
-#if FEAT_CLOCK_SECONDS_SETTING
-    } else if (item == CLOCK_SECONDS) {
-      display.print("Seconds");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->clock_hide_seconds) ? "OFF" : "ON");
-#endif
-    } else if (item == CLOCK_FORMAT) {
-      display.print("Format");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->clock_12h) ? "12h" : "24h");
 #if FEAT_DISPLAY_ROTATION_SETTING
     } else if (item == ROTATION) {
       display.print("Rotation");
@@ -695,22 +602,8 @@ class SettingsScreen : public UIScreen {
       display.print("Rooms");
       display.setCursor(valCol(display), y);
       display.print((p && p->room_fav_only) ? "Fav" : "All");
-    } else if (item == FAV_SORT) {
-      display.print("Favs top");
-      display.setCursor(valCol(display), y);
-      display.print((p && p->fav_sort_off) ? "OFF" : "ON");
-    } else if (item == EXPIRE_AFTER) {
-      display.print("Expire");
-      display.setCursor(valCol(display), y);
-      display.print(NodePrefs::contactExpiryLabel(p ? p->contact_expiry_idx : 0));
     } else if (item == PRUNE_NOW) {
       display.print("Prune now");   // action row: Enter counts + confirms + removes
-    } else if (item == DM_RESEND) {
-      display.print("Resend");
-      display.setCursor(valCol(display), y);
-      uint8_t n = p ? p->dm_resend_count : 0;
-      if (n == 0) display.print("OFF");
-      else { char buf[6]; snprintf(buf, sizeof(buf), "%ux", (unsigned)n); display.print(buf); }
     } else if (isMsgSlot(item)) {
       int slot = msgSlotIndex(item);
       char label[5];
@@ -1018,55 +911,17 @@ public:
     bool left  = keyIsPrev(c);
     bool enter = (c == KEY_ENTER);
 
-#if FEAT_BRIGHTNESS_SETTING
-    if (_selected == BRIGHTNESS) {
-      uint8_t lvl = _task->getBrightnessLevel();
-      if (right && lvl < 4) { _task->setBrightnessLevel(lvl + 1); _dirty = true; return true; }
-      if (left  && lvl > 0) { _task->setBrightnessLevel(lvl - 1); _dirty = true; return true; }
-      return right || left;
+    if (_selected >= SCHEMA_ITEM) {
+      if (!p || !(left || right || enter)) return false;
+      settings::step(*p, settings::ALL[_selected - SCHEMA_ITEM], left ? -1 : 1, _task->core());
+      _dirty = true;
+      return true;
     }
-#endif
+
     if (_selected == BUZZER && (left || right || enter)) {
       _task->cycleBuzzerMode();
       _dirty = true;
       return true;
-    }
-    if (_selected == BUZZER_VOLUME) {
-#ifdef PIN_BUZZER
-      uint8_t lvl = _task->getBuzzerVolume();
-      if (right && lvl < 4) { _task->setBuzzerVolumeLevel(lvl + 1); _dirty = true; return true; }
-      if (left  && lvl > 0) { _task->setBuzzerVolumeLevel(lvl - 1); _dirty = true; return true; }
-#endif
-      return right || left;
-    }
-    if (_selected == QUIET_HOURS && p && (left || right || enter)) {
-      p->quiet_hours ^= 1;
-      _dirty = true; return true;
-    }
-    if ((_selected == QUIET_FROM || _selected == QUIET_TO) && p && (left || right || enter)) {
-      uint8_t& h = _selected == QUIET_FROM ? p->quiet_from : p->quiet_to;
-      h = (h + (left ? 23 : 1)) % 24;
-      _dirty = true; return true;
-    }
-    if (_selected == DM_MELODY && p && (left || right || enter)) {
-      p->notif_melody_dm = (p->notif_melody_dm + (left ? SOUND_COUNT - 1 : 1)) % SOUND_COUNT;
-      _dirty = true; return true;
-    }
-    if (_selected == CH_MELODY && p && (left || right || enter)) {
-      p->notif_melody_ch = (p->notif_melody_ch + (left ? SOUND_COUNT - 1 : 1)) % SOUND_COUNT;
-      _dirty = true; return true;
-    }
-    if (_selected == AD_SOUND && p && (left || right || enter)) {
-      p->notif_melody_ad = (p->notif_melody_ad + (left ? SOUND_COUNT - 1 : 1)) % SOUND_COUNT;
-      _dirty = true; return true;
-    }
-    if (_selected == AD_SOUND_SCOPE && p && (left || right || enter)) {
-      p->advert_sound_scope ^= 1;
-      _dirty = true; return true;
-    }
-    if (_selected == MSG_WAKE && p && (left || right || enter)) {
-      p->msg_wake_screen_off ^= 1;
-      _dirty = true; return true;
     }
     if (isHomePage(_selected) && p) {
       if (left || right) {
@@ -1119,45 +974,6 @@ public:
       _dirty = true;
       return true;
     }
-#if AUTO_OFF_MILLIS > 0
-    if (_selected == AUTO_OFF && p) {
-      int idx = autoOffIndex();
-      if (right || enter) idx = (idx + 1) % AUTO_OFF_COUNT;
-      else if (left)      idx = (idx + AUTO_OFF_COUNT - 1) % AUTO_OFF_COUNT;
-      if (left || right || enter) { p->auto_off_secs = AUTO_OFF_OPTS[idx]; _dirty = true; return true; }
-    }
-#endif
-    if (_selected == AUTO_LOCK && p && (left || right || enter)) {
-      p->auto_lock ^= 1;
-      _dirty = true;
-      return true;
-    }
-    if (_selected == TIMEZONE && p) {
-      if (right && p->tz_offset_hours < 14)  { p->tz_offset_hours++; _dirty = true; return true; }
-      if (left  && p->tz_offset_hours > -12) { p->tz_offset_hours--; _dirty = true; return true; }
-    }
-    if (_selected == LOW_BAT && p) {
-      int idx = lowBatIndex();
-      if (right || enter) idx = (idx + 1) % LOW_BAT_COUNT;
-      else if (left)      idx = (idx + LOW_BAT_COUNT - 1) % LOW_BAT_COUNT;
-      if (left || right || enter) { p->low_batt_mv = LOW_BAT_OPTS[idx]; _dirty = true; return true; }
-    }
-#if ENV_INCLUDE_GPS == 1
-    if (_selected == GPS_DUTY_CYCLE && p && (left || right || enter)) {
-      int idx = gpsDutyIndex();
-      if (right || enter) idx = (idx + 1) % GPS_DUTY_COUNT;
-      else if (left)      idx = (idx + GPS_DUTY_COUNT - 1) % GPS_DUTY_COUNT;
-      p->gps_interval = GPS_DUTY_OPTS[idx];
-      _task->applyGpsInterval();
-      _dirty = true;
-      return true;
-    }
-#endif
-    if (_selected == UNITS && p && (left || right || enter)) {
-      p->units_imperial ^= 1;
-      _dirty = true;
-      return true;
-    }
     if (_selected == DEVICE_NAME && p && enter) {
       _edit_name = true;
       _kb->begin(the_mesh.getNodeName(), (int)sizeof(p->node_name) - 1);
@@ -1203,30 +1019,6 @@ public:
       return true;
     }
 #endif
-    if (_selected == DM_RESEND && p) {
-      int n = p->dm_resend_count;
-      if (right || enter) n = (n + 1) % 6;          // 0..5, wraps
-      else if (left)      n = (n + 5) % 6;
-      if (left || right || enter) { p->dm_resend_count = (uint8_t)n; _dirty = true; return true; }
-    }
-    if (_selected == BATT_DISPLAY && p) {
-      int idx = p->batt_display_mode < BATT_DISPLAY_COUNT ? p->batt_display_mode : 0;
-      if (right || enter) idx = (idx + 1) % BATT_DISPLAY_COUNT;
-      else if (left)      idx = (idx + BATT_DISPLAY_COUNT - 1) % BATT_DISPLAY_COUNT;
-      if (left || right || enter) { p->batt_display_mode = idx; _dirty = true; return true; }
-    }
-#if FEAT_CLOCK_SECONDS_SETTING
-    if (_selected == CLOCK_SECONDS && p && (left || right || enter)) {
-      p->clock_hide_seconds ^= 1;
-      _dirty = true;
-      return true;
-    }
-#endif
-    if (_selected == CLOCK_FORMAT && p && (left || right || enter)) {
-      p->clock_12h ^= 1;
-      _dirty = true;
-      return true;
-    }
 #if FEAT_DISPLAY_ROTATION_SETTING
     if (_selected == ROTATION && p && (left || right || enter)) {
       p->display_rotation = (p->display_rotation + (left ? 3 : 1)) & 3;
@@ -1268,19 +1060,6 @@ public:
       _dirty = true;
       return true;
     }
-    if (_selected == FAV_SORT && p && (left || right || enter)) {
-      p->fav_sort_off = p->fav_sort_off ? 0 : 1;
-      _dirty = true;
-      return true;
-    }
-    if (_selected == EXPIRE_AFTER && p && (left || right || enter)) {
-      const int n_opt = NodePrefs::CONTACT_EXPIRY_COUNT;
-      int idx = (p->contact_expiry_idx < n_opt) ? p->contact_expiry_idx : 0;
-      idx = (idx + (left ? n_opt - 1 : 1)) % n_opt;
-      p->contact_expiry_idx = (uint8_t)idx;
-      _dirty = true;
-      return true;
-    }
     if (_selected == PRUNE_NOW && enter) {
       int n = the_mesh.countStaleContacts();
       if (n == 0) {
@@ -1307,19 +1086,6 @@ public:
   }
 };
 
-#if AUTO_OFF_MILLIS > 0
-const uint16_t SettingsScreen::AUTO_OFF_OPTS[5]   = { 5, 15, 30, 60, 0 };
-const char*    SettingsScreen::AUTO_OFF_LABELS[5]  = { "5s", "15s", "30s", "60s", "OFF" };
-#endif
-const uint16_t SettingsScreen::LOW_BAT_OPTS[7]   = { 0, 3000, 3100, 3200, 3300, 3400, 3500 };
-const char*    SettingsScreen::LOW_BAT_LABELS[7]  = { "OFF", "3.0V", "3.1V", "3.2V", "3.3V", "3.4V", "3.5V" };
-#if ENV_INCLUDE_GPS == 1
-const uint32_t SettingsScreen::GPS_DUTY_OPTS[6]   = { 0, 60, 300, 900, 1800, 3600 };
-const char*    SettingsScreen::GPS_DUTY_LABELS[6] = { "OFF", "1 min", "5 min", "15 min", "30 min", "1 h" };
-#endif
-const char*    SettingsScreen::BATT_DISPLAY_LABELS[3] = { "Icon", "%", "V" };
-const char*    SettingsScreen::SOUND_LABELS[4] = { "Built-in", "M1", "M2", "None" };
-const char*    SettingsScreen::AD_SCOPE_LABELS[2] = { "All", "Zero-hop" };
 #if FEAT_FULL_REFRESH_SETTING
 const char* SettingsScreen::EINK_FULL_REFRESH_LABELS[5] = { "OFF", "5", "10", "20", "30" };
 #endif

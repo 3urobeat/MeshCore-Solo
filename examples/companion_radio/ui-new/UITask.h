@@ -437,17 +437,14 @@ public:
   void setGpioMode(int idx, uint8_t mode);   // 0=Off 1=In 2=Out-low 3=Out-high 4=Analog; applies + persists
   void applyAllGpioModes();                  // boot-time restore from NodePrefs, called from begin()
   void applyBrightness();
-  void setBrightnessLevel(uint8_t level);
-  uint8_t getBrightnessLevel() const { return _node_prefs ? _node_prefs->display_brightness : 2; }
+  // Settings changed through the schema (ui-core/SettingsSchema.h).
+  void applyDisplayPrefs() override { applyBrightness(); _next_refresh = 0; }
+  void applySoundPrefs() override;
   void setBuzzerVolumeLevel(uint8_t level);
-  uint8_t getBuzzerVolume() const { return _node_prefs ? _node_prefs->buzzer_volume : 4; }
   void applyTxPower();
   void applyPowerSave();   // hardware duty-cycle RX on/off from prefs
   void applyApc();         // Adaptive Power Control on/off from prefs
   void applyRadioParams(); // freq/bw/sf/cr from prefs (radio preset change)
-#if ENV_INCLUDE_GPS == 1
-  void applyGpsInterval(); // GPS duty-cycle sleep window from prefs
-#endif
   // Save-on-exit helper for the screen `_dirty` pattern: persists NodePrefs once
   // only if `dirty`, then clears the flag. Standardises the screens' exit paths
   // (some used to leave the flag set, relying on onShow() to reset it) and keeps

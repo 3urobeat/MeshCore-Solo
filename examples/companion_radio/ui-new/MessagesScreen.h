@@ -37,12 +37,6 @@ class MessagesScreen : public UIScreen {
   int _sel_channel_idx;
   bool _sending_to_channel;
 
-  // Carries the just-sent DM's ACK tag + deadline + send timestamp from
-  // sendText() to afterSend().
-  uint32_t _last_ack_tag = 0;
-  uint32_t _last_ack_deadline_ms = 0;
-  uint32_t _last_send_ts = 0;
-
   // MSG_PICK (shared)
   int _msg_sel, _msg_scroll;
   int _active_msgs[QUICK_MSGS_MAX];
@@ -538,24 +532,12 @@ class MessagesScreen : public UIScreen {
     if (ok && _sending_to_channel) {
       _hist_sel = 0;
       _hist_scroll = 0;
-      _phase = CHANNEL_HIST;  // set before filing so the Core sees viewing=true, no unread bump
-      char entry[sizeof(ChHistEntry::text)];
-      snprintf(entry, sizeof(entry), "Me: %s", msg);
-      int pos = _task->core().addChannelMsg(_sel_channel_idx, entry);
-      // Arm the "relayed into mesh" marker on this exact entry — MyMesh tracked
-      // the flood it just originated and reports a heard repeater echo by seq.
-      if (pos >= 0) _history.armChannelRelay(pos, the_mesh.lastChannelRelaySeq());
-      // After inserting sent msg at index 0, the unread index range is stale.
-      // User is active in this channel — treat as fully read.
-      _history.setChUnread(_sel_channel_idx, 0);
+      // Filed at index 0 by sendText(): the unread index range is stale, and
+      // the user is active in this channel -- fully read.
       _unread_at_entry = 0;
       _viewing_max_seen = 0;
       _task->showAlert("Sent", 600);
     } else if (ok) {
-      NodePrefs* np = _task->getNodePrefs();
-      uint8_t resends = np ? np->dm_resend_count : 0;
-      _history.storeDMMsg(_sel_contact.id.pub_key, true, msg, _last_ack_tag,
-                          _last_ack_deadline_ms, _last_send_ts, resends);
       _dm_hist_sel = 0;
       _dm_hist_scroll = 0;
       _phase = DM_HIST;
@@ -566,29 +548,16 @@ class MessagesScreen : public UIScreen {
     }
   }
 
+  // Sent through the Core, which files the message as L2's are: a DM with its
+  // ACK tracking and resends, a channel post as "Me: ..." with the relay
+  // marker armed and the channel read.
   bool sendText(const char* msg) {
-    _last_ack_tag = 0;
-    _last_ack_deadline_ms = 0;
-    _last_send_ts = 0;
-    if (_sending_to_channel) {
-      ChannelDetails ch;
-      if (!the_mesh.getChannel(_sel_channel_idx, ch)) return false;
-      return the_mesh.sendGroupMessage(rtc_clock.getCurrentTime(), ch.channel,
-                                       the_mesh.getNodeName(), msg, strlen(msg));
-    } else {
-      uint32_t send_ts = rtc_clock.getCurrentTime();
-      uint32_t expected_ack = 0, est_timeout = 0;
-      bool ok = the_mesh.sendMessage(_sel_contact, send_ts, 0,
-                                     msg, expected_ack, est_timeout) > 0;
-      if (ok && expected_ack) {
-        _last_send_ts = send_ts;
-        _last_ack_tag = expected_ack;
-        // Generous margin over the base estimate so a slow multi-hop ACK isn't
-        // prematurely shown as failed.
-        _last_ack_deadline_ms = millis() + est_timeout + 4000;
-      }
-      return ok;
-    }
+    if (!_sending_to_channel) return _task->core().sendDirectText(_sel_contact, msg);
+    Phase prev = _phase;
+    _phase = CHANNEL_HIST;   // before filing, so the Core sees it viewed: no unread bump
+    bool ok = _task->core().sendChannelText(_sel_channel_idx, msg);
+    if (!ok) _phase = prev;
+    return ok;
   }
 
   // Fill _pin_slot_labels for the "Pick slot" submenu: each dial slot with its

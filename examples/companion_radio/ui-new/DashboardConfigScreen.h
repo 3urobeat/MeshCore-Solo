@@ -2,22 +2,7 @@
 // Configures which data fields appear on the clock home page.
 // Included by UITask.cpp after BotScreen.h.
 
-// Field type constants — used here and in UITask.cpp HP_CLOCK render.
-static const uint8_t DASH_NONE    = 0;
-static const uint8_t DASH_BATT_V  = 1;
-static const uint8_t DASH_TEMP    = 2;
-static const uint8_t DASH_HUM     = 3;
-static const uint8_t DASH_PRES    = 4;
-static const uint8_t DASH_GPS     = 5;
-static const uint8_t DASH_ALT     = 6;
-static const uint8_t DASH_LUX     = 7;
-static const uint8_t DASH_CO2     = 8;
-static const uint8_t DASH_NODES   = 9;
-static const uint8_t DASH_MSGS    = 10;
-static const uint8_t DASH_BATT_PCT = 11;
-static const uint8_t DASH_SATS    = 12;
-static const uint8_t DASH_ALT_GPS = 13;
-static const uint8_t DASH_COUNT   = 14;
+// The fields and their names: ui-core/Telemetry.h.
 
 class DashboardConfigScreen : public UIScreen {
   UITask*    _task;
@@ -25,14 +10,12 @@ class DashboardConfigScreen : public UIScreen {
 
   static const int FIELD_SLOTS = 3;
 
-  static const char* OPTION_NAMES[DASH_COUNT];
-
   int  _sel;
   bool _dirty;
 
   void cycle(int slot, int dir) {
     uint8_t& f = _prefs->dashboard_fields[slot];
-    f = (uint8_t)((f + DASH_COUNT + dir) % DASH_COUNT);
+    f = (uint8_t)((f + telemetry::COUNT + dir) % telemetry::COUNT);
     _dirty = true;
   }
 
@@ -59,7 +42,7 @@ public:
       display.print(labels[i]);
       display.setCursor(val_x, y);
       uint8_t f = _prefs->dashboard_fields[i];
-      display.print(OPTION_NAMES[f < DASH_COUNT ? f : DASH_NONE]);
+      display.print(telemetry::COMPACT[f < telemetry::COUNT ? f : telemetry::NONE]);
       display.setColor(DisplayDriver::LIGHT);
     }
     return 500;
@@ -80,8 +63,3 @@ public:
   }
 };
 
-const char* DashboardConfigScreen::OPTION_NAMES[DASH_COUNT] = {
-  "None", "Batt V", "Temp", "Humidity", "Pressure",
-  "GPS", "Altitude (Baro)", "Lux", "CO2", "Contacts", "Messages", "Batt %", "Sats",
-  "Altitude (GPS)"
-};

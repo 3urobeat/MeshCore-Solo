@@ -218,7 +218,7 @@ public:
             _task->keyboard().clearPlaceholders();   // {loc}/{time} are for messages, not preset names
             break;
           case RadioPresetPicker::APPLIED:
-            the_mesh.applyRepeaterRadio();   // live if currently relaying on the profile
+            rptctl::applyProfile();   // live if currently relaying on the profile
             _dirty = true;
             break;
           case RadioPresetPicker::DELETED:
@@ -235,7 +235,7 @@ public:
       return true;
     }
     if (_editor.active()) {
-      if (_editor.handleFreqInput(c) && p) { the_mesh.applyRepeaterRadio(); _dirty = true; }
+      if (_editor.handleFreqInput(c) && p) { rptctl::applyProfile(); _dirty = true; }
       return true;
     }
 
@@ -272,9 +272,9 @@ public:
       return true;
     }
     int dir = right ? 1 : (left ? -1 : 0);
-    if (item == IT_RSF && dir && RadioParamsEditor::stepSF(p->repeater_sf, dir)) { the_mesh.applyRepeaterRadio(); _dirty = true; return true; }
-    if (item == IT_RBW && dir && RadioParamsEditor::stepBW(p->repeater_bw, dir)) { the_mesh.applyRepeaterRadio(); _dirty = true; return true; }
-    if (item == IT_RCR && dir && RadioParamsEditor::stepCR(p->repeater_cr, dir)) { the_mesh.applyRepeaterRadio(); _dirty = true; return true; }
+    if (item == IT_RSF && dir && RadioParamsEditor::stepSF(p->repeater_sf, dir)) { rptctl::applyProfile(); _dirty = true; return true; }
+    if (item == IT_RBW && dir && RadioParamsEditor::stepBW(p->repeater_bw, dir)) { rptctl::applyProfile(); _dirty = true; return true; }
+    if (item == IT_RCR && dir && RadioParamsEditor::stepCR(p->repeater_cr, dir)) { rptctl::applyProfile(); _dirty = true; return true; }
     if (item == IT_SKIP && (left || right || enter)) {
       p->repeat_skip_adverts ^= 1; _dirty = true; return true;
     }

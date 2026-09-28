@@ -1,6 +1,7 @@
 #include "UITask.h"
 #include "../ui-core/SoundNotifier.h"
 #include "../ui-core/SoundControl.h"
+#include "../ui-core/Telemetry.h"
 #include <helpers/TxtDataHelpers.h>
 #include "../MyMesh.h"
 #include "../MsgExpand.h"
@@ -161,8 +162,9 @@ static const int QUICK_MSGS_MAX = 10;
 #include "FullscreenMsgView.h"
 #include "../ui-core/MessageText.h"
 #include "SensorPlaceholders.h"
-#include "SettingsScreen.h"
 #include "../ui-core/UiCore.h"   // shared UI Core: history rings + unread models (MessagesScreen views them)
+#include "../ui-core/SettingsSchema.h"   // the settings both frontends share (SettingsScreen.h)
+#include "SettingsScreen.h"
 #include "MessagesScreen.h"
 
 // ── Custom screens (separate files to ease upstream merges) ───────────────────
@@ -273,15 +275,14 @@ static int drawClockTime(DisplayDriver& d, int top_y, const struct tm* ti,
 
 // ── HomeScreen ────────────────────────────────────────────────────────────────
 // Forward declaration to be able to call formatDashVal from HomeScreen::render()
-static void formatDashVal(uint8_t field, char* val, int val_len, uint16_t batt_mv,
-                          uint16_t low_batt_mv, int unread, bool unread_overflow, bool imperial, CayenneLPP* lpp = nullptr);
+static void formatDashVal(uint8_t field, char* val, int val_len, uint16_t batt_mv, uint16_t low_batt_mv,
+                          int unread, bool unread_overflow, bool imperial, CayenneLPP* lpp, bool nouns);
 
-// Altitude (baro or GPS) respects Settings > System > Units, same as every
-// other distance in the UI -- unlike geo::fmtDist, never switches to km/mi
-// regardless of magnitude, since altitude is always discussed in the small unit.
+// Telemetry (ui-core/Telemetry.h) in this display's font and width.
+static const telemetry::Style L1_TELEMETRY = { "\xf8", false, false, 3 };
+// Altitude (baro or GPS) in Settings > System > Units, always the small unit.
 static void fmtAlt(char* buf, int n, float meters, bool imperial) {
-  if (imperial) snprintf(buf, n, "%.0fft", meters * 3.28084f);
-  else          snprintf(buf, n, "%.0fm", meters);
+  telemetry::altText(meters, imperial, L1_TELEMETRY, buf, n);
 }
 
 class HomeScreen : public UIScreen {
@@ -843,96 +844,13 @@ public:
           const int FIELD_Y[3] = { dash0, dash0 + step, dash0 + step * 2 };
           for (int fi = 0; fi < 3; fi++) {
             uint8_t field = _node_prefs->dashboard_fields[fi];
-            if (field == DASH_NONE) continue;
+            if (field == telemetry::NONE) continue;
 
-            char label[10], val[20];
-            label[0] = '\0';
-            val[0] = '\0';
-
-            if (field == DASH_BATT_V) {
-              strcpy(label, "Batt");
-              uint16_t mv = _task->getBattMilliVolts();
-              if (mv > 0) snprintf(val, sizeof(val), "%u.%02uV", mv/1000, (mv%1000)/10);
-              else strcpy(val, "--");
-            } else if (field == DASH_BATT_PCT) {
-              strcpy(label, "Batt");
-              uint16_t mv = _task->getBattMilliVolts();
-              if (mv > 0) snprintf(val, sizeof(val), "%d%%",
-                                   battMvToPercent(mv, _node_prefs->low_batt_mv));
-              else        strcpy(val, "--");
-            } else if (field == DASH_GPS) {
-              strcpy(label, "GPS");
-#if ENV_INCLUDE_GPS == 1
-              LocationProvider* loc = sensors.getLocationProvider();
-              if (loc && loc->isValid())
-                snprintf(val, sizeof(val), "%.3f %.3f",
-                  loc->getLatitude()/1000000.0f, loc->getLongitude()/1000000.0f);
-              else
-                strcpy(val, "no fix");
-#else
-              strcpy(val, "--");
-#endif
-            } else if (field == DASH_SATS) {
-              strcpy(label, "Sats");
-#if ENV_INCLUDE_GPS == 1
-              LocationProvider* loc = sensors.getLocationProvider();
-              if (loc) snprintf(val, sizeof(val), "%ld", loc->satellitesCount());
-              else     strcpy(val, "--");
-#else
-              strcpy(val, "--");
-#endif
-            } else if (field == DASH_ALT_GPS) {
-              strcpy(label, "AltG");
-#if ENV_INCLUDE_GPS == 1
-              LocationProvider* loc = sensors.getLocationProvider();
-              if (loc && loc->isValid())
-                fmtAlt(val, sizeof(val), loc->getAltitude() / 1000.0f, _node_prefs && _node_prefs->units_imperial);
-              else
-                strcpy(val, "no fix");
-#else
-              strcpy(val, "--");
-#endif
-            } else if (field == DASH_NODES) {
-              strcpy(label, "Nodes");
-              snprintf(val, sizeof(val), "%d", the_mesh.getNumContacts());
-            } else if (field == DASH_MSGS) {
-              strcpy(label, "Msgs");
-              int unread = _task->getDMUnreadTotal() + _task->getChannelUnreadCount() + _task->getRoomUnreadCount();
-              // "+" when the true total is understated -- at least one unread
-              // message has already been evicted off a ring before ever being
-              // seen (see UITask::getAnyUnreadOverflow()).
-              snprintf(val, sizeof(val), _task->getAnyUnreadOverflow() ? "%d+" : "%d", unread);
-            } else {
-              uint8_t lpp_type = 0;
-              switch (field) {
-                case DASH_TEMP: strcpy(label, "Temp"); lpp_type = LPP_TEMPERATURE;        break;
-                case DASH_HUM:  strcpy(label, "Hum");  lpp_type = LPP_RELATIVE_HUMIDITY;  break;
-                case DASH_PRES: strcpy(label, "Pres"); lpp_type = LPP_BAROMETRIC_PRESSURE; break;
-                case DASH_ALT:  strcpy(label, "Alt");  lpp_type = LPP_ALTITUDE;           break;
-                case DASH_LUX:  strcpy(label, "Lux");  lpp_type = LPP_LUMINOSITY;         break;
-                case DASH_CO2:  strcpy(label, "CO2");  lpp_type = LPP_CONCENTRATION;      break;
-              }
-              if (lpp_type) {
-                LPPReader r(sensors_lpp.getBuffer(), sensors_lpp.getSize());
-                uint8_t ch, type;
-                while (r.readHeader(ch, type)) {
-                  if (type == lpp_type) {
-                    float v;
-                    switch (lpp_type) {
-                      case LPP_TEMPERATURE:         r.readTemperature(v);      snprintf(val, sizeof(val), "%.1f\xf8""C", v); break;
-                      case LPP_RELATIVE_HUMIDITY:   r.readRelativeHumidity(v); snprintf(val, sizeof(val), "%.0f%%", v);      break;
-                      case LPP_BAROMETRIC_PRESSURE: r.readPressure(v);         snprintf(val, sizeof(val), "%.0fhPa", v);     break;
-                      case LPP_ALTITUDE:            r.readAltitude(v);         fmtAlt(val, sizeof(val), v, _node_prefs && _node_prefs->units_imperial); break;
-                      case LPP_LUMINOSITY:          r.readLuminosity(v);       snprintf(val, sizeof(val), "%.0flux", v);     break;
-                      case LPP_CONCENTRATION:       r.readConcentration(v);    snprintf(val, sizeof(val), "%.0fppm", v);     break;
-                    }
-                    break;
-                  }
-                  r.skipData(type);
-                }
-              }
-              if (!val[0]) strcpy(val, "--");
-            }
+            const char* label = telemetry::LABEL[field < telemetry::COUNT ? field : telemetry::NONE];
+            char val[20];
+            formatDashVal(field, val, sizeof(val), _task->getBattMilliVolts(), _node_prefs->low_batt_mv,
+                          _task->getDMUnreadTotal() + _task->getChannelUnreadCount() + _task->getRoomUnreadCount(),
+                          _task->getAnyUnreadOverflow(), _node_prefs->units_imperial, &sensors_lpp, false);
 
             if (val[0] && label[0]) {
               display.setColor(DisplayDriver::LIGHT);
@@ -972,18 +890,18 @@ public:
           CayenneLPP* lpp_ptr = nullptr;
           uint8_t f0 = _node_prefs->dashboard_fields[0], f1 = _node_prefs->dashboard_fields[1];
           auto isLPP = [](uint8_t f) {
-            return f==DASH_TEMP||f==DASH_HUM||f==DASH_PRES||f==DASH_ALT||f==DASH_LUX||f==DASH_CO2;
+            return f==telemetry::TEMP||f==telemetry::HUM||f==telemetry::PRES||f==telemetry::ALT||f==telemetry::LUX||f==telemetry::CO2;
           };
           if (isLPP(f0) || isLPP(f1)) {
             sensors_lpp.reset(); sensors.querySensors(0xFF, sensors_lpp); lpp_ptr = &sensors_lpp;
           }
-          bool show_msgs = f0 == DASH_MSGS || f1 == DASH_MSGS;
+          bool show_msgs = f0 == telemetry::MSGS || f1 == telemetry::MSGS;
           int unread = show_msgs
                      ? _task->getDMUnreadTotal() + _task->getChannelUnreadCount() + _task->getRoomUnreadCount() : 0;
           bool unread_overflow = show_msgs && _task->getAnyUnreadOverflow();
           uint16_t batt_mv = _task->getBattMilliVolts();
-          formatDashVal(f0, v0, sizeof(v0), batt_mv, _node_prefs->low_batt_mv, unread, unread_overflow, _node_prefs->units_imperial, lpp_ptr);
-          formatDashVal(f1, v1, sizeof(v1), batt_mv, _node_prefs->low_batt_mv, unread, unread_overflow, _node_prefs->units_imperial, lpp_ptr);
+          formatDashVal(f0, v0, sizeof(v0), batt_mv, _node_prefs->low_batt_mv, unread, unread_overflow, _node_prefs->units_imperial, lpp_ptr, true);
+          formatDashVal(f1, v1, sizeof(v1), batt_mv, _node_prefs->low_batt_mv, unread, unread_overflow, _node_prefs->units_imperial, lpp_ptr, true);
           if (v0[0] || v1[0]) {
             int sv_y = date_y + step;
             display.setColor(DisplayDriver::LIGHT);
@@ -1141,25 +1059,7 @@ public:
         char buf[22] = "--";
         while (r.readHeader(ch, type)) {
           if (type == target) {
-            float v, v2, v3;
-            switch (type) {
-              case LPP_GPS:
-                r.readGPS(v, v2, v3);
-                if (v != 0 || v2 != 0) snprintf(buf, sizeof(buf), "%.4f %.4f", v, v2);
-                break;
-              case LPP_VOLTAGE:    r.readVoltage(v);          snprintf(buf, sizeof(buf), "%.2fV", v); break;
-              case LPP_CURRENT:    r.readCurrent(v);          snprintf(buf, sizeof(buf), "%.3fA", v); break;
-              case LPP_POWER:      r.readPower(v);            snprintf(buf, sizeof(buf), "%.1fW", v); break;
-              case LPP_TEMPERATURE:r.readTemperature(v);      snprintf(buf, sizeof(buf), "%.1f\xf8""C", v); break;
-              case LPP_RELATIVE_HUMIDITY: r.readRelativeHumidity(v); snprintf(buf, sizeof(buf), "%.0f%%", v); break;
-              case LPP_BAROMETRIC_PRESSURE: r.readPressure(v); snprintf(buf, sizeof(buf), "%.1fhPa", v); break;
-              case LPP_ALTITUDE:   r.readAltitude(v);         snprintf(buf, sizeof(buf), "%.0fm", v); break;
-              case LPP_LUMINOSITY: r.readLuminosity(v);       snprintf(buf, sizeof(buf), "%.0flux", v); break;
-              case LPP_PERCENTAGE: r.readPercentage(v);       snprintf(buf, sizeof(buf), "%.0f%%", v); break;
-              case LPP_DISTANCE:   r.readDistance(v);         snprintf(buf, sizeof(buf), "%.2fm", v); break;
-              case LPP_CONCENTRATION: r.readConcentration(v); snprintf(buf, sizeof(buf), "%.0fppm", v); break;
-              default:             r.skipData(type); continue;
-            }
+            telemetry::lppText(r, type, _node_prefs && _node_prefs->units_imperial, L1_TELEMETRY, buf, sizeof(buf));
             break;
           }
           r.skipData(type);
@@ -2101,85 +2001,31 @@ bool UITask::isButtonPressed() const {
 #endif
 }
 
-static void formatDashVal(uint8_t field, char* val, int val_len, uint16_t batt_mv,
-                          uint16_t low_batt_mv, int unread, bool unread_overflow, bool imperial, CayenneLPP* lpp) {
+// A dashboard field in this display's font (ui-core/Telemetry.h); `nouns`
+// when it stands without its label (the lock screen). "" for none.
+static void formatDashVal(uint8_t field, char* val, int val_len, uint16_t batt_mv, uint16_t low_batt_mv,
+                          int unread, bool unread_overflow, bool imperial, CayenneLPP* lpp, bool nouns) {
   val[0] = '\0';
-  switch (field) {
-    case DASH_NONE: return;
-    case DASH_BATT_V:
-      if (batt_mv > 0) snprintf(val, val_len, "%u.%02uV", batt_mv/1000, (batt_mv%1000)/10);
-      else              strcpy(val, "--");
-      return;
-    case DASH_BATT_PCT:
-      if (batt_mv > 0) snprintf(val, val_len, "%d%%", battMvToPercent(batt_mv, low_batt_mv));
-      else             strcpy(val, "--");
-      return;
-    case DASH_NODES:
-      snprintf(val, val_len, "%d nodes", the_mesh.getNumContacts());
-      return;
-    case DASH_MSGS:
-      snprintf(val, val_len, unread_overflow ? "%d+ msgs" : "%d msgs", unread);
-      return;
+  if (field == telemetry::NONE || field >= telemetry::COUNT) return;
+  telemetry::Style st = L1_TELEMETRY;
+  st.nouns = nouns;
+  if (nouns) st.gps_dp = 2;   // no label: room for the position is shorter
+  telemetry::Inputs in;
+  in.batt_mv = batt_mv;
+  in.low_batt_mv = low_batt_mv;
+  in.nodes = the_mesh.getNumContacts();
+  in.unread = unread;
+  in.unread_more = unread_overflow;
+  in.imperial = imperial;
 #if ENV_INCLUDE_GPS == 1
-    case DASH_GPS: {
-      LocationProvider* loc = sensors.getLocationProvider();
-      if (loc && loc->isValid())
-        snprintf(val, val_len, "%.2f %.2f",
-                 loc->getLatitude()/1000000.0f, loc->getLongitude()/1000000.0f);
-      else strcpy(val, "no fix");
-      return;
-    }
-    case DASH_SATS: {
-      LocationProvider* loc = sensors.getLocationProvider();
-      if (loc) snprintf(val, val_len, "%ld sats", loc->satellitesCount());
-      else     strcpy(val, "--");
-      return;
-    }
-    case DASH_ALT_GPS: {
-      LocationProvider* loc = sensors.getLocationProvider();
-      if (loc && loc->isValid())
-        fmtAlt(val, val_len, loc->getAltitude() / 1000.0f, imperial);
-      else strcpy(val, "no fix");
-      return;
-    }
-#else
-    case DASH_SATS:
-    case DASH_ALT_GPS:
-      strcpy(val, "--");
-      return;
+  in.loc = sensors.getLocationProvider();
 #endif
-    default: break;
-  }
-  // LPP sensor fields
-  uint8_t lpp_type = 0;
-  switch (field) {
-    case DASH_TEMP: lpp_type = LPP_TEMPERATURE;         break;
-    case DASH_HUM:  lpp_type = LPP_RELATIVE_HUMIDITY;   break;
-    case DASH_PRES: lpp_type = LPP_BAROMETRIC_PRESSURE; break;
-    case DASH_ALT:  lpp_type = LPP_ALTITUDE;            break;
-    case DASH_LUX:  lpp_type = LPP_LUMINOSITY;          break;
-    case DASH_CO2:  lpp_type = LPP_CONCENTRATION;       break;
-  }
-  if (lpp_type) {
+  if (telemetry::isSensor(field)) {
     if (!lpp) { static CayenneLPP s_lpp(200); s_lpp.reset(); sensors.querySensors(0xFF, s_lpp); lpp = &s_lpp; }
-    LPPReader r(lpp->getBuffer(), lpp->getSize());
-    uint8_t ch, type;
-    while (r.readHeader(ch, type)) {
-      if (type == lpp_type) {
-        float v;
-        switch (lpp_type) {
-          case LPP_TEMPERATURE:         r.readTemperature(v);      snprintf(val, val_len, "%.1f\xf8""C", v); return;
-          case LPP_RELATIVE_HUMIDITY:   r.readRelativeHumidity(v); snprintf(val, val_len, "%.0f%%", v);      return;
-          case LPP_BAROMETRIC_PRESSURE: r.readPressure(v);         snprintf(val, val_len, "%.0fhPa", v);     return;
-          case LPP_ALTITUDE:            r.readAltitude(v);         fmtAlt(val, val_len, v, imperial);        return;
-          case LPP_LUMINOSITY:          r.readLuminosity(v);       snprintf(val, val_len, "%.0flux", v);     return;
-          case LPP_CONCENTRATION:       r.readConcentration(v);    snprintf(val, val_len, "%.0fppm", v);     return;
-        }
-      }
-      r.skipData(type);
-    }
-    strcpy(val, "--");
+    in.lpp = lpp->getBuffer();
+    in.lpp_len = lpp->getSize();
   }
+  telemetry::text(field, in, st, val, val_len);
 }
 
 void UITask::enqueueKey(char c) {
@@ -3208,15 +3054,6 @@ void UITask::applyApc() {
   radioctl::applyApc();
 }
 
-#if ENV_INCLUDE_GPS == 1
-void UITask::applyGpsInterval() {
-  if (_node_prefs == NULL || _sensors == NULL) return;
-  char buf[12];
-  sprintf(buf, "%u", _node_prefs->gps_interval);
-  _sensors->setSettingValue("gps_interval", buf);
-}
-#endif
-
 void UITask::applyRadioParams() {
   if (_node_prefs == NULL) return;
   radioctl::applyParams();   // companion params, or the repeater profile if relaying with one set
@@ -3245,12 +3082,10 @@ void UITask::applyFullRefreshInterval() {
   }
 }
 
-void UITask::setBrightnessLevel(uint8_t level) {
-  if (_node_prefs == NULL) return;
-  if (level > 4) level = 4;
-  _node_prefs->display_brightness = level;
-  applyBrightness();
-  _next_refresh = 0;
+void UITask::applySoundPrefs() {
+#ifdef PIN_BUZZER
+  if (_node_prefs) setBuzzerVolumeLevel(_node_prefs->buzzer_volume);   // with a sample at the new level
+#endif
 }
 
 void UITask::setBuzzerVolumeLevel(uint8_t level) {
