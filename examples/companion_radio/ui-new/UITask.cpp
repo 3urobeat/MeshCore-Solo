@@ -178,6 +178,9 @@ static const int QUICK_MSGS_MAX = 10;
 #include "LocatorScreen.h"
 #include "TrailScreen.h"
 #include "CompassScreen.h"
+#if ENV_INCLUDE_GPS == 1 && defined(GPS_SKYVIEW)
+  #include "SatellitesScreen.h"
+#endif
 #include "DiagnosticsScreen.h"
 #include "RepeaterScreen.h"
 #if defined(PIN_GPIO1)
@@ -1623,6 +1626,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   locator_screen  = new LocatorScreen(this, node_prefs);
   trail_screen       = new TrailScreen(this, &_core->trail.store());
   compass_screen     = new CompassScreen(this);
+#if ENV_INCLUDE_GPS == 1 && defined(GPS_SKYVIEW)
+  satellites_screen  = new SatellitesScreen(this);
+#endif
   diag_screen        = new DiagnosticsScreen(this);
   repeater_screen    = new RepeaterScreen(this);
   clock_tools        = new ClockToolsScreen(this, node_prefs);
@@ -1654,6 +1660,7 @@ void UITask::openAdminFor(const ContactInfo& ci, bool from_picker) {
 void UITask::gotoDashboardConfig() { setCurrScreen(dashboard_config); }
 void UITask::gotoTrailScreen()     { setCurrScreen(trail_screen); }
 void UITask::gotoCompassScreen()   { setCurrScreen(compass_screen); }
+void UITask::gotoSatellitesScreen() { if (satellites_screen) setCurrScreen(satellites_screen); }
 void UITask::gotoDiagnosticsScreen() { setCurrScreen(diag_screen); }
 void UITask::gotoRepeaterScreen()  { setCurrScreen(repeater_screen); }
 void UITask::gotoClockTools()      { setCurrScreen(clock_tools); }
@@ -2813,6 +2820,7 @@ void UITask::loop() {
         || (_node_prefs && _node_prefs->loc_share_enabled)
         || (_node_prefs && _node_prefs->locator_enabled && _node_prefs->locator_has_target)
         || curr == compass_screen
+        || (satellites_screen && curr == satellites_screen)
         || (curr == nearby_screen && ((NearbyScreen*)nearby_screen)->isNavigating())
         || (curr == trail_screen && ((TrailScreen*)trail_screen)->wpNeedsLiveGps())
         || (curr == messages_screen && ((MessagesScreen*)messages_screen)->navActive())

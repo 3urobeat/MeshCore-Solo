@@ -13,7 +13,7 @@ class ToolsScreen : public UIScreen {
   UITask* _task;
 
   enum Action {
-    ACT_NEARBY, ACT_LIVESHARE, ACT_TRAIL, ACT_LOCATOR, ACT_COMPASS,
+    ACT_NEARBY, ACT_LIVESHARE, ACT_TRAIL, ACT_LOCATOR, ACT_COMPASS, ACT_SATELLITES,
     ACT_BOT, ACT_AUTOADVERT, ACT_REPEATER, ACT_ADMIN,
     ACT_CLOCK, ACT_RINGTONE, ACT_DIAGNOSTICS
 #if defined(PIN_GPIO1)
@@ -54,6 +54,7 @@ class ToolsScreen : public UIScreen {
       case ACT_TRAIL:       _task->gotoTrailScreen();       break;
       case ACT_LOCATOR:     _task->gotoLocatorScreen();     break;
       case ACT_COMPASS:     _task->gotoCompassScreen();     break;
+      case ACT_SATELLITES:  _task->gotoSatellitesScreen();  break;
       case ACT_BOT:         _task->gotoBotScreen();         break;
       case ACT_AUTOADVERT:  _task->gotoAutoAdvertScreen();  break;
       case ACT_REPEATER:    _task->gotoRepeaterScreen();    break;
@@ -128,6 +129,9 @@ const ToolsScreen::Tool ToolsScreen::LOCATION_TOOLS[] = {
   { "Trail",        &ICON_TRAIL,        ACT_TRAIL },
   { "Locator",    &ICON_MAP_WAYPOINT, ACT_LOCATOR },
   { "Compass",      &ICON_MAP_NORTH,    ACT_COMPASS },
+#if ENV_INCLUDE_GPS == 1 && defined(GPS_SKYVIEW)
+  { "Satellites",   &ICON_GPS,          ACT_SATELLITES },
+#endif
 };
 const ToolsScreen::Tool ToolsScreen::COMMS_TOOLS[] = {
   { "Remote Bot",     &ICON_BOT,      ACT_BOT },
@@ -144,7 +148,7 @@ const ToolsScreen::Tool ToolsScreen::SYSTEM_TOOLS[] = {
 #endif
 };
 const ToolsScreen::Section ToolsScreen::SECTIONS[] = {
-  { "Location", &ICON_MAP_CONTACT, LOCATION_TOOLS, 5 },
+  { "Location", &ICON_MAP_CONTACT, LOCATION_TOOLS, (uint8_t)(sizeof(LOCATION_TOOLS)/sizeof(LOCATION_TOOLS[0])) },
   { "Comms",    &ICON_ADVERT,      COMMS_TOOLS,    4 },
   { "System",   &ICON_GEAR,        SYSTEM_TOOLS,   (uint8_t)(sizeof(SYSTEM_TOOLS)/sizeof(SYSTEM_TOOLS[0])) },
 };

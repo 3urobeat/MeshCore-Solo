@@ -159,6 +159,7 @@ DEFINES=(
   # surface them as on-device pages.
   -DENV_INCLUDE_GPS=1
   -DUI_SENSORS_PAGE=1
+  -DGPS_SKYVIEW   # satellite screens (GpsSkySim.h feeds a made-up sky)
 )
 
 # The on-device splash's "Solo <version>" bar shows FIRMWARE_VERSION. Without
@@ -184,7 +185,7 @@ if [ "$SIM_UI" = "lvgl" ]; then
   done
   # The L2's PSRAM-sized limits (solo/wio-tracker-l2/platformio.ini).
   DEFINES=("${kept[@]}" -DDISPLAY_CLASS=SimLcdDisplay -DMAX_GROUP_CHANNELS=40 -DUI_ZOOM=1 -DLV_CONF_INCLUDE_SIMPLE
-           -DTRAIL_CAPACITY=4096 -DWAYPOINT_CAPACITY=64 -DHIST_CH_MAX=256 -DHIST_DM_MAX=128 -DNEARBY_MAX=64 -DHIST_ARCHIVE -DGPS_SKYVIEW)
+           -DTRAIL_CAPACITY=4096 -DWAYPOINT_CAPACITY=64 -DHIST_CH_MAX=256 -DHIST_DM_MAX=128 -DNEARBY_MAX=64 -DHIST_ARCHIVE)
   INCLUDES+=("-I$LVGL_DIR")
   LINK_EXTRA=(-sFETCH=1)   # map downloads (LvglPort.h) go through emscripten_fetch
 fi
