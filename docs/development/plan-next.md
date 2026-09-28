@@ -72,7 +72,7 @@ for a second radio). They are L2-specific and block the loop for ~90 s.
 
 ## F. The big review
 
-- [ ] Dead code; similar elements written several times, merged into one;
+- [x] Dead code; similar elements written several times, merged into one;
       places to speed things up or save RAM, flash and battery.
       First a list of findings to accept, then fixes in batches, each checked
       in the sim and on the device.
