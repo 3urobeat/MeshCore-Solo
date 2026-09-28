@@ -246,6 +246,7 @@ if [ "$SIM_UI" = "lvgl" ]; then
   # would shadow the libc <features.h> the C headers include.
   C_FLAGS=(-std=gnu99 "${OPT_FLAGS[@]}" "${DEFINES[@]}" "-I$LVGL_DIR" -Iexamples/companion_radio/ui-lvgl)
   LV_OBJ_DIR="$OUT_DIR/obj_lvgl"
+  python3 examples/companion_radio/ui-lvgl/lvgl_patches.py "$LVGL_DIR"   # as the firmware build does
   C_SRCS=()
   while IFS= read -r f; do C_SRCS+=("$f"); done < <(
     find "$LVGL_DIR/src" -name '*.c' | sed "s|^$REPO_ROOT/||" | sort

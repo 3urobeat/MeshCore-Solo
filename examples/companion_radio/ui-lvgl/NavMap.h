@@ -476,27 +476,8 @@ void UITask::navToNode(const uint8_t* key, int32_t lat, int32_t lon, const char*
 
 lv_obj_t* UITask::navPopupPanel(const char* title, bool full) {
   navClosePopup();
-  _nav_overlay = dimOverlay(screen());
-
-  lv_obj_t* panel = lv_obj_create(_nav_overlay);
-  anim::popup(_nav_overlay);
-  int w = lv_display_get_horizontal_resolution(NULL) - 16;
-  if (full) {
-    lv_obj_set_size(panel, w, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12);
-    lv_obj_set_pos(panel, 8, theme::STATUS_H + 6);
-  } else {   // as tall as its content, scrolling past the screen's height
-    lv_obj_set_size(panel, w, LV_SIZE_CONTENT);
-    lv_obj_set_style_max_height(panel, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12, 0);
-    lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
-  }
-  lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
-  lv_obj_set_style_border_width(panel, 1, 0);
-  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
-  lv_obj_set_style_pad_all(panel, theme::PAD, 0);
+  lv_obj_t* panel = popupOpen(screen(), full ? POP_FULL : POP_FIT, _nav_overlay);
   lv_obj_set_style_pad_row(panel, 6, 0);
-  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  if (full) lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);   // its own list scrolls
 
   lv_obj_t* hdr = lv_obj_create(panel);
   styleSurface(hdr, theme::BG);

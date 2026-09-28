@@ -710,20 +710,7 @@ void UITask::mapDownloadPopup() {
   if (_dl_zmax < _map_z) _dl_zmax = _map_z + 3;
   if (_dl_zmax > src_max) _dl_zmax = src_max;   // the server has nothing finer
 
-  _dl_overlay = dimOverlay(screen());
-
-  lv_obj_t* panel = lv_obj_create(_dl_overlay);
-  anim::popup(_dl_overlay);
-  lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16, LV_SIZE_CONTENT);
-  lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
-  lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
-  lv_obj_set_style_border_width(panel, 1, 0);
-  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
-  lv_obj_set_style_pad_all(panel, theme::PAD, 0);
-  lv_obj_set_style_pad_row(panel, 4, 0);
-  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_max_height(panel, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12, 0);   // scrolls past that
+  lv_obj_t* panel = popupOpen(screen(), POP_FIT, _dl_overlay);
 
   lv_obj_t* hdr = lv_obj_create(panel);
   styleSurface(hdr, theme::BG);

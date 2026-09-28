@@ -150,6 +150,41 @@ static lv_obj_t* dimOverlay(lv_obj_t* parent) {
   return o;
 }
 
+// A popup: the dimmed layer (into `overlay`, to close it by) and its panel --
+// the page colour, the accent hairline, a flex column -- rising into view.
+// POP_FIT: as tall as its content, centred below the status bar, scrolling
+// past that height. POP_FULL: all of that height; its own list scrolls.
+// POP_TOP: as tall as its content, under the status bar, clear of a keyboard.
+enum PopFit : uint8_t { POP_FIT, POP_FULL, POP_TOP };
+static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int32_t inset = 8) {
+  overlay = dimOverlay(parent);
+  lv_obj_t* panel = lv_obj_create(overlay);
+  int32_t w = lv_display_get_horizontal_resolution(NULL), h = lv_display_get_vertical_resolution(NULL);
+  lv_obj_set_width(panel, w - 2 * inset);
+  if (fit == POP_FULL) {
+    lv_obj_set_height(panel, h - theme::STATUS_H - 12);
+    lv_obj_set_pos(panel, inset, theme::STATUS_H + 6);
+  } else if (fit == POP_TOP) {
+    lv_obj_set_height(panel, LV_SIZE_CONTENT);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);
+  } else {
+    lv_obj_set_height(panel, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(panel, h - theme::STATUS_H - 12, 0);
+    lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
+    lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_ACTIVE);
+  }
+  if (fit != POP_FIT) lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(panel, 1, 0);
+  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
+  lv_obj_set_style_pad_all(panel, theme::PAD, 0);
+  lv_obj_set_style_pad_row(panel, 4, 0);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  anim::popup(overlay);
+  return panel;
+}
+
 // ── Info cards ──
 // Label / value rows on a card (Diagnostics, GPS, node detail, About): the
 // label small and muted on the left, the value on the right -- wrapping,
@@ -429,23 +464,11 @@ static void pickerOpen(lv_obj_t* c) {
   Choice* ch = choiceOf(c);
   pickerClose();
   s_pick_target = c;
-  s_pick_overlay = dimOverlay(lv_layer_top());
+  lv_obj_t* panel = popupOpen(lv_layer_top(), POP_FIT, s_pick_overlay, 24);
   lv_obj_add_event_cb(s_pick_overlay, [](lv_event_t* e) {   // a tap beside the list: nothing changes
     if (lv_event_get_target(e) == lv_event_get_current_target(e)) pickerClose();
   }, LV_EVENT_CLICKED, NULL);
-  lv_obj_t* panel = lv_obj_create(s_pick_overlay);
-  styleSurface(panel, theme::BG);
-  lv_obj_set_width(panel, lv_display_get_horizontal_resolution(NULL) - 48);
-  lv_obj_set_height(panel, LV_SIZE_CONTENT);
-  lv_obj_set_style_max_height(panel, lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 16, 0);
-  lv_obj_align(panel, LV_ALIGN_CENTER, 0, theme::STATUS_H / 2);
-  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
-  lv_obj_set_style_border_width(panel, 1, 0);
   lv_obj_set_style_pad_all(panel, 6, 0);
-  lv_obj_set_style_pad_row(panel, 4, 0);
-  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_t* t = label(panel, ch->title, THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_obj_set_style_pad_hor(t, 4, 0);
   lv_obj_t* card = group(panel, nullptr);
@@ -459,7 +482,6 @@ static void pickerOpen(lv_obj_t* c) {
     if (cur) { label(r, LV_SYMBOL_OK, THEME_FONT_BODY, theme::ACCENT); sel_row = r; }
     lv_obj_add_event_cb(r, onPickOption, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
   }
-  anim::popup(s_pick_overlay);
   if (sel_row) { lv_obj_update_layout(panel); lv_obj_scroll_to_view_recursive(sel_row, LV_ANIM_OFF); }
 }
 
@@ -1812,21 +1834,7 @@ void UITask::startNearbyScan() {
 // Dimmed full-screen overlay (swallows taps) holding a panel with the results.
 // A child of the current screen, so it goes away with it.
 void UITask::showScanPopup() {
-  _scan_overlay = dimOverlay(screen());
-
-  lv_obj_t* panel = lv_obj_create(_scan_overlay);
-  anim::popup(_scan_overlay);
-  lv_obj_set_size(panel, lv_display_get_horizontal_resolution(NULL) - 16,
-                  lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - 12);
-  lv_obj_set_pos(panel, 8, theme::STATUS_H + 6);
-  lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
-  lv_obj_set_style_border_width(panel, 1, 0);
-  lv_obj_set_style_radius(panel, theme::RADIUS, 0);
-  lv_obj_set_style_pad_all(panel, theme::PAD, 0);
-  lv_obj_set_style_pad_row(panel, 4, 0);
-  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_t* panel = popupOpen(screen(), POP_FULL, _scan_overlay);
 
   lv_obj_t* hdr = lv_obj_create(panel);
   styleSurface(hdr, theme::BG);
