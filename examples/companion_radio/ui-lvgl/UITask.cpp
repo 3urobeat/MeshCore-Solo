@@ -1400,6 +1400,8 @@ static void onBack(lv_event_t* e) { (void)e; s_ui->back(); }
 // A fresh screen below the status bar, loaded in place of the current one;
 // returns its content area (flex column). The old screen is deleted
 // asynchronously -- this usually runs from a click on one of its own widgets.
+static uint32_t s_wifi_test_ms = 0;   // Settings > WiFi checking a just-saved network (WifiScreen.h)
+
 lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _home_clock = _home_date = _home_unread = nullptr;
   _thread_list = _compose_ta = _keyboard = nullptr;
@@ -1415,8 +1417,9 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   _nav_overlay = _nav_ta = _nav_kb = _nav_del_lbl = _nav_rec = _nav_avg_pill = nullptr;
   _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
   _wifi_ssid = _wifi_pass = _wifi_kb = _wifi_list = _wifi_status = nullptr;
-  if (_wifi_scanning && !wifiInUse()) lvport::netEnd();   // left mid-scan: the radio goes off
+  if ((_wifi_scanning || s_wifi_test_ms) && !wifiInUse()) lvport::netEnd();   // left mid-scan / check: the radio goes off
   _wifi_scanning = false;
+  s_wifi_test_ms = 0;
   _ota_status = _ota_bar = _ota_btn = _ota_btn_lbl = nullptr;
   for (lv_obj_t*& t : _map_tiles) t = nullptr;
   lv_obj_t* prev = _scr;

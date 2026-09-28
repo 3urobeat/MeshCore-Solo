@@ -119,6 +119,9 @@ public:
   void wifiSetAllowed(bool on);
   void wifiScan();
   void wifiPick(int idx);
+  void wifiOpenSaved(int idx);   // a saved network into the fields, to change its password
+  void wifiTestShow(const char* msg, const char* ssid, const char* pass);   // a password check's outcome
+  void wifiForget(int idx);      // (its button asks first: WifiScreen.h)
   void wifiSave();
   void wifiEdit(lv_obj_t* ta);
   void wifiKeyboardHide();

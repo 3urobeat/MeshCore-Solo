@@ -1,9 +1,11 @@
 #pragma once
-// WiFi settings (Settings > WiFi, or from the map's download popup): the
-// network map downloads connect to. Scan lists nearby networks to pick from;
-// the password field uses the same keyboard as compose. Saved through
-// lvport::saveWifi() (NVS on the board). WiFi itself stays off except while a
-// download or scan runs; Settings > CONNECTIVITY's WiFi switch forbids even that.
+// WiFi settings (Settings > WiFi, or from the map's download popup): the saved
+// networks -- up to lvport::WIFI_SAVED_MAX; map downloads, live tiles and
+// updates join the strongest one in range -- and a form to add one or change
+// a password. Scan lists nearby networks to pick from; the password field uses
+// the same keyboard as compose. Saved through lvport::saveWifi() (NVS on the
+// board). WiFi itself stays off except while a download or scan runs;
+// Settings > CONNECTIVITY's WiFi switch forbids even that.
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after MapScreen.h.
 
@@ -12,6 +14,25 @@ static char s_wifi_names[lvport::WIFI_SCAN_MAX][33];
 static void onWifiScan(lv_event_t* e) { (void)e; s_ui->wifiScan(); }
 static void onWifiSave(lv_event_t* e) { (void)e; s_ui->wifiSave(); }
 static void onWifiPick(lv_event_t* e) { s_ui->wifiPick((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onWifiSaved(lv_event_t* e) { s_ui->wifiOpenSaved((int)(uintptr_t)lv_event_get_user_data(e)); }
+// Forget: the first tap turns the button into a red "Forget?", the second
+// forgets (another row's button, or a rebuild, disarms it).
+static lv_obj_t* s_wifi_forget_btn = nullptr;
+static void wifiForgetLook(lv_obj_t* b, bool armed) {
+  lv_obj_set_style_bg_color(b, lv_color_hex(armed ? theme::FAIL : theme::SURFACE_2), 0);
+  lv_label_set_text(lv_obj_get_child(b, 0), armed ? "Forget?" : LV_SYMBOL_TRASH);
+}
+static void onWifiForget(lv_event_t* e) {
+  lv_obj_t* b = (lv_obj_t*)lv_event_get_current_target(e);
+  if (s_wifi_forget_btn != b) {
+    if (s_wifi_forget_btn) wifiForgetLook(s_wifi_forget_btn, false);
+    s_wifi_forget_btn = b;
+    wifiForgetLook(b, true);
+    return;
+  }
+  s_wifi_forget_btn = nullptr;
+  s_ui->wifiForget((int)(uintptr_t)lv_event_get_user_data(e));
+}
 static void onWifiAllowed(lv_event_t* e) {
   s_ui->wifiSetAllowed(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
 }
@@ -35,10 +56,34 @@ void UITask::showWifi() {
 
 void UITask::buildWifi() {
   lv_obj_t* body = newScreen("WiFi", true);
+  s_wifi_forget_btn = nullptr;
   lv_obj_set_style_pad_row(body, 4, 0);
-  label(body, lvport::wifiAllowed() ? "Used only for map downloads." : "WiFi is off (Settings).", THEME_FONT_SMALL,
-        theme::TEXT_MUTED);
+  label(body, lvport::wifiAllowed() ? "For map downloads, live map tiles and updates." : "WiFi is off (Settings).",
+        THEME_FONT_SMALL, theme::TEXT_MUTED);
 
+  // Saved networks: a tap loads one into the form below; Forget takes two taps.
+  int n = lvport::wifiSavedCount();
+  char joined[33];
+  lvport::netSsid(joined, sizeof(joined));
+  lv_obj_t* card = group(body, "Saved networks");
+  for (int i = 0; i < n; i++) {
+    const lvport::WifiNet* w = lvport::wifiSaved(i);
+    lv_obj_t* row = groupLine(card, true);
+    groupText(row, w->ssid, !strcmp(w->ssid, joined) ? "Connected" : w->pass[0] ? nullptr : "Open network");
+    lv_obj_add_event_cb(row, onWifiSaved, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+    lv_obj_t* fb = lv_button_create(row);
+    lv_obj_set_size(fb, LV_SIZE_CONTENT, 30);
+    lv_obj_set_style_pad_hor(fb, 10, 0);
+    lv_obj_set_style_shadow_width(fb, 0, 0);
+    lv_obj_set_style_radius(fb, theme::RADIUS, 0);
+    lv_obj_add_event_cb(fb, onWifiForget, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+    lv_obj_center(label(fb, "", THEME_FONT_SMALL, theme::TEXT));
+    wifiForgetLook(fb, false);
+  }
+  if (!n) groupText(groupLine(card, false), "None yet", "Add one below.", theme::TEXT_MUTED);
+  if (n > 1) groupNote(body, "The strongest one in range is used.");
+
+  sectionTitle(body, n >= lvport::WIFI_SAVED_MAX ? "Add a network (replaces the oldest)" : "Add a network");
   lv_obj_t* row = lv_obj_create(body);
   styleSurface(row, theme::BG);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
@@ -77,11 +122,6 @@ void UITask::buildWifi() {
   stylePrimary(save);
   _wifi_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
 
-  char ssid[33], pass[65];
-  lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
-  lv_textarea_set_text(_wifi_ssid, ssid);
-  lv_textarea_set_text(_wifi_pass, pass);
-
   // Keyboard over the bottom of the screen; the body shrinks above it while
   // it is up, so the field being edited stays visible.
   _wifi_kb = kb::create(screen(), _prefs);
@@ -90,6 +130,13 @@ void UITask::buildWifi() {
   lv_obj_add_event_cb(_wifi_kb, onWifiKb, LV_EVENT_READY, NULL);
   lv_obj_add_event_cb(_wifi_kb, onWifiKb, LV_EVENT_CANCEL, NULL);
   lv_obj_add_flag(_wifi_kb, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Rebuilt in place (a network saved or forgotten), at the same scroll.
+static void wifiRebuild(UITask* ui, lv_obj_t*& body) {
+  int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
+  ui->showWifi();
+  if (body) { lv_obj_update_layout(body); lv_obj_scroll_to_y(body, y, LV_ANIM_OFF); }
 }
 
 void UITask::wifiEdit(lv_obj_t* ta) {
@@ -117,11 +164,12 @@ void UITask::wifiKeyboardHide() {
 // Settings > CONNECTIVITY > WiFi, as the Bluetooth row: the switch turns it
 // on / off, the row opens the network settings.
 static void wifiRow(lv_obj_t* body) {
-  char ssid[33], pass[65], sub[48];
-  bool have = lvport::loadWifi(ssid, sizeof(ssid), pass, sizeof(pass));
+  char sub[48];
+  int n = lvport::wifiSavedCount();
   bool on = lvport::wifiAllowed();
   if (!on) snprintf(sub, sizeof(sub), "Off");
-  else if (have) snprintf(sub, sizeof(sub), "%s", ssid);
+  else if (n == 1) snprintf(sub, sizeof(sub), "%s", lvport::wifiSaved(0)->ssid);
+  else if (n > 1) snprintf(sub, sizeof(sub), "%d saved networks", n);
   else snprintf(sub, sizeof(sub), "Tap to pick a network");
   lv_obj_t* sw = switchRow(body, LV_SYMBOL_WIFI "  WiFi", sub, nullptr);
   if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
@@ -141,7 +189,7 @@ void UITask::wifiSetAllowed(bool on) {
     if (mapview::s_dl.active()) mapDownloadStop();
     if (_wifi_scanning) { _wifi_scanning = false; lvport::netEnd(); }
   }
-  showToast(on ? "WiFi on - used for map downloads" : "WiFi off", 1500);
+  showToast(on ? "WiFi on" : "WiFi off", 1500);
   if (_screen == SCR_SETTINGS) {   // the row's subtitle
     lv_obj_t* body = _body;
     int32_t y = body ? lv_obj_get_scroll_y(body) : 0;
@@ -153,12 +201,55 @@ void UITask::wifiSetAllowed(bool on) {
 void UITask::wifiScan() {
   if (_wifi_scanning) return;
   if (!lvport::wifiAllowed()) { lv_label_set_text(_wifi_status, "Turn WiFi on in Settings first."); return; }
+  if (wifiInUse()) { lv_label_set_text(_wifi_status, "WiFi busy (a download or an update) - try later."); return; }
   lvport::scanStart();
   _wifi_scanning = true;
   lv_label_set_text(_wifi_status, LV_SYMBOL_REFRESH "  Scanning...");
 }
 
+// A just-saved network, joined once to check the password: connected, turned
+// away (the password, most likely: it's forgotten again, the form keeps it to
+// fix) or not found (kept: maybe it's just out of range now).
+static char s_wifi_test_ssid[33], s_wifi_test_pass[65];
+static const uint32_t WIFI_TEST_MS = 15000;
+
+static void wifiTestPoll(UITask* ui, bool in_use) {
+  if (!s_wifi_test_ms) return;
+  int ns = lvport::netState();
+  bool timed_out = millis() - s_wifi_test_ms > WIFI_TEST_MS;
+  if (ns != lvport::NET_UP && ns != lvport::NET_FAILED && !timed_out) return;
+  s_wifi_test_ms = 0;
+  char msg[80];
+  if (ns == lvport::NET_UP) {
+    snprintf(msg, sizeof(msg), LV_SYMBOL_OK "  Connected to %s - password OK.", s_wifi_test_ssid);
+  } else if (lvport::netNotFound()) {
+    snprintf(msg, sizeof(msg), "Saved. %s isn't in range now - the password is checked when it is.", s_wifi_test_ssid);
+  } else {
+    int k = lvport::wifiFind(s_wifi_test_ssid);
+    if (k >= 0) lvport::forgetWifi(k);
+    snprintf(msg, sizeof(msg), LV_SYMBOL_WARNING "  %s turned the password down - not saved.", s_wifi_test_ssid);
+  }
+  if (!in_use) lvport::netEnd();
+  bool failed = ns != lvport::NET_UP && !lvport::netNotFound();
+  ui->showWifi();   // the saved list may have changed
+  ui->wifiTestShow(msg, failed ? s_wifi_test_ssid : nullptr, s_wifi_test_pass);
+}
+
+void UITask::wifiTestShow(const char* msg, const char* ssid, const char* pass) {
+  if (!_wifi_status) return;
+  lv_label_set_text(_wifi_status, msg);
+  lv_label_set_long_mode(_wifi_status, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(_wifi_status, LV_PCT(100));
+  if (ssid) {   // back in the form, to fix
+    lv_textarea_set_text(_wifi_ssid, ssid);
+    lv_textarea_set_text(_wifi_pass, pass);
+  }
+  lv_obj_update_layout(_body);
+  lv_obj_scroll_to_view(_wifi_status, LV_ANIM_ON);
+}
+
 void UITask::pollWifiScan() {
+  wifiTestPoll(this, wifiInUse());
   if (!_wifi_scanning || !_wifi_list) return;
   int n = lvport::scanResults(s_wifi_names, lvport::WIFI_SCAN_MAX);
   if (n < 0) return;
@@ -173,7 +264,10 @@ void UITask::pollWifiScan() {
     lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
     lv_obj_add_event_cb(b, onWifiPick, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
-    lv_obj_center(label(b, s_wifi_names[i], THEME_FONT_SMALL, theme::TEXT));
+    char text[40];
+    bool known = lvport::wifiFind(s_wifi_names[i]) >= 0;
+    snprintf(text, sizeof(text), known ? LV_SYMBOL_OK " %s" : "%s", s_wifi_names[i]);
+    lv_obj_center(label(b, text, THEME_FONT_SMALL, known ? theme::ACCENT : theme::TEXT));
   }
   if (n > 0) lv_obj_remove_flag(_wifi_list, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(_wifi_status, n > 0 ? "Tap a network, then enter its password." : "No networks found.");
@@ -183,16 +277,49 @@ void UITask::pollWifiScan() {
 void UITask::wifiPick(int idx) {
   if (idx < 0 || idx >= lvport::WIFI_SCAN_MAX) return;
   lv_textarea_set_text(_wifi_ssid, s_wifi_names[idx]);
+  const lvport::WifiNet* w = lvport::wifiSaved(lvport::wifiFind(s_wifi_names[idx]));
+  lv_textarea_set_text(_wifi_pass, w ? w->pass : "");
   lv_obj_add_flag(_wifi_list, LV_OBJ_FLAG_HIDDEN);
   wifiEdit(_wifi_pass);
+}
+
+void UITask::wifiOpenSaved(int idx) {
+  const lvport::WifiNet* w = lvport::wifiSaved(idx);
+  if (!w) return;
+  lv_textarea_set_text(_wifi_ssid, w->ssid);
+  lv_textarea_set_text(_wifi_pass, w->pass);
+  lv_label_set_text(_wifi_status, "Change the password, then Save.");
+  wifiEdit(_wifi_pass);
+}
+
+void UITask::wifiForget(int idx) {
+  const lvport::WifiNet* w = lvport::wifiSaved(idx);
+  char msg[48];
+  snprintf(msg, sizeof(msg), "Forgot %s", w ? w->ssid : "");
+  lvport::forgetWifi(idx);
+  wifiRebuild(this, _body);
+  showToast(msg);
 }
 
 void UITask::wifiSave() {
   const char* ssid = lv_textarea_get_text(_wifi_ssid);
   const char* pass = lv_textarea_get_text(_wifi_pass);
   if (!ssid[0]) { lv_label_set_text(_wifi_status, "Enter a network name."); return; }
-  lvport::saveWifi(ssid, pass);
+  snprintf(s_wifi_test_ssid, sizeof(s_wifi_test_ssid), "%s", ssid);
+  snprintf(s_wifi_test_pass, sizeof(s_wifi_test_pass), "%s", pass);
+  lvport::saveWifi(s_wifi_test_ssid, s_wifi_test_pass);
   wifiKeyboardHide();
-  showToast("WiFi saved");
-  lv_label_set_text(_wifi_status, "Saved.");
+  wifiRebuild(this, _body);
+  // Then joined once, to check the password -- unless WiFi is off or busy.
+  char msg[80];
+  if (!lvport::wifiAllowed() || wifiInUse()) {
+    snprintf(msg, sizeof(msg), "Saved %s", s_wifi_test_ssid);
+    showToast(msg);
+    return;
+  }
+  lvport::netEnd();   // a scan might have left the radio on
+  lvport::netJoin(s_wifi_test_ssid, s_wifi_test_pass);
+  s_wifi_test_ms = millis() | 1;
+  snprintf(msg, sizeof(msg), LV_SYMBOL_REFRESH "  Connecting to %s...", s_wifi_test_ssid);
+  wifiTestShow(msg, nullptr, nullptr);
 }

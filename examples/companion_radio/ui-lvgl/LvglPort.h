@@ -37,6 +37,50 @@ static void shotCopy(const lv_area_t* a, const uint8_t* px) {
   for (int32_t y = a->y1; y <= a->y2; y++, src += w) memcpy(s_shot + y * W + a->x1, src, w * 2);
 }
 
+// Saved WiFi networks (Settings > WiFi), most recently saved first. Kept in RAM
+// once read; wifiStoreLoad() / wifiStoreWrite() (per board, below) hold them.
+static const int WIFI_SAVED_MAX = 8;
+struct WifiNet { char ssid[33]; char pass[65]; };
+static WifiNet s_nets[WIFI_SAVED_MAX];
+static int s_net_count = -1;   // -1: not read yet
+static void wifiStoreLoad();
+static void wifiStoreWrite();
+static int wifiSavedCount() {
+  if (s_net_count < 0) wifiStoreLoad();
+  return s_net_count;
+}
+static const WifiNet* wifiSaved(int i) { return i >= 0 && i < wifiSavedCount() ? &s_nets[i] : nullptr; }
+static int wifiFind(const char* ssid) {
+  for (int i = 0; i < wifiSavedCount(); i++) if (!strcmp(s_nets[i].ssid, ssid)) return i;
+  return -1;
+}
+// The most recently saved network (false: none) -- what "have WiFi?" asks.
+static bool loadWifi(char* ssid, size_t ssid_n, char* pass, size_t pass_n) {
+  const WifiNet* w = wifiSaved(0);
+  snprintf(ssid, ssid_n, "%s", w ? w->ssid : "");
+  snprintf(pass, pass_n, "%s", w ? w->pass : "");
+  return w != nullptr;
+}
+// Adds a network or changes its password; either way it moves to the top.
+// A ninth one pushes out the oldest.
+static void saveWifi(const char* ssid, const char* pass) {
+  int n = wifiSavedCount();
+  int at = wifiFind(ssid);
+  if (at < 0) at = n < WIFI_SAVED_MAX ? n++ : WIFI_SAVED_MAX - 1;
+  memmove(&s_nets[1], &s_nets[0], at * sizeof(WifiNet));
+  snprintf(s_nets[0].ssid, sizeof(s_nets[0].ssid), "%s", ssid);
+  snprintf(s_nets[0].pass, sizeof(s_nets[0].pass), "%s", pass);
+  s_net_count = n;
+  wifiStoreWrite();
+}
+static void forgetWifi(int i) {
+  int n = wifiSavedCount();
+  if (i < 0 || i >= n) return;
+  memmove(&s_nets[i], &s_nets[i + 1], (n - 1 - i) * sizeof(WifiNet));
+  s_net_count = n - 1;
+  wifiStoreWrite();
+}
+
 // Network for map downloads: state of the link, and one HTTP GET at a time.
 enum NetState { NET_OFF, NET_CONNECTING, NET_UP, NET_FAILED };
 static const int WIFI_SCAN_MAX = 20;
@@ -174,17 +218,44 @@ static void getStr(const char* ns, const char* key, char* out, size_t n_out) {
   if (n.ok) n.p.getString(key, out, n_out);
 }
 static void putStr(const char* ns, const char* key, const char* v) { Ns n(ns, false); if (n.ok) n.p.putString(key, v); }
+static void remove(const char* ns, const char* key) { Ns n(ns, false); if (n.ok && n.p.isKey(key)) n.p.remove(key); }
 }  // namespace nvs
 
 // ── WiFi (station, only while a map download runs) ───────────────────────────
-static bool loadWifi(char* ssid, size_t ssid_n, char* pass, size_t pass_n) {
-  nvs::getStr("mc_wifi", "ssid", ssid, ssid_n);
-  nvs::getStr("mc_wifi", "pass", pass, pass_n);
-  return ssid[0] != '\0';
+// The saved networks as "s0".."s7" / "p0".."p7"; the single network older
+// builds kept ("ssid" / "pass") becomes the first.
+static void wifiStoreLoad() {
+  char ks[3] = "s0", kp[3] = "p0";
+  s_net_count = 0;
+  for (int i = 0; i < WIFI_SAVED_MAX; i++) {
+    ks[1] = kp[1] = (char)('0' + i);
+    nvs::getStr("mc_wifi", ks, s_nets[i].ssid, sizeof(s_nets[i].ssid));
+    if (!s_nets[i].ssid[0]) break;
+    nvs::getStr("mc_wifi", kp, s_nets[i].pass, sizeof(s_nets[i].pass));
+    s_net_count++;
+  }
+  char old[33];
+  nvs::getStr("mc_wifi", "ssid", old, sizeof(old));
+  if (old[0]) {
+    char pass[65];
+    nvs::getStr("mc_wifi", "pass", pass, sizeof(pass));
+    nvs::remove("mc_wifi", "ssid");
+    nvs::remove("mc_wifi", "pass");
+    if (wifiFind(old) < 0) saveWifi(old, pass);
+  }
 }
-static void saveWifi(const char* ssid, const char* pass) {
-  nvs::putStr("mc_wifi", "ssid", ssid);
-  nvs::putStr("mc_wifi", "pass", pass);
+static void wifiStoreWrite() {
+  char ks[3] = "s0", kp[3] = "p0";
+  for (int i = 0; i < WIFI_SAVED_MAX; i++) {
+    ks[1] = kp[1] = (char)('0' + i);
+    if (i < s_net_count) {
+      nvs::putStr("mc_wifi", ks, s_nets[i].ssid);
+      nvs::putStr("mc_wifi", kp, s_nets[i].pass);
+    } else {
+      nvs::remove("mc_wifi", ks);
+      nvs::remove("mc_wifi", kp);
+    }
+  }
 }
 // Settings > WiFi's switch: off keeps the radio off for everything (scan, map
 // download). Kept with the credentials.
@@ -285,11 +356,45 @@ static bool flashInfo(uint64_t& total, uint64_t& used) {
   return total > 0;
 }
 
+// Joins the strongest saved network in range: with more than one saved, a
+// scan first (a few seconds, inside the callers' connect timeouts). The given
+// network is joined when none of them shows up -- a hidden one, say -- and
+// straight away when it's the only one.
+static bool s_net_scanning = false;
+static char s_fb_ssid[33], s_fb_pass[65];
 static void netBegin(const char* ssid, const char* pass) {
+  WiFi.mode(WIFI_STA);
+  snprintf(s_fb_ssid, sizeof(s_fb_ssid), "%s", ssid);
+  snprintf(s_fb_pass, sizeof(s_fb_pass), "%s", pass);
+  if (wifiSavedCount() <= 1) { WiFi.begin(ssid, pass); return; }
+  s_net_scanning = WiFi.scanNetworks(true /* async */) == WIFI_SCAN_RUNNING;
+  if (!s_net_scanning) WiFi.begin(ssid, pass);
+}
+// Just this network, no scan (Settings > WiFi checking a password it saved).
+static void netJoin(const char* ssid, const char* pass) {
+  s_net_scanning = false;
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass);
 }
+// After NET_FAILED / a timeout: true when the network wasn't there at all
+// (else it answered and turned us away: the password, most likely).
+static bool netNotFound() { return WiFi.status() == WL_NO_SSID_AVAIL; }
 static int netState() {
+  if (s_net_scanning) {
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) return NET_CONNECTING;
+    s_net_scanning = false;
+    const WifiNet* best = nullptr;
+    int best_rssi = -1000;
+    for (int i = 0; i < n; i++) {
+      int k = wifiFind(WiFi.SSID(i).c_str());
+      if (k >= 0 && WiFi.RSSI(i) > best_rssi) { best = &s_nets[k]; best_rssi = WiFi.RSSI(i); }
+    }
+    WiFi.scanDelete();
+    if (best) WiFi.begin(best->ssid, best->pass);
+    else WiFi.begin(s_fb_ssid, s_fb_pass);
+    return NET_CONNECTING;
+  }
   switch (WiFi.status()) {
     case WL_CONNECTED:      return NET_UP;
     case WL_CONNECT_FAILED:
@@ -300,8 +405,13 @@ static int netState() {
   }
 }
 static void netEnd() {
+  if (s_net_scanning) { s_net_scanning = false; WiFi.scanDelete(); }
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
+}
+// The network joined (Settings > WiFi marks it), "" when not connected.
+static void netSsid(char* out, size_t n) {
+  snprintf(out, n, "%s", WiFi.getMode() != WIFI_OFF && WiFi.status() == WL_CONNECTED ? WiFi.SSID().c_str() : "");
 }
 // For the status bar: NET_UP once connected, else NET_OFF (radio off, a scan,
 // still connecting).
@@ -497,17 +607,9 @@ static void setBacklightPct(uint8_t pct) { (void)pct; }   // the browser canvas 
 // The host page preloads map tiles into the in-memory FS under /sdcard/maps.
 static bool mountStorage() { return true; }
 
-// The browser is always online; WiFi credentials only live for the session.
-static char s_ssid[33] = "", s_pass[65] = "";
-static bool loadWifi(char* ssid, size_t ssid_n, char* pass, size_t pass_n) {
-  snprintf(ssid, ssid_n, "%s", s_ssid);
-  snprintf(pass, pass_n, "%s", s_pass);
-  return ssid[0] != '\0';
-}
-static void saveWifi(const char* ssid, const char* pass) {
-  snprintf(s_ssid, sizeof(s_ssid), "%s", ssid);
-  snprintf(s_pass, sizeof(s_pass), "%s", pass);
-}
+// The browser is always online; saved WiFi networks only live for the session.
+static void wifiStoreLoad() { s_net_count = 0; }
+static void wifiStoreWrite() {}
 static char s_pin[9] = "";   // the screen PIN, for the session
 static void loadPin(char* out, size_t n) { snprintf(out, n, "%s", s_pin); }
 static void savePin(const char* pin) { snprintf(s_pin, sizeof(s_pin), "%s", pin); }
@@ -547,9 +649,12 @@ static bool vectorOn() { return s_vector; }
 static void setVectorOn(bool on) { s_vector = on; }
 static bool s_net_on = false;
 static void netBegin(const char*, const char*) { s_net_on = true; }
+static void netJoin(const char*, const char*) { s_net_on = true; }
+static bool netNotFound() { return false; }
 static int  netState() { return NET_UP; }
 static void netEnd() { s_net_on = false; }
 static int  netRadio() { return s_net_on ? NET_UP : NET_OFF; }
+static void netSsid(char* out, size_t n) { const WifiNet* w = wifiSaved(0); snprintf(out, n, "%s", s_net_on && w ? w->ssid : ""); }
 static uint32_t s_scan_at = 0;
 static void scanStart() { s_scan_at = millis(); }
 static int scanResults(char names[][33], int max) {   // a pretend scan, for the UI
