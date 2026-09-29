@@ -95,7 +95,7 @@ static const char* waypointsFull() {
   return t;
 }
 
-// ui-lvgl skeleton (docs/developer/ui-core.md, step 5): status bar, home,
+// ui-lvgl skeleton (docs/solo/developer/ui-core.md, step 5): status bar, home,
 // conversation list, contact picker, conversation view with compose. Every
 // piece of state it shows comes from the UI Core; this file only draws it.
 

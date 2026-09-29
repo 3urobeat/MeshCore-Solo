@@ -1,3 +1,5 @@
+<p align="center"><img src="./docs/solo/img/hero.png" alt="MeshCore Solo" width="640"></p>
+
 # MeshCore Solo Companion Firmware
 
 A fork of the official [MeshCore](https://github.com/meshcore-dev/MeshCore) companion radio firmware with a full standalone on-device UI — messages, contacts, GPS navigation and tools without a phone.
@@ -27,7 +29,7 @@ Discussion: [MeshCore Discord](https://discord.gg/sdhYArU2jr) — [Solo firmware
 
 Firmware files are on the [releases page](https://github.com/MarekZegare4/MeshCore-Solo/releases). Every binary serves the companion app over both BLE and USB serial.
 
-Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo_features/external_keyboard.md#wiring-heltec-v3--v4); ProMicro needs a CardKB; the T-Echo Lite needs the KeyShield. The rest work out of the box.
+Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo/hardware.md#wiring-on-the-heltec-v3--v4); ProMicro needs a CardKB; the T-Echo Lite needs the KeyShield. The rest work out of the box.
 
 ---
 
@@ -47,7 +49,7 @@ Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo_features/externa
 
 ## Documentation
 
-[docs/solo_features](./docs/solo_features/README.md) — features, screens, external keyboards, build flags and developer guides.
+[Documentation](./docs/solo/README.md) — getting started, messages, navigation, tools, settings, hardware and developer guides.
 
 **Solo Tools** — [a web app](https://marekzegare4.github.io/Solo-tools/) (Chromium, Web Serial) that takes screenshots and exports the GPS trail as GPX over USB; the same as local scripts in [tools/](./tools/README.md).
 
@@ -60,7 +62,7 @@ pio run -e <env> -t upload                                  # build and flash ov
 FIRMWARE_VERSION=v1.0.0 bash build.sh build-firmware <env>  # release artifacts into out/
 ```
 
-Environments are the `*_solo_dual` (OLED / e-ink) and `*_solo_lvgl` (touch) entries in `solo/<board>/platformio.ini`. Optional hardware (CardKB, joystick, GPIO, buzzer…) is enabled with [build flags](./docs/solo_features/build_flags.md). Releasing: [RELEASE.md](./RELEASE.md).
+Environments are the `*_solo_dual` (OLED / e-ink) and `*_solo_lvgl` (touch) entries in `solo/<board>/platformio.ini`. Optional hardware (CardKB, joystick, GPIO, buzzer…) is enabled with [build flags](./docs/solo/developer/build-flags.md). Releasing: [RELEASE.md](./RELEASE.md).
 
 This README is protected from upstream merges via `.gitattributes`; after cloning run once `git config merge.ours.driver true`.
 
