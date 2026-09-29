@@ -66,9 +66,12 @@ for a second radio). They are L2-specific and block the loop for ~90 s.
 
 ## E. OTA end-to-end test
 
-- [ ] After the feature changes: a real release with an L2 asset (the v3 env
+- [x] After the feature changes: a real release with an L2 asset (the v3 env
       must be the `*_solo_lvgl` one before tagging), install over WiFi.
       Publishing the release needs confirmation first.
+      Done 2026-09-29: temporary release `dev-ota-test` (61645260, app image
+      from build.sh, marked latest) installed over WiFi on the L2; it came up
+      as dev-ota-test-61645260. The release is to be deleted by hand.
 
 ## F. The big review
 
