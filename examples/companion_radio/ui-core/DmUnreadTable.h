@@ -4,7 +4,7 @@
 // and always read back clamped to what the ring still holds for that contact --
 // the same self-healing shape as MessageHistory::chUnread() for channels.
 //
-// Header-only UI Core model (see docs/development/ui-core.md); no drawing, no
+// Header-only UI Core model (see docs/developer/ui-core.md); no drawing, no
 // screen state.
 
 class DmUnreadTable {

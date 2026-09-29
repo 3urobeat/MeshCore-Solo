@@ -95,7 +95,7 @@ static const char* waypointsFull() {
   return t;
 }
 
-// ui-lvgl skeleton (docs/development/ui-core.md, step 5): status bar, home,
+// ui-lvgl skeleton (docs/developer/ui-core.md, step 5): status bar, home,
 // conversation list, contact picker, conversation view with compose. Every
 // piece of state it shows comes from the UI Core; this file only draws it.
 
@@ -990,8 +990,7 @@ void UITask::loop() {
   prefsFlush();
   usbPoll();
 #if defined(UI_HEAP_REPORT) && defined(ESP32)
-  // -D UI_HEAP_REPORT: internal / PSRAM heap once, 20 s after boot (the
-  // framework comparison in docs/development/l2-roadmap.md).
+  // -D UI_HEAP_REPORT: internal / PSRAM heap once, 20 s after boot.
   static bool heap_done = false;
   if (!heap_done && millis() > 20000) {
     heap_done = true;

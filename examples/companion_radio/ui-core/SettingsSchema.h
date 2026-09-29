@@ -1,5 +1,5 @@
 #pragma once
-// Declarative settings (docs/development/ui-core.md, step 4): one table of
+// Declarative settings (docs/developer/ui-core.md, step 4): one table of
 // NodePrefs options with their labels, value lists and side effects, so every
 // frontend renders the same settings without its own per-item code. ui-lvgl
 // draws it as switches and dropdowns, one page per Page below; ui-new still has

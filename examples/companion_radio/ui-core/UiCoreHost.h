@@ -4,7 +4,7 @@
 // does, and reports to the frontend through UiEventQueue. This interface is the
 // remainder -- calls that must stay synchronous with mesh processing, or whose
 // logic still lives in the frontend until its extraction step
-// (docs/development/ui-core.md). None of these may draw or block.
+// (docs/developer/ui-core.md). None of these may draw or block.
 
 class UiCoreHost {
 public:

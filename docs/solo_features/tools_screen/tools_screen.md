@@ -501,7 +501,7 @@ A circular tab carousel of live device and mesh stats, refreshed once a second (
 
 The packet counters, **Forwarded** and **Errors**, are cumulative since boot. On the **Live** tab, **Hold Enter** opens a *Reset counters?* confirm (defaults to Cancel); the live readings (noise, RSSI/SNR, pool, queue, uptime) are not affected. **Cancel/Back** returns to the Tools list.
 
-There is no "RXPS wd s/h" row: it belongs to hardware RX duty-cycle receive, which is currently disabled (see the Settings screen doc and `docs/development/roadmap.md`) — nothing to watchdog.
+There is no "RXPS wd s/h" row: it belongs to hardware RX duty-cycle receive, which is currently disabled (see the Settings screen doc) — nothing to watchdog.
 
 The counters make the repeater behaviour observable: **Forwarded** confirms the node is actually relaying (not just configured to), and **Pool free** / **Queue** show whether forwarding is exhausting the packet pool. See **Tools › Repeater** for the relaying options.
 

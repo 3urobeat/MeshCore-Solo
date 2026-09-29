@@ -40,7 +40,7 @@
 // (RadioLibWrapper::armRecv()/CustomSX1262Wrapper::startPowerSaveRecv()) is
 // left in place for if a network-wide compatibility mechanism ever lands --
 // flipping this back to 1 requires solving that first, not just re-adding the
-// Settings toggle. See docs/development/roadmap.md for the full writeup.
+// Settings toggle.
 // Lives here (not MyMesh.h) so every `#if FEAT_RX_POWERSAVE` user sees the
 // same definition: an undefined macro in `#if` silently reads as 0, which
 // would split the build the day this is flipped to 1.

@@ -2,7 +2,7 @@
 // Core → frontend events. Engines never call into the frontend (no drawing, no
 // sound, no display power); they push a tagged event here and the frontend
 // drains the queue from its own loop() and reacts in its own way (ui-new:
-// alert overlay + buzzer; ui-lvgl: a dialog). See docs/development/ui-core.md.
+// alert overlay + buzzer; ui-lvgl: a dialog). See docs/developer/ui-core.md.
 //
 // Fixed-size ring, no heap. When full the oldest event is dropped -- events are
 // hints for the view; the authoritative state stays queryable on the engines.

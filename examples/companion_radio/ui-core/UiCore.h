@@ -1,6 +1,6 @@
 #pragma once
 // UI Core: hardware-independent UI state and logic shared by every frontend
-// (ui-new today, ui-lvgl later). See docs/development/ui-core.md.
+// (ui-new today, ui-lvgl later). See docs/developer/ui-core.md.
 //
 // The Core is MyMesh's Listener: it files incoming/outgoing messages into the
 // history, keeps the unread counters, runs the engines, and tells the frontend

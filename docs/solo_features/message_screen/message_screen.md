@@ -25,7 +25,7 @@ Press **Enter** on a contact or channel to open its history, then press **Enter*
 - **Custom message** — opens the on-screen keyboard
 - **Q1–Q10** — quick reply templates editable in Settings › Messages
 
-While typing, **UP** from the top letter row enters cursor mode — LEFT/RIGHT move the insertion point, UP/DOWN jump to start/end (then to the grid on a second press), Enter/Cancel exit from anywhere — so you can edit mid-text, not just at the end. **Hold Enter** on a letter with accented variants (a, e, c, n, o, s, z…) opens a one-row accent popup instead — LEFT/RIGHT picks, Enter inserts, Cancel dismisses. Full key set (Shift, T9, Cyrillic/Greek) in the [UI framework guide](../../design/solo_ui_framework.md).
+While typing, **UP** from the top letter row enters cursor mode — LEFT/RIGHT move the insertion point, UP/DOWN jump to start/end (then to the grid on a second press), Enter/Cancel exit from anywhere — so you can edit mid-text, not just at the end. **Hold Enter** on a letter with accented variants (a, e, c, n, o, s, z…) opens a one-row accent popup instead — LEFT/RIGHT picks, Enter inserts, Cancel dismisses. Full key set (Shift, T9, Cyrillic/Greek) in the [UI framework guide](../../developer/ui-framework.md).
 
 The keyboard supports placeholders that insert live data at send time:
 

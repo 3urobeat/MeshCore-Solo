@@ -1,7 +1,7 @@
 #pragma once
 // ui-lvgl: the rich (colour + touch) frontend of the UI Core. Wio Tracker L2
 // first. All application state lives in the Core (../ui-core); this class owns
-// only LVGL screens, display power and input. See docs/development/ui-core.md.
+// only LVGL screens, display power and input. See docs/developer/ui-core.md.
 
 #include <MeshCore.h>
 #include <Arduino.h>

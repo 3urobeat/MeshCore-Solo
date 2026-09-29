@@ -74,8 +74,8 @@ public:
   // guarantee we can't currently make. A mismatch doesn't cost a little
   // sensitivity, it silently drops every packet from that sender regardless of
   // signal strength (2026-09-22 field report: near-total reception loss on a
-  // stock SF8 preset, unaffected by antenna gain). See companion Features.h and
-  // docs/development/roadmap.md before ever flipping FEAT_RX_POWERSAVE back on.
+  // stock SF8 preset, unaffected by antenna gain). See companion Features.h
+  // before ever flipping FEAT_RX_POWERSAVE back on.
   int16_t startPowerSaveRecv() override {
     return ((SX126x *)_radio)->startReceiveDutyCycleAuto(preambleLengthForSF(_preamble_sf), 8);
   }
