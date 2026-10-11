@@ -3,11 +3,15 @@
 // the font tables below are static arrays.
 
 #include "EinkGfxDisplay.h"
-// EINK_FONT_SCALE=<n>: pixel multiplier for the 6x9 font on a landscape panel
-// without EINK_LARGE_FONT (default 2). 4 on an 800x480 panel = 24x36 cells,
-// ~33 characters x 13 lines. Settings > Display > Text size overrides it at run time.
-#ifndef EINK_FONT_SCALE
-  #define EINK_FONT_SCALE 2
+// EINK_FONT_SCALE=<n>: pixel multiplier for the landscape font -- the 6x9, or
+// the EINK_LARGE_FONT one if the build picks it. 4 on an 800x480 panel with the
+// 6x9 = 24x36 cells, ~33 characters x 13 lines. Setting it also adds Settings >
+// Display > Text size, which overrides it at run time. Unset: stock, the 6x9 at
+// 2x or the large font at its own size.
+#ifdef EINK_FONT_SCALE
+  #define EINK_FONT_PX EINK_FONT_SCALE
+#else
+  #define EINK_FONT_PX (EINK_LARGE_FONT ? 1 : 2)
 #endif
 #include "MiscFixedRenderer.h"
 #if EINK_LARGE_FONT == 2
@@ -26,8 +30,8 @@ EinkGfxDisplay::EinkGfxDisplay(int w, int h, Adafruit_GFX& gfx, uint16_t ink, ui
 void EinkGfxDisplay::updateLayout() {
   const bool landscape = width() >= height();
   _font = (EINK_LARGE_FONT && landscape) ? &EINK_LARGE_GFXFONT : &MiscFixed;
-  _px = (!EINK_LARGE_FONT && landscape) ? EINK_FONT_SCALE : 1;
-  if (_px_override) _px = _px_override;
+  _px = landscape ? EINK_FONT_PX : 1;
+  if (_px_override && landscape) _px = _px_override;   // portrait screens are laid out for 1x
   _cell_w = miscFixedCellW(*_font);
   _cell_h = _font->yAdvance;
   _vw_dirty = true;

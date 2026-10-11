@@ -2063,7 +2063,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   applyBrightness();
   applyRotation();
   applyFullRefreshInterval();
-  loadUiScale();   // Settings > Display > Text size / Icon size
+  applyUiScale();   // Settings > Display > Text size / Icon size
   applyAllGpioModes();   // restore persisted pin modes to hardware before any UI/bot use
   // Locked above (a PIN, or the cover closed) before Home existed to be told.
   if (_locked) syncLockToHome();
@@ -4163,57 +4163,17 @@ void UITask::applyFullRefreshInterval() {
   }
 }
 
-// Text size and Icon size (Settings > Display), in their own /ui_scale file --
-// [text pixel scale (0 = build default), icon scale (0 = Auto)] -- so the
-// NodePrefs schema is untouched.
-static const char* UI_SCALE_FILE = "/ui_scale";
-static const uint8_t UI_TEXT_SCALE_MAX = 5;
-
-void UITask::loadUiScale() {
-  uint8_t b[2] = { 0, statusIconScaleSetting() };
-  DataStore* ds = the_mesh.getDataStore();
-  if (ds) {
-    File f = ds->openRead(UI_SCALE_FILE);
-    if (f) {
-      f.read(b, 2);
-      f.close();
-    }
-  }
-  _ui_font_scale = b[0] <= UI_TEXT_SCALE_MAX ? b[0] : 0;
-  if (b[1] <= STATUS_ICON_SCALE_MAX) statusIconScaleSetting() = b[1];
-  if (_display != NULL && _ui_font_scale) _display->setUiScale(_ui_font_scale);
-}
-
-void UITask::saveUiScale() {
-  DataStore* ds = the_mesh.getDataStore();
-  if (!ds) return;
-  File f = ds->openWrite(UI_SCALE_FILE);
-  if (f) {
-    uint8_t b[2] = { _ui_font_scale, statusIconScaleSetting() };
-    f.write(b, 2);
-    f.close();
-  }
-}
-
-uint8_t UITask::getUiFontScale() const {
-  return _display != NULL ? (uint8_t)_display->pixelScale() : 1;
-}
-
-void UITask::setUiFontScale(uint8_t s) {
-  if (s < 1 || s > UI_TEXT_SCALE_MAX) s = 1;
-  _ui_font_scale = s;
-  if (_display != NULL) _display->setUiScale(s);
-  _next_refresh = 0;
-  saveUiScale();
-}
-
-uint8_t UITask::getStatusIconScale() const { return statusIconScaleSetting(); }
-
-void UITask::setStatusIconScale(uint8_t s) {
-  if (s > STATUS_ICON_SCALE_MAX) s = 0;
-  statusIconScaleSetting() = s;
-  _next_refresh = 0;   // the frame differs, so it's redrawn
-  saveUiScale();
+// Text size and Icon size (Settings > Display, NodePrefs ui_text_scale /
+// ui_icon_scale), on the builds that offer them. Elsewhere the fields stay 0:
+// the build's font scale and Auto icons, as stock.
+void UITask::applyUiScale() {
+  if (!_node_prefs) return;
+#ifdef EINK_FONT_SCALE
+  if (_display != NULL) _display->setUiScale(_node_prefs->ui_text_scale);
+#endif
+#if STATUS_ICONS_SCALED
+  statusIconScaleSetting() = _node_prefs->ui_icon_scale;
+#endif
 }
 
 void UITask::applySoundPrefs() {

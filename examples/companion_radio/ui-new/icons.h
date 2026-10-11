@@ -94,20 +94,19 @@ inline void miniIconDrawCentered(DisplayDriver& d, int cx, int cy, const MiniIco
 // Home status bar icon scale. Defining STATUS_ICON_SCALE (build flag) turns on
 // scalable status icons: the bar's icons, battery and the page-icon row below it
 // are drawn at n x their pixel grid, and the bar grows tall enough to hold them --
-// for big panels whose 1-line bar leaves them tiny. Its value is the default for
-// Settings > Display > Icon size: 0 = Auto (1.5x the text's pixel scale), else n.
-// Unset: icons follow the font, as stock.
+// for big panels whose 1-line bar leaves them tiny -- and adds Settings > Display >
+// Icon size (NodePrefs::ui_icon_scale): 0 = Auto (1.5x the text's pixel scale),
+// else n. Unset: icons follow the font, as stock.
 #ifdef STATUS_ICON_SCALE
   #define STATUS_ICONS_SCALED 1
 #else
   #define STATUS_ICONS_SCALED 0
-  #define STATUS_ICON_SCALE 0
 #endif
-static constexpr int STATUS_ICON_SCALE_MAX = 8;
 static constexpr int STATUS_ICON_ROWS = MINI_ICONS_LARGE == 2 ? 9 : 7;   // tallest status icon
-// The Icon size setting (0 = Auto). One instance across translation units.
+// The Icon size setting (0 = Auto), copied from the prefs by UITask::applyUiScale().
+// One instance across translation units.
 inline uint8_t& statusIconScaleSetting() {
-  static uint8_t v = (STATUS_ICON_SCALE >= 0 && STATUS_ICON_SCALE <= STATUS_ICON_SCALE_MAX) ? STATUS_ICON_SCALE : 0;
+  static uint8_t v = 0;
   return v;
 }
 inline int statusIconScale(DisplayDriver& d) {

@@ -144,6 +144,15 @@ static void optMsgAlert(uint8_t v, char* b, int n, const NodePrefs&) {
   static const char* const L[] = { "Normal", "Compact", "Off" };
   snprintf(b, n, "%s", L[v < 3 ? v : 0]);
 }
+#ifdef EINK_FONT_SCALE
+static const int32_t TEXT_SCALE[] = { 1, 2, 3, 4, 5 };
+static void optTextScale(uint8_t v, char* b, int n, const NodePrefs&) { snprintf(b, n, "%ldx", (long)TEXT_SCALE[v]); }
+#endif
+#ifdef STATUS_ICON_SCALE
+static void optIconScale(uint8_t v, char* b, int n, const NodePrefs&) {
+  if (v == 0) snprintf(b, n, "Auto"); else snprintf(b, n, "%ux", (unsigned)v);
+}
+#endif
 static void optLockLook(uint8_t v, char* b, int n, const NodePrefs&) { snprintf(b, n, "%s", v ? "Compact" : "Big"); }
 static void optExpiry(uint8_t v, char* b, int n, const NodePrefs&) {
   snprintf(b, n, "%s", NodePrefs::contactExpiryLabel(v));
@@ -243,6 +252,15 @@ static const Setting ALL[] = {
   SW("Lock screen", "Slide to unlock after sleep", SEC_DISPLAY, auto_lock, nullptr),
   IDX("Lock clock", "Big, or compact with the clock fields", SEC_DISPLAY, lock_compact, 2, optLockLook, nullptr),
   IDX("Battery display", "In the status bar", SEC_DISPLAY, batt_display_mode, 3, optBattDisplay, nullptr),
+  // Only the builds that ask for them (big e-ink panels): each screen elsewhere
+  // is laid out for one cell size.
+#ifdef EINK_FONT_SCALE
+  MAP("Text size", "Bigger letters on a big panel", SEC_DISPLAY, ui_text_scale, TEXT_SCALE, optTextScale, applyDisplay),
+#endif
+#ifdef STATUS_ICON_SCALE
+  IDX("Icon size", "Home's status icons", SEC_DISPLAY, ui_icon_scale, NodePrefs::UI_ICON_SCALE_MAX + 1,
+      optIconScale, applyDisplay),
+#endif
 
   MAP("Battery shutdown", "Power off below this voltage", SEC_POWER, low_batt_mv, LOW_BATT, optLowBatt, nullptr),
   MAP("GPS power saving", "Sleep between fixes", SEC_POWER, gps_interval, GPS_DUTY, optGpsDuty, applyGpsDuty),

@@ -334,6 +334,11 @@ static void sanitize(NodePrefs& p) {
   flag(p.lock_compact, 0);
   flag(p.ble_off, 0);
   if (p.msg_alert > NodePrefs::MSG_ALERT_OFF) p.msg_alert = NodePrefs::MSG_ALERT_NORMAL;
+  if (p.ui_text_scale > NodePrefs::UI_TEXT_SCALE_MAX) p.ui_text_scale = 0;
+#ifdef EINK_FONT_SCALE   // the Text size row shows the scale in use: start at the build's
+  if (p.ui_text_scale == 0) p.ui_text_scale = EINK_FONT_SCALE;
+#endif
+  if (p.ui_icon_scale > NodePrefs::UI_ICON_SCALE_MAX) p.ui_icon_scale = 0;
   if (!p.ch_scope_follow) {
     for (uint8_t i = 0; i < NodePrefs::MAX_SCOPED_CHANNELS; i++)
       if (p.ch_scope_idx[i] == 0) p.ch_scope_idx[i] = NodePrefs::CH_SCOPE_DEFAULT;

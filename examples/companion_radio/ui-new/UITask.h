@@ -62,7 +62,6 @@ class UITask : public UITaskBase, public UiCoreHost {
   unsigned long _next_refresh, _auto_off;
   bool _display_was_on = true;   // loop(): messagesInView() last time round
   NodePrefs* _node_prefs;
-  uint8_t _ui_font_scale = 0;   // Settings > Display > Text size (0 = build default)
   bool _locked;
   bool _tool_from_home = false;
   bool messagesInView() const;   // Messages on a lit, unlocked display
@@ -529,7 +528,7 @@ public:
   void applyAllGpioModes();                  // boot-time restore from NodePrefs, called from begin()
   void applyBrightness();
   // Settings changed through the schema (ui-core/SettingsSchema.h).
-  void applyDisplayPrefs() override { applyBrightness(); _next_refresh = 0; }
+  void applyDisplayPrefs() override { applyBrightness(); applyUiScale(); _next_refresh = 0; }
   void applySoundPrefs() override;
   bool cliCommand(const char* command, char* reply, int n) override;
   void setBuzzerVolumeLevel(uint8_t level);
@@ -544,14 +543,7 @@ public:
   bool savePrefsIfDirty(bool& dirty);
   void applyRotation();
   void applyFullRefreshInterval();
-  // Settings > Display > Text size / Icon size. Kept in their own /ui_scale
-  // file rather than NodePrefs, so the prefs schema (and its size assert) is untouched.
-  uint8_t getUiFontScale() const;      // the text's current pixel scale
-  void setUiFontScale(uint8_t s);      // 1..5: applies + saves
-  uint8_t getStatusIconScale() const;  // 0 = Auto (1.5x text), else n
-  void setStatusIconScale(uint8_t s);  // 0..8: applies + saves
-  void loadUiScale();                  // boot-time restore, from begin()
-  void saveUiScale();
+  void applyUiScale();   // Settings > Display > Text size / Icon size, from the prefs
   uint32_t autoOffMillis() const {
     if (!_node_prefs || _node_prefs->auto_off_secs == 0) return 0;
     return (uint32_t)_node_prefs->auto_off_secs * 1000UL;

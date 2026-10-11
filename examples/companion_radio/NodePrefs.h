@@ -538,6 +538,15 @@ struct NodePrefs {  // persisted to file
   static const uint8_t MSG_ALERT_NORMAL = 0, MSG_ALERT_COMPACT = 1, MSG_ALERT_OFF = 2;
   uint8_t  msg_alert;
 
+  // ── Text and icon size (ui-new, big e-ink panels) ──────────────────────
+  // Settings > Display, only on builds that opt in (EINK_FONT_SCALE /
+  // STATUS_ICON_SCALE). ui_text_scale: the font's pixel multiplier, 1-5; 0 is
+  // the build's own (DataStore sanitize sets EINK_FONT_SCALE there).
+  // ui_icon_scale: Home's status icons, 0 = Auto (1.5x the text), else 1-8.
+  static const uint8_t UI_TEXT_SCALE_MAX = 5, UI_ICON_SCALE_MAX = 8;
+  uint8_t  ui_text_scale;
+  uint8_t  ui_icon_scale;
+
   // Single source of truth for the live-share option tables (shared by the Map
   // UI labels and the auto-send engine in UITask).
   static const uint8_t LOC_SHARE_MOVE_COUNT = 4;

@@ -29,7 +29,7 @@ class EinkGfxDisplay : public DisplayDriver {
   uint16_t _curr;
   const GFXfont* _font;
   int _cell_w = 6, _cell_h = 9;  // the font's cell, before _px and the text size
-  int _px = 1;                   // pixel doubling (landscape without EINK_LARGE_FONT)
+  int _px = 1;                   // pixel multiplier (landscape: EINK_FONT_PX, or Text size)
   uint8_t _px_override = 0;      // Settings > Display > Text size (0 = build default)
   int _text_sz = 1;
   int _cx = 0, _cy = 0;          // cursor, top of the text row
@@ -77,7 +77,11 @@ public:
   bool isEink() override { return true; }
   // Runtime text scale (Settings > Display > Text size): re-lays out and forces
   // a full redraw. 0 = the build default (EINK_FONT_SCALE).
-  void setUiScale(uint8_t font_scale) override { _px_override = font_scale; updateLayout(); }
+  void setUiScale(uint8_t font_scale) override {
+    if (font_scale == _px_override) return;   // unchanged: no full redraw
+    _px_override = font_scale;
+    updateLayout();
+  }
 
   void startFrame(Color bkg = DARK) override;
   void setTextSize(int sz) override;
