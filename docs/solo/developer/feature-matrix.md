@@ -25,11 +25,15 @@ What decides it in ui-new (look for these when adding a screen):
 
 | Test | Where it's true |
 | --- | --- |
-| `Features::IS_EINK`, `display.isEink()` | E-ink L, E-ink P, E-ink 4.2", T-Echo Lite |
-| `expandHistory()`: 9 or more lines | E-ink L, E-ink P, E-ink 4.2" |
+| `Features::IS_EINK`, `display.isEink()` | E-ink L, E-ink P, E-ink 4.2", E-ink 4.26", T-Echo Lite |
+| `expandHistory()`: 9 or more lines | E-ink L, E-ink P, E-ink 4.2", E-ink 4.26" |
 | `height() >= 18 * lineHeight` | E-ink P, E-ink 4.2" |
-| `width() >= 40 * charWidth` ("wide") | E-ink 4.2" |
-| `isLandscape()` | Small, E-ink L, E-ink 4.2" |
+| `width() >= 40 * charWidth` ("wide") | E-ink 4.2", E-ink 4.26" |
+| `isLandscape()` | Small, E-ink L, E-ink 4.2", E-ink 4.26" |
+
+The tables below have no E-ink 4.26" column: it gets what the E-ink 4.2"
+column says, except what hangs on the height test above (the keyboard's
+taller keys).
 
 Cells: **yes**, **—** (not there), a short note where it differs, or the
 build flag it needs.
