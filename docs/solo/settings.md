@@ -7,7 +7,7 @@ board supports are shown.
 
 | Section | What's there |
 | ------- | ------------ |
-| **Display** | Brightness, auto-off, wake on message, the message alert (banner, corner envelope or off), lock screen, the lock clock's look and the [PIN](./lock.md), battery as icon / % / volts, time zone, clock format and seconds; on e-ink also rotation and full refresh |
+| **Display** | Brightness, auto-off, wake on message, the message alert (banner, corner envelope or off), lock screen, the lock clock's look and the [PIN](./lock.md), battery as icon / % / volts, time zone, clock format and seconds; on e-ink also rotation and full refresh, and on a 4.26" panel the text and icon size |
 | **Sound** | Buzzer on / off / auto (quiet while the app is connected), volume, quiet hours, the melody for messages, channels and adverts |
 | **Home Pages** | Order of the home pages, and which are shown |
 | **Radio** | TX power, preset, frequency, SF / BW / CR, saved presets, Auto pwr, the scope list, then the advanced options (below) |
@@ -56,6 +56,10 @@ nodes aren't added until you make room.
   including the automatic ones. Off, nodes see your name but not where you
   are. Live sharing and `{loc}` in a message still send it, because you send
   those on purpose.
+- **Precision**: how exactly adverts give your position: **Exact**, or
+  rounded to a grid of about **100 m**, **500 m** or **1 km**. A fixed grid,
+  not random noise, so many adverts from one place can't be averaged back
+  to the exact spot.
 - **Position**: where your adverts say you are while the GPS is off. **Enter**
   to type it in (`50.06143, 19.93658`), take it from a waypoint, or clear it.
   With the GPS on, the row shows **GPS** and each fix replaces it; turning the

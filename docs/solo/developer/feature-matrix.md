@@ -18,6 +18,7 @@ to some screens, adds or corrects its row here in the same commit.
 | **E-ink L** | Wio Tracker L1 e-ink, landscape | 250 × 122, 8 × 13 | Larger icons |
 | **E-ink P** | Wio Tracker L1 e-ink, portrait | 122 × 250, 6 × 9 | |
 | **E-ink 4.2"** | Wio Tracker L1 with the 4.2" panel (parked) | 400 × 300, 9 × 15 | Its own icon set |
+| **E-ink 4.26"** | Wio Tracker L1 with the 4.26" 800 × 480 panel (`WioTrackerL1Eink426_solo_dual`) | 400 × 240 at 2x, 9 × 15 | Text and icon size settings; "wide" like the 4.2", 16 lines |
 | **L2** | Wio Tracker L2 | 320 × 240 touch, ui-lvgl | |
 
 What decides it in ui-new (look for these when adding a screen):
