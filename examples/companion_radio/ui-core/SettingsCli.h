@@ -98,14 +98,15 @@ static bool handle(UiCore& core, const char* cmd, char* reply, int n) {
     reply[0] = 0;
     for (int k = 0; k < KEY_COUNT; k++) {
       if (row(KEYS[k]) < 0) continue;
-      int len = (int)strlen(KEYS[k].key) + 1;
+      int len = (o ? 1 : 0) + (int)strlen(KEYS[k].key);   // as printed: a space before all but the first
       if (o + len > n - 20) {   // room left for " (more: keys N)"
         if (pg == page) { more = true; break; }
         pg++;
         o = 0;
+        len--;   // first on its page: no space
       }
-      if (pg == page) o += snprintf(reply + o, n - o, "%s%s", o ? " " : "", KEYS[k].key);
-      else o += len;
+      if (pg == page) snprintf(reply + o, n - o, "%s%s", o ? " " : "", KEYS[k].key);
+      o += len;
     }
     if (more) snprintf(reply + o, n - o, " (more: keys %d)", page + 1);
     else if (pg < page || page < 1) snprintf(reply, n, "No more keys");
