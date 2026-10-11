@@ -1,6 +1,6 @@
 #pragma once
 // The MeshCore wordmark and its lettering, shared by both boot splashes
-// (ui-new/UITask.cpp on the OLED/e-ink boards, ui-lvgl/Splash.h on the L2)
+// (ui-new/SplashScreen.h on the OLED/e-ink boards, ui-lvgl/Splash.h on the L2)
 // and ui-new's big clock (Home clock page, lock screen):
 // the 128x13 wordmark bitmap, its own letters, the extra characters drawn in
 // the same strokes (digits, '.', ':', '-', v, l, d, space), and the Solo version /

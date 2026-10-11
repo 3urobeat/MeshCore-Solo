@@ -65,7 +65,7 @@ public:
 4. Reach it from somewhere — usually a row in `ToolsScreen.h` (add an `Action`
    enum value, a row in the right section table, and a `run()` case). The
    Tools home page lists the last two tools used; give the new one a state
-   in `HomeScreen::toolState()` (`UITask.cpp`) if it has one worth showing.
+   in `HomeScreen::toolState()` (`HomeScreen.h`) if it has one worth showing.
 
 That's the whole contract. Steps 1, 3 and 4 are compiler-checked (a mismatch
 won't link); only a forgotten step 2 can slip through — every screen pointer is
@@ -296,7 +296,7 @@ Draw with `miniIconDraw(display, x, topY, ICON_FOO)` (auto-scaled & centered),
 (centred in a status-bar slot). Use icons sparingly: headers and the Tools
 list have none, the Home page row is the main place for them.
 
-The home status bar (`HomeScreen::renderBatteryIndicator()`, `UITask.cpp`)
+The home status bar (`HomeScreen::renderBatteryIndicator()`, `HomeScreen.h`)
 draws plain glyphs right to left from a fixed, priority-ordered table, with
 no boxes and no blinking: each icon tells a state by its shape (Bluetooth only
 while a phone is connected, the GPS reticle broken until a fix, a pin while
