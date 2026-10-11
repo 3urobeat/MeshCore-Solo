@@ -334,6 +334,7 @@ static void sanitize(NodePrefs& p) {
   flag(p.lock_compact, 0);
   flag(p.ble_off, 0);
   if (p.msg_alert > NodePrefs::MSG_ALERT_OFF) p.msg_alert = NodePrefs::MSG_ALERT_NORMAL;
+  if (p.advert_loc_prec >= NodePrefs::ADV_LOC_PREC_COUNT) p.advert_loc_prec = 0;
   if (!p.ch_scope_follow) {
     for (uint8_t i = 0; i < NodePrefs::MAX_SCOPED_CHANNELS; i++)
       if (p.ch_scope_idx[i] == 0) p.ch_scope_idx[i] = NodePrefs::CH_SCOPE_DEFAULT;

@@ -2356,11 +2356,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     }
   } else if (cmd_frame[0] == CMD_SEND_SELF_ADVERT) {
     mesh::Packet* pkt;
-    if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-      pkt = createSelfAdvert(_prefs.node_name);
-    } else {
-      pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
-    }
+    pkt = createOwnAdvert();
     if (pkt) {
       if (len >= 2 && cmd_frame[1] == 1) { // optional param (1 = flood, 0 = zero hop)
         unsigned long delay_millis = 0;
@@ -2435,11 +2431,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (len < 1 + PUB_KEY_SIZE) {
       // export SELF
       mesh::Packet* pkt;
-      if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-        pkt = createSelfAdvert(_prefs.node_name);
-      } else {
-        pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
-      }
+      pkt = createOwnAdvert();
       if (pkt) {
         pkt->header |= ROUTE_TYPE_FLOOD; // would normally be sent in this mode
 
@@ -3525,22 +3517,40 @@ void MyMesh::loop() {
   }
 
   if (_prefs.advert_auto_interval_sec > 0 && millisHasNowPassed(_next_auto_advert_ms)) {
-    // The position only where Privacy lets adverts carry it, and once there is one.
-    mesh::Packet* pkt = (_prefs.advert_loc_policy != ADVERT_LOC_NONE && (sensors.node_lat != 0 || sensors.node_lon != 0))
-      ? createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon)
-      : createSelfAdvert(_prefs.node_name);
+    // The position only where Privacy lets adverts carry it, at its precision.
+    mesh::Packet* pkt = createOwnAdvert();
     if (pkt) sendZeroHop(pkt);
     _next_auto_advert_ms = futureMillis(_prefs.advert_auto_interval_sec * 1000UL);
   }
 }
 
+// Grid step in degrees per precision level. 1 deg lat ~ 111 km, so 0.0009 ~ 100 m,
+// 0.0045 ~ 500 m, 0.009 ~ 1 km (longitude steps shrink toward the poles, so they're
+// never coarser).
+// Snapping to a fixed grid (rather than adding random jitter) means repeated
+// adverts from one spot always send the same value, so they can't be averaged.
+static const double ADV_LOC_PREC_STEPS[NodePrefs::ADV_LOC_PREC_COUNT] = { 0.0, 0.0009, 0.0045, 0.009 };
+
+static double snapToGrid(double v, double step) {
+  if (step <= 0.0) return v;
+  return floor(v / step + 0.5) * step;
+}
+
+mesh::Packet* MyMesh::createOwnAdvert() {
+  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE
+      || (sensors.node_lat == 0 && sensors.node_lon == 0)) {
+    return createSelfAdvert(_prefs.node_name);
+  }
+  const uint8_t prec = _prefs.advert_loc_prec;
+  const double step = ADV_LOC_PREC_STEPS[prec < NodePrefs::ADV_LOC_PREC_COUNT ? prec : 0];
+  return createSelfAdvert(_prefs.node_name,
+                          snapToGrid(sensors.node_lat, step),
+                          snapToGrid(sensors.node_lon, step));
+}
+
 bool MyMesh::advert() {
   mesh::Packet* pkt;
-  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-    pkt = createSelfAdvert(_prefs.node_name);
-  } else {
-    pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
-  }
+  pkt = createOwnAdvert();
   if (pkt) {
     sendZeroHop(pkt);
     return true;
@@ -3554,11 +3564,7 @@ bool MyMesh::advertFlood() {
   // (createSelfAdvert() + sendFloodScoped() with the default transport
   // scope key), for the on-device UI and the sim's test harness.
   mesh::Packet* pkt;
-  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-    pkt = createSelfAdvert(_prefs.node_name);
-  } else {
-    pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
-  }
+  pkt = createOwnAdvert();
   if (pkt) {
     TransportKey default_scope;
     memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));

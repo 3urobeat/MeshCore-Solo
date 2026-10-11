@@ -161,6 +161,10 @@ static void optAdvertScope(uint8_t v, char* b, int n, const NodePrefs&) {
   snprintf(b, n, "%s", v == ADVERT_SOUND_SCOPE_ZERO_HOP ? "Direct" : "All");
 }
 
+static void optLocPrec(uint8_t v, char* b, int n, const NodePrefs&) {
+  static const char* const L[NodePrefs::ADV_LOC_PREC_COUNT] = { "Exact", "~100 m", "~500 m", "~1 km" };
+  snprintf(b, n, "%s", L[v < NodePrefs::ADV_LOC_PREC_COUNT ? v : 0]);
+}
 static void optTelemetry(uint8_t v, char* b, int n, const NodePrefs&) {
   static const char* const L[] = { "Nobody", "Allowed", "Everyone" };   // TELEM_MODE_*
   snprintf(b, n, "%s", L[v < 3 ? v : 0]);
@@ -281,6 +285,8 @@ static const Setting ALL[] = {
   IDX("Advert sound for", "Direct: no repeaters", SEC_SOUND_FOR, advert_sound_scope, 2, optAdvertScope, nullptr),
 
   SW("Position in adverts", "Your adverts carry your location", SEC_PRIVACY, advert_loc_policy, nullptr),
+  IDX("Precision", "Rounded so it can't be pinpointed", SEC_PRIVACY, advert_loc_prec,
+      NodePrefs::ADV_LOC_PREC_COUNT, optLocPrec, nullptr),
   // TELEM_MODE_*: "Allowed" is the contacts given that permission.
   IDX("Status", "Battery; the two below need it", SEC_TELEMETRY, telemetry_mode_base, 3, optTelemetry, nullptr),
   IDX("Location", nullptr, SEC_TELEMETRY, telemetry_mode_loc, 3, optTelemetry, nullptr),
@@ -315,7 +321,7 @@ static const struct { uint16_t offset; const char* text; } SHORT_LABELS[] = {
   { NP_OFF(notif_melody_ch), "Ch sound" },       { NP_OFF(notif_melody_ad), "AD sound" },
   { NP_OFF(advert_sound_scope), "AD scope" },
   { NP_OFF(manual_add_contacts), "Auto-add" },   { NP_OFF(autoadd_max_hops), " up to" },
-  { NP_OFF(advert_loc_policy), "Advert pos" },   { NP_OFF(telemetry_mode_base), "Ask status" },
+  { NP_OFF(advert_loc_policy), "Advert pos" },   { NP_OFF(advert_loc_prec), " precision" },   { NP_OFF(telemetry_mode_base), "Ask status" },
   { NP_OFF(telemetry_mode_loc), "Ask loc" },     { NP_OFF(telemetry_mode_env), "Ask sens" },
   { NP_OFF(path_hash_mode), "Hash size" },       { NP_OFF(multi_acks), "Double ACK" },
   { NP_OFF(cad_enabled), "LBT (CAD)" },          { NP_OFF(interference_threshold), "Interf." },

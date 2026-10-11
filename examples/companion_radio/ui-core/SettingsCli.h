@@ -16,6 +16,7 @@ struct Key { const char* key; uint16_t offset; uint8_t bit; };
 #define KB(name, f, mask) { name, (uint16_t)offsetof(NodePrefs, f), mask }
 static const Key KEYS[] = {
   K("advert.interval", advert_auto_interval_sec), K("advert.loc", advert_loc_policy),
+  K("advert.loc.precision", advert_loc_prec),
   K("telemetry.base", telemetry_mode_base), K("telemetry.loc", telemetry_mode_loc), K("telemetry.env", telemetry_mode_env),
   K("autoadd", manual_add_contacts), KB("autoadd.chat", autoadd_config, 0x02), KB("autoadd.repeater", autoadd_config, 0x04),
   KB("autoadd.room", autoadd_config, 0x08), KB("autoadd.sensor", autoadd_config, 0x10),

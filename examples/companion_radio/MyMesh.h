@@ -208,6 +208,10 @@ public:
   void loop();
   void handleCmdFrame(size_t len);
   bool advert();        // zero-hop: only nodes in direct range hear it
+  // Self-advert honouring advert_loc_policy, with the coordinates snapped to
+  // advert_loc_prec's grid. Every advert this node builds goes through it
+  // (manual, flood, auto, phone-app and contact export).
+  mesh::Packet* createOwnAdvert();
   bool advertFlood();   // flooded (default scope), as the app's "Advert" with flood
   void sendNodeDiscoverReq();
   void enterCLIRescue();
