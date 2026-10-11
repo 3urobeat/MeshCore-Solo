@@ -538,6 +538,12 @@ struct NodePrefs {  // persisted to file
   static const uint8_t MSG_ALERT_NORMAL = 0, MSG_ALERT_COMPACT = 1, MSG_ALERT_OFF = 2;
   uint8_t  msg_alert;
 
+  // ── Advert position precision (Settings > Privacy) ─────────────────────
+  // With "Position in adverts" on, the position is snapped to a fixed grid
+  // (MyMesh::createOwnAdvert): 0 = exact, 1 = ~100 m, 2 = ~500 m, 3 = ~1 km.
+  static const uint8_t ADV_LOC_PREC_COUNT = 4;
+  uint8_t  advert_loc_prec;
+
   // Single source of truth for the live-share option tables (shared by the Map
   // UI labels and the auto-send engine in UITask).
   static const uint8_t LOC_SHARE_MOVE_COUNT = 4;
