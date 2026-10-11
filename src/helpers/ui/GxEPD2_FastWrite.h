@@ -31,6 +31,8 @@ class GxEPD2_426_GDEQ0426T82_Fast : public GxEPD2_426_GDEQ0426T82 {
 
   // Same RAM window as the stock driver's (private) _setPartialRamArea():
   // the gates are reversed on this panel, so y is mirrored and entered decreasing.
+  // Copied from GxEPD2 1.6.2 (src/gdeq/GxEPD2_426_GDEQ0426T82.cpp) -- when
+  // bumping GxEPD2, check the library's version still matches this one.
   void setRamArea(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
     y = HEIGHT - y - h;
     _writeCommand(0x11);
@@ -54,7 +56,7 @@ class GxEPD2_426_GDEQ0426T82_Fast : public GxEPD2_426_GDEQ0426T82 {
   }
 
   // The stock _writeImage(), with the per-byte loop replaced by one bulk
-  // transfer per row (clipping and indexing unchanged).
+  // transfer per row (clipping and indexing unchanged). Also from GxEPD2 1.6.2.
   void fastWrite(uint8_t command, const uint8_t bitmap[], int16_t x, int16_t y, int16_t w, int16_t h, bool invert) {
     delay(1);   // as the stock driver: yield
     int16_t wb = (w + 7) / 8;
