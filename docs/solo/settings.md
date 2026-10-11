@@ -10,10 +10,11 @@ board supports are shown.
 | **Display** | Brightness, auto-off, wake on message, the message alert (banner, corner envelope or off), lock screen, the lock clock's look and the [PIN](./lock.md), battery as icon / % / volts, time zone, clock format and seconds; on e-ink also rotation and full refresh |
 | **Sound** | Buzzer on / off / auto (quiet while the app is connected), volume, quiet hours, the melody for messages, channels and adverts |
 | **Home Pages** | Order of the home pages, and which are shown |
-| **Radio** | TX power, preset, frequency, SF / BW / CR, saved presets, Auto pwr, the scope list |
-| **System** | Device name, low-battery shutdown, GPS power saving, units, the battery curve, reboot |
+| **Radio** | TX power, preset, frequency, SF / BW / CR, saved presets, Auto pwr, the scope list, then the advanced options (below) |
+| **System** | Device name, low-battery shutdown, GPS power saving, units, the battery curve, reboot, factory reset |
 | **Keyboard** | ABC or T9 layout, the two scripts, CardKB mode |
-| **Contacts** | Show all or favourites only (DMs, channels, rooms), favourites on top, contact expiry and prune |
+| **Contacts** | Show all or favourites only (DMs, channels, rooms), favourites on top, contact expiry and prune, which heard nodes are added |
+| **Privacy** | Whether your adverts carry your position and which position, who may ask for your status, location and sensor readings, the Bluetooth PIN |
 | **Messages** | Automatic resend of direct messages, the ten quick messages |
 
 A few notes:
@@ -31,6 +32,57 @@ A few notes:
   doesn't follow the usual LiPo curve: **Left / Right** move a point by
   10 mV, **Reset** goes back to LiPo. The current voltage is shown, so a point
   can be set against what the battery reads.
+- **Factory reset** erases contacts, channels, messages, settings and the
+  node's keys, then restarts as a new node. It asks twice. On the Wio Tracker
+  L2 the SD card is left as it is.
+
+### Adding contacts
+
+A node you hear is added to your contacts according to **Auto-add**:
+
+- **All**: every node heard.
+- **By type**: only the types switched on below it (companions, repeaters,
+  rooms, sensors). With none on, nodes are added only by hand (Nearby ›
+  **Add contact**).
+
+**Up to** limits how far away an added node may be: **Direct** (heard with
+no repeater) or a number of hops. **Replace old** makes room when the list is
+full by dropping the oldest contact that isn't a favourite; without it, new
+nodes aren't added until you make room.
+
+### Privacy
+
+- **Advert pos** (Position in adverts): your adverts carry your position,
+  including the automatic ones. Off, nodes see your name but not where you
+  are. Live sharing and `{loc}` in a message still send it, because you send
+  those on purpose.
+- **Position**: where your adverts say you are while the GPS is off. **Enter**
+  to type it in (`50.06143, 19.93658`), take it from a waypoint, or clear it.
+  With the GPS on, the row shows **GPS** and each fix replaces it; turning the
+  GPS off keeps the last fix. The phone app sets the same position.
+- **Ask status / loc / sens**: who may request your telemetry: **Nobody**,
+  **Allowed** (the contacts you gave that permission: **Telem** in a node's
+  options in [Nodes](./contacts.md#nearby-nodes), or the phone app) or
+  **Everyone**. Status is the battery; a request for location or
+  sensors is answered only where status is allowed too.
+- **BT PIN**: the six-digit Bluetooth pairing PIN. Leave it empty for a new
+  random one at each start, shown on screen. A new PIN is used from the next
+  start; the phone pairs again after that.
+
+### Advanced radio
+
+At the end of **Radio**. The defaults suit almost everyone; change them only
+if your mesh agrees on it.
+
+| Setting | Does |
+| --- | --- |
+| **Hash size** | Bytes per repeater in a message's path: 1 (the default) fits the most hops, 2 or 3 tell repeaters apart in a big mesh |
+| **Double ACK** | Sends each acknowledgement twice, for a lossy link |
+| **LBT (CAD)** | Listen before talk: waits for a quiet channel before sending |
+| **Interf.** | Treats the channel as busy when the signal is this far above the noise floor |
+| **RX boost** | The radio's boosted receive gain: hears weaker signals for a little more power (SX126x radios) |
+| **RX delay** | How long a repeated packet waits, so the best path wins; off by default |
+| **Airtime** | The pause after sending, as a multiple of the time on air |
 
 > [!NOTE]
 > **Wio Tracker L2:** one list of pages:
@@ -39,7 +91,47 @@ A few notes:
 >   Power (battery, GPS, and the **Battery curve** as a chart whose points you
 >   drag), Sound (with the melody editor), Keyboard, Messages
 >   & contacts.
-> - **Connections**: Radio, Bluetooth, WiFi, GPS.
+> - **Connections**: Radio (with **Advanced** at the bottom), Privacy,
+>   Bluetooth, WiFi, GPS. Adding contacts is in Messages & contacts.
 > - **Map & data**: Map (trail, live sharing and arrival alert options),
 >   Storage.
-> - **System**: Name, Time, Units, Firmware update, About; Reboot and Power off.
+> - **System**: Name, Time, Units, Firmware update, About; Reboot, Power off
+>   and Factory reset. Privacy holds **Fixed position** and, under
+>   Bluetooth, the **Pairing PIN**.
+
+## Console
+
+The phone app's console and the console in the site's
+[USB tools](https://solo.marekzegarek.com/#pc-tools) change settings by
+text. The commands are the ones upstream MeshCore's companion firmware has,
+so its documentation applies:
+
+| Command | Does |
+| --- | --- |
+| `get radio`, `set radio 869.525,250,11,5` | Frequency, bandwidth, SF and CR, applied at once |
+| `get tx`, `set tx 14` | TX power in dBm |
+| `get af` / `set af`, `get dutycycle` / `set dutycycle` | Airtime factor, or the same as a duty cycle in % |
+| `rxdelay`, `int.thresh`, `cad`, `radio.rxgain`, `path.hash.mode`, `multi.acks` | The advanced radio options, with `get` / `set` |
+| `get name`, `set name …` | The device name |
+| `get pin`, `set pin 123456` | The Bluetooth PIN, `0` for a random one; used from the next start |
+| `get tz.offset`, `set tz.offset 2` | Time zone, in hours from UTC |
+| `get lat`, `set lat …`, `get lon`, `set lon …` | The fixed position |
+| `ver`, `board` | Firmware version, hardware |
+| `reboot`, `poweroff` | Restart or turn off |
+
+Every other setting has a key: `keys` lists them a page at a time (`keys 2`,
+`keys 3` …). `get` shows a value as the Settings screen does, and `set`
+takes it the same way, case ignored:
+
+```
+get telemetry.base     > Nobody
+set telemetry.base Allowed
+set display.off 30 s
+set advert.loc on
+set autoadd.room off
+```
+
+A number works too: the position in the list (`set telemetry.base 2`), or a
+stored value such as seconds or millivolts (`set display.off 60`,
+`set batt.shutdown 3300`). A wrong value answers with the ones that fit.
+Factory reset and the node's keys are not in the console.
