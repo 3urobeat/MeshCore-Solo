@@ -1,3 +1,37 @@
+## MeshCore Solo Companion Firmware v2.0-rc3
+
+The third release candidate for 2.0. Settings carry over from rc1 and rc2; coming from 1.x, read the rc1 notes below first.
+
+> [!NOTE]
+> **Wio Tracker L2: install this release by hand.** Settings › Firmware update only offers final releases, never a release candidate.
+
+### What's new
+
+- **The settings the phone app had to itself are on the device**, on every screen:
+  - **Privacy**: whether your adverts carry your position, and how exactly (**Exact**, or rounded to about 100 m, 500 m or 1 km, on a fixed grid so many adverts can't be averaged back to the spot); a fixed position, typed in or taken from a waypoint; who may ask for your status, location and sensors; the Bluetooth PIN. Precision contributed by @pmow.
+  - **Adding contacts**: all heard nodes or only some types, up to how many hops, and whether to replace the oldest when the list is full.
+  - **Advanced radio**, at the end of Radio: path hash size, double ACK, listen before talk, interference threshold, RX boost, RX delay and airtime.
+  - **Per contact**, in a node's options (the node card on the L2): who may ask for its telemetry, reset its path, share it with the nodes nearby.
+  - **Factory reset** in Settings › System, asked twice.
+- **A console.** The phone app's console and the site's USB tools take upstream MeshCore's companion commands (`get radio`, `set tx`, `set name` ...) plus a key for every setting: `keys` lists them, `get` and `set` read and change them as the Settings screen shows them.
+- **QR codes**: of this manual, and of your contact for another phone to add. Status › System, Enter (Settings › About on the L2).
+- **A conversation opens on its first unread message**, under a "New" line, and reads down to the newest. Messages that arrive while the screen is dark or locked stay unread until you see them.
+- **A fourth Wio Tracker L1 E-ink build, for a 4.26" 800 × 480 panel** (`WioTrackerL1Eink426`, Good Display GDEQ0426T82), laid out like the 4.2", with **Text size** and **Icon size** in Settings › Display. Contributed by @pmow.
+- **OLED and E-ink:**
+  - **Nearby › Map**: the nodes with a position and you on one view; Left / Right picks a node, Up / Down zooms on it.
+  - **A calendar** in Clock tools: the month, today and the alarm's days.
+  - **Cursor mode** in the keyboard marks the place between letters instead of pushing the text apart, and keeps the keys in view; Up / Down move a word.
+  - **CardKB keys typed during an E-ink refresh** aren't lost any more. Contributed by @pmow.
+- **Wio Tracker L2:** a Message banner switch in Settings › Display.
+
+### Fixes
+
+- **Sending no longer stutters** while the contact list is saved: contacts and paths are written a while after a change, never while you are typing.
+- **The clock survives a power loss**: it is saved every 30 minutes and restored on the next start.
+- **A hashtag channel's favourite tile** showed its name with two `#`.
+
+---
+
 ## MeshCore Solo Companion Firmware v2.0-rc2
 
 The second release candidate for 2.0. Settings carry over from rc1; coming from 1.x, read the rc1 notes below first.

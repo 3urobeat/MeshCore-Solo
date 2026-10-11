@@ -64,7 +64,7 @@ Fn shortcuts.
 
 ## E-ink
 
-The e-ink Wio Tracker L1 comes in three builds, one per screen and
+The e-ink Wio Tracker L1 comes in four builds, one per screen and
 orientation, since every screen is laid out for one shape:
 
 - **Landscape** (250 × 122) writes in a larger 8 × 13 font, with larger icons.
@@ -73,6 +73,10 @@ orientation, since every screen is laid out for one shape:
   the 2.13") writes in a 9 × 15 font with its own icon set, and uses the
   room for tiles on the status page, a node list with a detail pane, charts,
   the sky view and the clock tools.
+- **4.26"** (800 × 480, Good Display GDEQ0426T82, on the board's 24-pin e-ink
+  connector) writes in the 4.2"'s 9 × 15 font at twice the size and lays its
+  screens out the same way. 250 contacts and 32 queued messages, since the
+  panel's image takes 48 KB of memory.
 
 | Landscape | Portrait | |
 | :---: | :---: | :---: |
@@ -98,6 +102,8 @@ Settings › Display has a few settings of its own:
 - **Joystick** rotation, for a joystick mounted another way.
 - **Full rfsh**: how many partial updates between full ones, against
   ghosting.
+- **Text size** and **Icon size** (4.26" only): the text and the status
+  bar's icons, larger or smaller.
 
 The panel refreshes only when what it shows changes. Times are shown to the
 minute (no seconds counting up), and clock seconds are hidden by default.
