@@ -352,8 +352,8 @@ class HomeScreen : public UIScreen {
 
   // First row under the header and the page-icon row (see render()).
   static int contentTop(DisplayDriver& d) {
-    const int pg_half = (PAGE_ICON_PX * miniIconScale(d) + 1) / 2;
-    return d.getLineHeight() + 2 * pg_half + 4;
+    const int pg_half = (PAGE_ICON_PX * statusIconScale(d) + 1) / 2;
+    return statusBarH(d) + 2 * pg_half + 4;
   }
   // 0..1 eased progress of the running slide, or -1 when none.
   float slideProgress() {
@@ -739,8 +739,11 @@ class HomeScreen : public UIScreen {
 
     const int lh      = display.getLineHeight();
     const int cw      = display.getCharWidth();
-    const int ind     = cw + 2;    // single-char indicator width
-    const int ind_h   = display.isSingleFont() ? lh - 2 : lh;
+    const int sis     = statusIconScale(display);   // STATUS_ICON_SCALE, or the font's
+    const int bar_h   = statusBarH(display);
+    const int ind     = STATUS_ICONS_SCALED ? 7 * sis + 2 : cw + 2;    // indicator slot width
+    const int ind_h   = (bar_h > lh) ? bar_h - 2 : (display.isSingleFont() ? lh - 2 : lh);
+    const int text_y  = (bar_h > lh) ? (bar_h - lh) / 2 : 0;   // % / V text centred in a tall bar
     const int ind_gap = display.pixelScale() > 1 ? 3 : 1;  // gap between indicator boxes
 
     int battLeftX;
@@ -748,17 +751,17 @@ class HomeScreen : public UIScreen {
       char buf[6];
       snprintf(buf, sizeof(buf),"%d%%", pct);
       battLeftX = display.width() - display.getTextWidth(buf) - 1;
-      display.setCursor(battLeftX, 0);
+      display.setCursor(battLeftX, text_y);
       display.print(buf);
     } else if (mode == battery::VOLTAGE) {
       char buf[8];
       snprintf(buf, sizeof(buf),"%u.%02uV", batteryMilliVolts / 1000, (batteryMilliVolts % 1000) / 10);
       battLeftX = display.width() - display.getTextWidth(buf) - 1;
-      display.setCursor(battLeftX, 0);
+      display.setCursor(battLeftX, text_y);
       display.print(buf);
     } else {  // icon — scales with lh, same box height as the status icons beside it (ind_h)
       const int iconH = ind_h;
-      const int iconW = lh * 2;
+      const int iconW = (bar_h > lh) ? ind_h * 2 : lh * 2;
       const int bm = display.pixelScale() > 1 ? 3 : 2;  // inner margin: 3px on a doubled panel, else 2px
       battLeftX = display.width() - iconW - 3;
       // The outline with its corner pixels left out, softly rounded.
@@ -824,7 +827,8 @@ class HomeScreen : public UIScreen {
       if (!s.active) continue;
       int ix = x - ind - ind_gap;
       if (ix < name_min) break;                        // out of room — drop this + all lower priority
-      drawSlotIcon(display, ix, ind, ind_h, *s.icon);
+      if (STATUS_ICONS_SCALED) drawSlotIconScaled(display, ix, ind, ind_h, *s.icon, sis);
+      else                       drawSlotIcon(display, ix, ind, ind_h, *s.icon);
       x = ix;
     }
     return x;
@@ -1255,7 +1259,7 @@ public:
     const int W = d.width(), H = d.height();
     d.setColor(DisplayDriver::LIGHT);
     d.setTextSize(1);
-    const int lh = d.getLineHeight(), top = lh + 3;
+    const int lh = d.getLineHeight(), top = statusBarH(d) + 3;
     const bool hint = Features::IS_EINK || _task->lockHintShown();
     const int pill_y = H - lh - 3;   // the bottom pill, clear of what's above
     const int unread = _task->getDMUnreadTotal() + _task->getChannelUnreadCount() + _task->getRoomUnreadCount();
@@ -1491,8 +1495,8 @@ public:
     // Page-indicator row: small page icons (PAGE_ICON_PX) replace the old dots. Centre and
     // gap scale with the font so the band clears the header above and content
     // below (identical to the old lh+4 / +6 dots layout at 1x).
-    const int pg_half   = (PAGE_ICON_PX * miniIconScale(display) + 1) / 2;
-    const int dots_y    = lh + pg_half + 1;       // icon-row centre, below the header
+    const int pg_half   = (PAGE_ICON_PX * statusIconScale(display) + 1) / 2;   // page icons follow STATUS_ICON_SCALE
+    const int dots_y    = statusBarH(display) + pg_half + 1;   // icon-row centre, below the header
     const int content_y = contentTop(display);    // first content row, below the icons
     const float slide   = slideProgress();        // -1, or how far a page turn has got
 
@@ -1507,6 +1511,7 @@ public:
       display.setColor(DisplayDriver::LIGHT);
 
       if (_page != LOCK) {
+        const int bar_ty = (statusBarH(display) - lh) / 2;   // text centred in a tall bar (STATUS_ICON_SCALE)
         // The time, once the clock is set (the node name before that): the
         // name is what others see, the time is what you glance at here.
         char filtered_name[sizeof(_node_prefs->node_name)];
@@ -1532,10 +1537,10 @@ public:
           char pwr_buf[8];
           snprintf(pwr_buf, sizeof(pwr_buf), "%ddB", (int)radio_driver.getTxPower());
           int pwr_w = display.getTextWidth(pwr_buf);
-          display.drawTextEllipsized(0, 0, rightEdge - 2 - pwr_w - 2, filtered_name);
-          display.drawTextRightAlign(rightEdge - 2, 0, pwr_buf);
+          display.drawTextEllipsized(0, bar_ty, rightEdge - 2 - pwr_w - 2, filtered_name);
+          display.drawTextRightAlign(rightEdge - 2, bar_ty, pwr_buf);
         } else {
-          display.drawTextEllipsized(0, 0, rightEdge - 2, filtered_name);
+          display.drawTextEllipsized(0, bar_ty, rightEdge - 2, filtered_name);
         }
       }
     }
@@ -1550,7 +1555,7 @@ public:
       int order[(int)Count]; int n = buildVisibleOrder(order);
       int curr_vis = 0;
       for (int i = 0; i < n; i++) if (order[i] == _page) { curr_vis = i; break; }
-      const int s        = miniIconScale(display);
+      const int s        = statusIconScale(display);   // STATUS_ICON_SCALE, or the font's
       const int icon_w   = PAGE_ICON_PX * s;
       int pitch = icon_w + 5 * s;                       // comfortable spacing
       if (n > 1) {                                      // shrink to fit if many pages
@@ -1575,7 +1580,7 @@ public:
         if (d2 <= pw - icon_w)       display.setColor(DisplayDriver::DARK);   // inside the pill
         else if (d2 < pw + icon_w) { x += pitch; continue; }                   // half under the gliding pill
         else                         display.setColor(DisplayDriver::LIGHT);
-        if (ic) miniIconDrawCentered(display, x, dots_y, *ic);
+        if (ic) miniIconDrawCenteredScaled(display, x, dots_y, *ic, s);
         x += pitch;
       }
       display.setColor(DisplayDriver::LIGHT);
@@ -2058,6 +2063,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   applyBrightness();
   applyRotation();
   applyFullRefreshInterval();
+  applyUiScale();   // Settings > Display > Text size / Icon size
   applyAllGpioModes();   // restore persisted pin modes to hardware before any UI/bot use
   // Locked above (a PIN, or the cover closed) before Home existed to be told.
   if (_locked) syncLockToHome();
@@ -4155,6 +4161,19 @@ void UITask::applyFullRefreshInterval() {
     if (idx >= OPTS_COUNT) idx = 0;
     _display->setFullRefreshInterval(OPTS[idx]);
   }
+}
+
+// Text size and Icon size (Settings > Display, NodePrefs ui_text_scale /
+// ui_icon_scale), on the builds that offer them. Elsewhere the fields stay 0:
+// the build's font scale and Auto icons, as stock.
+void UITask::applyUiScale() {
+  if (!_node_prefs) return;
+#ifdef EINK_FONT_SCALE
+  if (_display != NULL) _display->setUiScale(_node_prefs->ui_text_scale);
+#endif
+#if STATUS_ICONS_SCALED
+  statusIconScaleSetting() = _node_prefs->ui_icon_scale;
+#endif
 }
 
 void UITask::applySoundPrefs() {

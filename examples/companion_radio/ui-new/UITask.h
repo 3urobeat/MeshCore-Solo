@@ -528,7 +528,7 @@ public:
   void applyAllGpioModes();                  // boot-time restore from NodePrefs, called from begin()
   void applyBrightness();
   // Settings changed through the schema (ui-core/SettingsSchema.h).
-  void applyDisplayPrefs() override { applyBrightness(); _next_refresh = 0; }
+  void applyDisplayPrefs() override { applyBrightness(); applyUiScale(); _next_refresh = 0; }
   void applySoundPrefs() override;
   bool cliCommand(const char* command, char* reply, int n) override;
   void setBuzzerVolumeLevel(uint8_t level);
@@ -543,6 +543,7 @@ public:
   bool savePrefsIfDirty(bool& dirty);
   void applyRotation();
   void applyFullRefreshInterval();
+  void applyUiScale();   // Settings > Display > Text size / Icon size, from the prefs
   uint32_t autoOffMillis() const {
     if (!_node_prefs || _node_prefs->auto_off_secs == 0) return 0;
     return (uint32_t)_node_prefs->auto_off_secs * 1000UL;

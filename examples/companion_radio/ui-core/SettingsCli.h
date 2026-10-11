@@ -24,6 +24,7 @@ static const Key KEYS[] = {
   K("contacts.expiry", contact_expiry_idx), K("contacts.fav.first", fav_sort), K("dm.resend", dm_resend_count),
   K("display.brightness", display_brightness), K("display.off", auto_off_secs), K("display.wake", msg_wake),
   K("display.alert", msg_alert), K("lock", auto_lock), K("lock.clock", lock_compact),
+  K("display.text.size", ui_text_scale), K("display.icon.size", ui_icon_scale),
   K("batt.display", batt_display_mode), K("batt.shutdown", low_batt_mv), K("gps.interval", gps_interval),
   K("clock.12h", clock_12h), K("clock.seconds", clock_hide_seconds), K("units.imperial", units_imperial),
   K("sound.volume", buzzer_volume), K("quiet", quiet_hours), K("quiet.from", quiet_from), K("quiet.until", quiet_to),
