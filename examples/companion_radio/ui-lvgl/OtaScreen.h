@@ -6,8 +6,8 @@
 // the idle OTA slot; the device then restarts into it. Settings, contacts and
 // messages live outside the app slots and are kept.
 //
-// Needs Arduino-ESP32 3.x for the CA bundle: the 2.0.17 build and the sim say
-// so instead of offering the update.
+// Needs Arduino-ESP32 3.x for the CA bundle: the sim says so instead of
+// offering the update.
 //
 // Single-TU fragment: included at the end of ui-lvgl/UITask.cpp.
 
