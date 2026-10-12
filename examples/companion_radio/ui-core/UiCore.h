@@ -205,6 +205,9 @@ public:
                        const uint8_t* extra, int extra_len, const char* text) override {
     // we only want to show text messages on display, not cli data
     if (!(txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN)) return;
+    // Only chats and rooms have a conversation on the device: text from a
+    // repeater or sensor would ring with nothing to open (the app still gets it).
+    if (from.type != ADV_TYPE_CHAT && from.type != ADV_TYPE_ROOM) return;
     if (from.type == ADV_TYPE_ROOM && _room_unread < _queue_len) _room_unread++;
     if (from.type == ADV_TYPE_CHAT) dm_unread.onIncoming(from.id.pub_key);   // before the ring insert below
     UiEvent& ev = pushMessageArrived(from.type == ADV_TYPE_ROOM ? UIEventType::roomMessage : UIEventType::contactMessage,

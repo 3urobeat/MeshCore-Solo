@@ -73,6 +73,9 @@ public:
   struct Done { int z; int32_t x, y; TileProvider* src; bool overlay_missed; };
   bool poll(Done& done) {
     if (_job_state != JOB_DONE) return false;
+#if defined(ESP32)
+    __sync_synchronize();   // pairs with runJob()'s: the state before the results it covers
+#endif
     done = { _job.z, _job.x, _job.y, _job.src, _job.overlay_missed };
     bool keep = !_job_stale;
     if (keep && !_job.present) {   // remember the miss without holding a buffer slot

@@ -1,3 +1,4 @@
+#include <helpers/UTF8Helpers.h>
 #include "UITask.h"
 #include "../ui-core/SoundNotifier.h"
 #include "../ui-core/SoundControl.h"
@@ -623,7 +624,8 @@ void UITask::onMessageArrived(const UiEvent& ev) {
     _alert_expiry = (millis() + BADGE_MS) | 1;
   } else if (!in_view && style == NodePrefs::MSG_ALERT_NORMAL) {
     char alert_buf[80];
-    snprintf(alert_buf, sizeof(alert_buf), "Msg: %.20s", ev.text);
+    int cut = (int)mesh::validUtf8PrefixLength(ev.text, 20);   // never half a letter
+    snprintf(alert_buf, sizeof(alert_buf), "Msg: %.*s", cut, ev.text);
     showAlert(alert_buf, 2000);
   }
 
@@ -835,9 +837,7 @@ void UITask::shutdown(bool restart){
   // reboot." Unconditional and cheap: an unchanged NodePrefs still writes
   // identical bytes, same as this codebase's many other direct
   // the_mesh.savePrefs() call sites already do without a dirty check.
-  the_mesh.savePrefs();
-  the_mesh.saveRTCTime();
-  the_mesh.flushDirtyContacts();
+  saveBeforeShutdown();
 
   // Auto-save the live GPS trail if enabled (covers low-battery auto-shutdown).
   _core->trail.onShutdown();
@@ -863,22 +863,7 @@ void UITask::shutdown(bool restart){
 
   #endif // PIN_BUZZER
 
-  if (restart) {
-    _board->reboot();
-  } else {
-    _display->turnOff();
-    radio_driver.powerOff();
-    // Power GPS down through its provider before SYSTEMOFF — GPIO pins retain
-    // state in NRF52 SYSTEMOFF, so otherwise the module keeps draining the
-    // battery. The provider handles the enable + reset pins and the correct
-    // active level. gps_enabled is persisted; applyGpsPrefs() restores it on
-    // the next boot.
-    if (_sensors) {
-      LocationProvider* loc = _sensors->getLocationProvider();
-      if (loc) loc->stop();
-    }
-    _board->powerOff();
-  }
+  powerDown(restart, _display, _sensors);
 }
 
 bool UITask::isButtonPressed() const {
@@ -1476,13 +1461,10 @@ void UITask::loop() {
       // laggy for no benefit the sim actually needs.
       _batt_mv = raw;
 #else
-      // EMA filter: alpha=0.2 (80% old, 20% new) — smooths ADC noise from uneven load
-      _batt_mv = (_batt_mv == 0) ? raw : (uint16_t)((_batt_mv * 4u + raw) / 5u);
+      _batt_mv = battEma(_batt_mv, raw);
 #endif
     }
-    uint16_t low_mv = _node_prefs ? _node_prefs->low_batt_mv : 0;
-    // Don't shut down while on external power (charging) — avoids a shutdown loop.
-    if (low_mv > 0 && _batt_mv > 0 && _batt_mv < low_mv && !board.isExternalPowered()) {
+    if (lowBatteryShutdownDue(_batt_mv, _node_prefs)) {
       if (_display != NULL) {
         _display->startFrame();
         _display->setTextSize(1);
@@ -1668,27 +1650,8 @@ char UITask::handleTripleClick(char c) {
   return 0;
 }
 
-bool UITask::getGPSState() {
-  if (_sensors != NULL) {
-    int num = _sensors->getNumSettings();
-    for (int i = 0; i < num; i++) {
-      if (strcmp(_sensors->getSettingName(i), "gps") == 0) {
-        return !strcmp(_sensors->getSettingValue(i), "1");
-      }
-    }
-  }
-  return false;
-}
-
-bool UITask::hasGPS() {
-  if (_sensors != NULL) {
-    int num = _sensors->getNumSettings();
-    for (int i = 0; i < num; i++) {
-      if (strcmp(_sensors->getSettingName(i), "gps") == 0) return true;
-    }
-  }
-  return false;
-}
+bool UITask::getGPSState() { return _core && _core->gpsEnabled(); }
+bool UITask::hasGPS()      { return _core && _core->gpsAvailable(); }
 
 void UITask::toggleGPS(bool announce) {
   if (_node_prefs) applyGpsState(_node_prefs->gps_enabled == 0, announce);

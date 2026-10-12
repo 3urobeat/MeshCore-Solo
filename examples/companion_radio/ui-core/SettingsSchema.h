@@ -391,6 +391,7 @@ static void writeRaw(NodePrefs& p, const Setting& s, int32_t v) {
 // (e.g. an auto-off time set on another frontend).
 static uint8_t get(const NodePrefs& p, const Setting& s) {
   int32_t raw = readRaw(p, s);
+  if (!s.values && s.count == 2 && !s.option) return raw != 0;   // a switch: any non-zero is on (advert_loc_policy 2 from the app)
   if (!s.values) return raw >= 0 && raw < s.count ? (uint8_t)raw : 0;
   uint8_t best = 0;
   int32_t best_d = INT32_MAX;

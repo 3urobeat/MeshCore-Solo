@@ -382,9 +382,7 @@ uint32_t UITask::idleMillis(uint32_t lv_next) {
 
 void UITask::shutdown(bool restart) {
   s_prefs_dirty_ms = s_prefs_save_at = 0;
-  the_mesh.savePrefs();
-  the_mesh.saveRTCTime();
-  the_mesh.flushDirtyContacts();
+  saveBeforeShutdown();
   if (!trailJournalTick(true)) _core->trail.onShutdown();   // no card: the internal slot, if enabled
 #ifdef PIN_BUZZER
   _buzzer.shutdown();   // the goodbye sound, unless muted
@@ -392,17 +390,7 @@ void UITask::shutdown(bool restart) {
   for (uint32_t t0 = millis(); _buzzer.isPlaying() && millis() - t0 < 2500; ) { _buzzer.loop(); delay(10); }
 #endif
 #endif
-  if (restart) {
-    _board->reboot();
-  } else {
-    if (_display) _display->turnOff();
-    radio_driver.powerOff();
-    if (_sensors) {
-      LocationProvider* loc = _sensors->getLocationProvider();
-      if (loc) loc->stop();
-    }
-    _board->powerOff();
-  }
+  powerDown(restart, _display, _sensors);
 }
 
 // Settings > Power > Battery shutdown (NodePrefs::low_batt_mv), as
@@ -411,9 +399,8 @@ void UITask::checkLowBattery() {
   if ((int32_t)(millis() - _next_batt_ms) < 0) return;
   _next_batt_ms = millis() + 8000;
   uint16_t raw = getBattMilliVolts();
-  if (raw > 0) _batt_mv = _batt_mv == 0 ? raw : (uint16_t)((_batt_mv * 4u + raw) / 5u);   // EMA, alpha 0.2
-  uint16_t low = _prefs ? _prefs->low_batt_mv : 0;
-  if (low == 0 || _batt_mv == 0 || _batt_mv >= low || _board->isExternalPowered()) return;
+  if (raw > 0) _batt_mv = battEma(_batt_mv, raw);
+  if (!lowBatteryShutdownDue(_batt_mv, _prefs)) return;
   wake();
   showToast("Low battery - shutting down", 3000);
   lv_timer_handler();

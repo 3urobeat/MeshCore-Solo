@@ -647,6 +647,7 @@ static uint8_t* s_fbuf = nullptr;
 static size_t   s_fcap = 0;
 static volatile size_t s_flen = 0;
 static volatile bool s_fabandoned = false;
+static portMUX_TYPE s_fmux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_ftask = nullptr;
 static uint32_t s_fstart_ms = 0;
 static const uint32_t FETCH_MAX_MS = 30000;   // a body still trickling in after this is cut off
@@ -727,8 +728,10 @@ static void fetchTask(void*) {
       snprintf(s_ferr, sizeof(s_ferr), "bad URL");
     }
     s_fcode = code;
+    portENTER_CRITICAL(&s_fmux);   // against fetchAbandon() on the UI core: test and set as one
     if (s_fabandoned) { s_fabandoned = false; s_fstate = F_IDLE; }   // nobody wants it any more
     else s_fstate = code == 200 ? F_DONE : F_FAILED;
+    portEXIT_CRITICAL(&s_fmux);
   }
 }
 
@@ -756,8 +759,13 @@ static const uint8_t* fetchData(size_t& len) { len = s_flen; return s_fbuf; }
 static void fetchRelease() { if (s_fstate == F_DONE || s_fstate == F_FAILED) s_fstate = F_IDLE; }
 // Stop caring about the request in flight; it completes (or fails) on its own.
 static void fetchAbandon() {
+  // Locked with the task's finish: a request ending between the test and the
+  // set would otherwise stay DONE with nobody to release it (fetchStart() busy
+  // for good) and leave the flag to drop the next request's answer.
+  portENTER_CRITICAL(&s_fmux);
   if (s_fstate == F_REQUESTED || s_fstate == F_BUSY) s_fabandoned = true;
-  else fetchRelease();
+  else if (s_fstate == F_DONE || s_fstate == F_FAILED) s_fstate = F_IDLE;
+  portEXIT_CRITICAL(&s_fmux);
 }
 static const char* fetchError() { return s_ferr; }
 // WiFi off: the response buffer (grown to the biggest tile or update chunk,

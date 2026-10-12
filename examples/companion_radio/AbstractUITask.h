@@ -47,6 +47,37 @@ protected:
   // of its loop() (MyMesh::loop() used to push it at the end of its own).
   void pollConnection() { setHasConnection(_serial->isBLEConnected()); }
 
+  // ── The parts of shutdown() and the low-battery check every UI shares ──
+  // Before the goodbye sound: whatever a screen not yet left still holds in
+  // NodePrefs (they save on exit), the clock, the contacts' lazy write.
+  static void saveBeforeShutdown() {
+    the_mesh.savePrefs();
+    the_mesh.saveRTCTime();
+    the_mesh.flushDirtyContacts();
+  }
+  // After it: reboot, or the display, radio and GPS off and the board down.
+  // The GPS goes through its provider: pins keep their state in nRF52
+  // SYSTEMOFF, so the module would go on draining the battery.
+  void powerDown(bool restart, DisplayDriver* display, SensorManager* sensors) {
+    if (restart) { _board->reboot(); return; }
+    if (display) display->turnOff();
+    radio_driver.powerOff();
+    if (sensors) {
+      LocationProvider* loc = sensors->getLocationProvider();
+      if (loc) loc->stop();
+    }
+    _board->powerOff();
+  }
+  // Settings > Power > Battery shutdown: `mv` smoothed with battEma() every
+  // 8 s, under the threshold and not on USB power (charging would loop).
+  static uint16_t battEma(uint16_t prev, uint16_t raw) {
+    return prev == 0 ? raw : (uint16_t)((prev * 4u + raw) / 5u);   // alpha 0.2: the ADC jitters under load
+  }
+  bool lowBatteryShutdownDue(uint16_t mv, const NodePrefs* prefs) const {
+    uint16_t low = prefs ? prefs->low_batt_mv : 0;
+    return low > 0 && mv > 0 && mv < low && !_board->isExternalPowered();
+  }
+
 public:
   void setHasConnection(bool connected) {
     bool prev = _connected;

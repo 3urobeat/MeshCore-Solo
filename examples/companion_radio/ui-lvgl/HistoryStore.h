@@ -46,8 +46,14 @@ struct Hdr {
   uint32_t cap, head, count, next_id;
 };
 
-// FNV-1a over the channel's name and secret.
+// FNV-1a over the channel's secret: renaming a channel keeps its archive.
 static uint32_t chKey(const ChannelDetails& ch) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < sizeof(ch.channel.secret); i++) { h ^= ch.channel.secret[i]; h *= 16777619u; }
+  return h;
+}
+// Earlier builds hashed the name in too (see migrateKeys()).
+static uint32_t chKeyNamed(const ChannelDetails& ch) {
   uint32_t h = 2166136261u;
   for (const char* p = ch.name; *p; p++) { h ^= (uint8_t)*p; h *= 16777619u; }
   for (size_t i = 0; i < sizeof(ch.channel.secret); i++) { h ^= ch.channel.secret[i]; h *= 16777619u; }
@@ -148,6 +154,7 @@ public:
   // skipped; a channel's entries get its current slot.
   void restore(MessageHistory& hist) {
     if (!ready()) return;
+    migrateKeys();
     uint32_t keys[MAX_GROUP_CHANNELS];
     bool have[MAX_GROUP_CHANNELS];
     for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
@@ -174,6 +181,20 @@ public:
   }
 
 private:
+  // Files named by the old name+secret key move to the secret-only name, once
+  // (a file already there under the new name wins).
+  void migrateKeys() {
+    for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+      ChannelDetails ch;
+      if (!the_mesh.getChannel(i, ch) || !ch.name[0]) continue;
+      char from[64], to[64];
+      snprintf(from, sizeof(from), "%s/c_%08lx.bin", DIR_PATH, (unsigned long)chKeyNamed(ch));
+      snprintf(to, sizeof(to), "%s/c_%08lx.bin", DIR_PATH, (unsigned long)chKey(ch));
+      struct stat st;
+      if (stat(from, &st) == 0 && stat(to, &st) != 0) rename(from, to);
+    }
+  }
+
   bool     _ok = false, _tried = false;
   uint32_t _last_try = 0;
   uint32_t _keep = KEEP[KEEP_DEFAULT];
