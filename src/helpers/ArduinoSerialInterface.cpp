@@ -32,6 +32,13 @@ size_t ArduinoSerialInterface::writeFrame(const uint8_t src[], size_t len) {
     return 0;
   }
 
+  // A native USB port with no host holding it open: the core drops the bytes
+  // (nRF52 TinyUSB, ESP32 USBCDC) or lets its buffer fill, and either way
+  // streamWriteUntil() would spin out the whole timeout on every frame -- the
+  // loop stalled 300 ms per packet heard while no phone was connected. A UART
+  // bridge's Serial always reads true, so those boards are unaffected.
+  if (_serial == (Stream*)&Serial && !Serial) return 0;
+
   uint8_t hdr[3];
   hdr[0] = '>';
   hdr[1] = (len & 0xFF);  // LSB
