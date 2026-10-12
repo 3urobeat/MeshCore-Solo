@@ -18,6 +18,10 @@
 #include "../ui-core/UiCoreHost.h"
 #include "../ui-core/ScreenLock.h"
 
+// loop() waits on its own until something is due (lvport::idle, woken by a
+// frame from the app): main.cpp adds no wait of its own.
+#define UI_LOOP_IDLES 1
+
 class UiCore;
 class NearbyModel;
 struct UiEvent;

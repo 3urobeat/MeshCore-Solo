@@ -381,6 +381,11 @@ void loop() {
   if (!the_mesh.hasPendingWork()) {
 #if defined(NRF52_PLATFORM)
     board.sleep(0); // nrf ignores seconds param, sleeps whenever possible
+#elif defined(ESP32) && !defined(UI_LOOP_IDLES)
+    // Arduino's loop task never yields: without this it spins the CPU flat
+    // out. One tick lets the idle task halt the core (WAITI) until the next
+    // interrupt or tick -- radio, buttons and serial still get a pass a ms.
+    vTaskDelay(1);
 #endif
   }
 

@@ -15,12 +15,32 @@
   #define DISPLAY_ADDRESS   0x3C
 #endif
 
+// Adafruit's display() always sends the whole frame (1 KB, ~25 ms at 400 kHz),
+// and startFrame() clears the whole buffer, so every frame went out in full.
+// As on the SH1106 (SH1106Display.h): a sender for single 32-column blocks.
+class SSD1306Paged : public Adafruit_SSD1306 {
+public:
+  using Adafruit_SSD1306::Adafruit_SSD1306;
+  bool canSendBlocks() const { return wire != nullptr; }
+  // A frame's blocks go out between these: the bus clock is set once.
+  void blocksBegin() { wire->setClock(wireClk); }
+  void blocksEnd() { wire->setClock(restoreClk); }
+  void sendBlock(uint8_t page, uint8_t col, uint8_t len);
+};
+
 class SSD1306Display : public DisplayDriver {
-  Adafruit_SSD1306 display;
+  SSD1306Paged display;
   bool _isOn;
   uint8_t _color;
   int _text_sz = 1;
   RefCountedDigitalPin* _peripher_power;
+  // Frame-skip: endFrame() hashes each 32-column block of each 8-px page and
+  // sends only the blocks whose hash changed; _force_redraw sends the frame
+  // after begin()/turnOn()/clear() whole.
+  static const uint8_t BLOCK_W = 32;
+  static const uint8_t BLOCKS = (128 / BLOCK_W) * (64 / 8);
+  uint32_t _block_hash[BLOCKS] = {};
+  bool     _force_redraw = true;
 
   bool i2c_probe(TwoWire& wire, uint8_t addr);
 #ifdef OLED_MISC_FIXED_FONT

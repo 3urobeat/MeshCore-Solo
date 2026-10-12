@@ -17,6 +17,7 @@ bool SSD1306Display::begin() {
   #ifdef DISPLAY_ROTATION
   display.setRotation(DISPLAY_ROTATION);
   #endif
+  _force_redraw = true;
   return display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS, true, false) && i2c_probe(Wire, DISPLAY_ADDRESS);
 }
 
@@ -27,6 +28,7 @@ void SSD1306Display::turnOn() {
     if (_peripher_power) begin();  // re-init display after power was cut
   }
   display.ssd1306_command(SSD1306_DISPLAYON);
+  _force_redraw = true;   // panel was off -- guarantee the next endFrame() flushes
 }
 
 void SSD1306Display::turnOff() {
@@ -45,6 +47,7 @@ void SSD1306Display::turnOff() {
 void SSD1306Display::clear() {
   display.clearDisplay();
   display.display();
+  _force_redraw = true;   // next endFrame() must flush even if its hash matches a pre-clear frame
 }
 
 void SSD1306Display::startFrame(Color bkg) {
@@ -107,6 +110,49 @@ uint16_t SSD1306Display::getTextWidth(const char* str) {
 #endif
 }
 
+void SSD1306Paged::sendBlock(uint8_t page, uint8_t col, uint8_t len) {
+  const uint8_t cmd[] = { SSD1306_PAGEADDR, page, page, SSD1306_COLUMNADDR, col, (uint8_t)(col + len - 1) };
+  const uint8_t* ptr = buffer + (uint16_t)page * WIDTH + col;
+  ssd1306_commandList(cmd, sizeof(cmd));
+  while (len) {   // 32 data bytes a transfer fit every core's Wire buffer
+    uint8_t n = len < 32 ? len : 32;
+    wire->beginTransmission(i2caddr);
+    wire->write((uint8_t)0x40);
+    wire->write(ptr, n);
+    wire->endTransmission();
+    ptr += n; len -= n;
+  }
+}
+
 void SSD1306Display::endFrame() {
-  display.display();
+  const uint8_t* buf = display.getBuffer();
+  const uint8_t per_page = 128 / BLOCK_W;
+  bool any = false;
+  bool dirty[BLOCKS];
+  for (uint8_t i = 0; i < BLOCKS; i++) {
+    const uint8_t* q = buf + (uint16_t)i * BLOCK_W;   // blocks run along each page in buffer order
+    uint32_t h = 2166136261u;
+    for (uint8_t j = 0; j < BLOCK_W; j++) { h ^= q[j]; h *= 16777619u; }
+    dirty[i] = _force_redraw || h != _block_hash[i];
+    _block_hash[i] = h;
+    any |= dirty[i];
+  }
+  if (!any) return;
+  if (_force_redraw || !display.canSendBlocks()) {
+    _force_redraw = false;
+    display.display();   // whole frame; also resets the panel's address window
+    return;
+  }
+  display.blocksBegin();
+  for (uint8_t page = 0; page < 64 / 8; page++) {
+    // runs of neighbouring dirty blocks go out as one transfer
+    for (uint8_t b = 0; b < per_page; ) {
+      if (!dirty[page * per_page + b]) { b++; continue; }
+      uint8_t e = b;
+      while (e + 1 < per_page && dirty[page * per_page + e + 1]) e++;
+      display.sendBlock(page, b * BLOCK_W, (e - b + 1) * BLOCK_W);
+      b = e + 1;
+    }
+  }
+  display.blocksEnd();
 }
