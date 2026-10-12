@@ -449,7 +449,7 @@ void UITask::refreshNode() {
       setTextFmt(_node_ping, "Ping %lu ms  -  SNR out %.1f  back %.1f", (unsigned long)rtt,
                             out / 4.0f, back / 4.0f);
       _pinging = false;
-    } else if (millis() - _ping_started_ms > 3000) {
+    } else if (millis() - _ping_started_ms > _core->ping.timeoutMs()) {
       _core->ping.clear();
       setText(_node_ping, "Ping: no reply");
       _pinging = false;
@@ -472,8 +472,7 @@ void UITask::nodeAction(uint8_t action) {
         _next_nearby_ms = millis() + 250;
         lv_label_set_text(_node_ping, "Pinging...");
       } else {
-        lv_label_set_text(_node_ping, r == PingEngine::UNSUPPORTED ? "Ping needs 1-2 byte path hashes"
-                                                                   : "Ping failed");
+        lv_label_set_text(_node_ping, "Ping failed");
       }
       break;
     }

@@ -254,7 +254,7 @@ public:
     unsigned long sent_ms;
   };
   
-  uint32_t sendPing(const uint8_t* dest_pubkey, uint8_t hash_width = 1);
+  uint32_t sendPing(const uint8_t* dest_pubkey, uint8_t hash_width = 1, uint32_t* est_timeout = nullptr);
   void setPingCallback(PingCallback cb, void* arg);
   void clearPingResult(uint32_t tag);
   PingResult* getPingResult(uint32_t tag);
@@ -684,6 +684,8 @@ private:
   unsigned long _bot_last_ch_reply_ms;
   unsigned long _bot_last_room_reply_ms;
   unsigned long _next_auto_advert_ms;
+  unsigned long _last_auto_advert_ms = 0;
+  uint32_t _auto_advert_sec = UINT32_MAX;   // the interval _next_auto_advert_ms was set with (MAX: not yet)
 
   // Per-contact DM reply throttle: a small ring of the most recent recipients so
   // one chatty contact can't be spammed while a different sender is still served.

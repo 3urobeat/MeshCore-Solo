@@ -101,6 +101,9 @@ private:
     _alarm_check_ms = now_ms;
     uint32_t now_wall = rtc_clock.getCurrentTime();
     if (now_wall < 1000000000UL) return;           // need a real time sync first
+    // A time zone change (Settings, CLI tz.offset, the app) moves the local
+    // alarm time: reschedule here rather than trusting every caller to say so.
+    if (_alarm_tz != _prefs->tz_offset_hours) { _alarm_tz = _prefs->tz_offset_hours; _alarm_next_fire = 0; }
     if (_alarm_next_fire == 0) _alarm_next_fire = computeAlarmNextFire(now_wall);
     if (now_wall < _alarm_next_fire) return;
     if (now_wall - _alarm_next_fire < ALARM_CATCHUP_SECS) {
@@ -124,6 +127,7 @@ private:
   NodePrefs*    _prefs  = nullptr;
   UiEventQueue* _events = nullptr;
   uint32_t _alarm_next_fire = 0;   // unix; 0 = (re)compute lazily once time is valid
+  int8_t   _alarm_tz = 0;          // the tz_offset_hours _alarm_next_fire was computed with
   uint32_t _alarm_check_ms  = 0;   // throttle the wall-clock read to ~2 Hz
   bool     _timer_running = false;
   uint32_t _timer_deadline_ms = 0;

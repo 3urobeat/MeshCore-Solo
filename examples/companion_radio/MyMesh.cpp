@@ -1940,7 +1940,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.cr = cr;
       _prefs.freq = (float)freq / 1000.0;
       _prefs.bw = (float)bw / 1000.0;
-      _prefs.client_repeat = repeat;
+      _prefs.client_repeat = repeat ? 1 : 0;   // a bool for every reader, whatever byte the app sent
       savePrefs();
 
       applyRepeaterRadio();   // companion params, or the repeater profile if relaying with one set
@@ -1971,6 +1971,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       // Store what the radio actually applied, not the raw request -- on a
       // board with an external-PA gain curve those can differ (see setTxPower()).
       _prefs.tx_power_dbm = radio_driver.getTxPower();
+      if (_prefs.tx_apc) applyApc();   // the new ceiling: re-baseline APC, as the device's own setting does
       savePrefs();
       writeOKFrame();
     }
@@ -2882,10 +2883,18 @@ void MyMesh::loop() {
     _last_rtc_save_ms = millis();
   }
 
+  if (_prefs.advert_auto_interval_sec != _auto_advert_sec) {
+    // Interval changed (Settings, CLI, app): count the new one from the last
+    // advert instead of waiting out what was left of the old one.
+    bool first = _auto_advert_sec == UINT32_MAX;   // boot: keep the advert due straight away
+    _auto_advert_sec = _prefs.advert_auto_interval_sec;
+    if (!first) _next_auto_advert_ms = _last_auto_advert_ms + _auto_advert_sec * 1000UL;
+  }
   if (_prefs.advert_auto_interval_sec > 0 && millisHasNowPassed(_next_auto_advert_ms)) {
     // The position only where Privacy lets adverts carry it, at its precision.
     mesh::Packet* pkt = createOwnAdvert();
     if (pkt) sendZeroHop(pkt);
+    _last_auto_advert_ms = _ms->getMillis();
     _next_auto_advert_ms = futureMillis(_prefs.advert_auto_interval_sec * 1000UL);
   }
 }

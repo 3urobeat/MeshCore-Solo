@@ -10,12 +10,8 @@
 namespace radioview {
 
 enum : uint8_t { R_PRESET, R_SF, R_BW, R_CR, R_TX, R_APC };
-static const int TX_MIN = 2;
-#ifdef LORA_TX_POWER
-static const int TX_MAX = LORA_TX_POWER;
-#else
-static const int TX_MAX = 22;
-#endif
+static const int TX_MIN = radioctl::TX_MIN_DBM;
+static const int TX_MAX = radioctl::TX_MAX_DBM;
 
 static lv_obj_t* s_overlay = nullptr;   // frequency entry
 static lv_obj_t* s_ta = nullptr;

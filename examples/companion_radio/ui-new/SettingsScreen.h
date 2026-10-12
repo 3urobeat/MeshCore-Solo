@@ -1036,8 +1036,8 @@ public:
       return enter;
     }
     if (_selected == TX_POWER && p) {
-      if (right && p->tx_power_dbm < 22) { p->tx_power_dbm++; _task->applyTxPower(); _dirty = true; return true; }
-      if (left  && p->tx_power_dbm > 2)  { p->tx_power_dbm--; _task->applyTxPower(); _dirty = true; return true; }
+      if (right && p->tx_power_dbm < radioctl::TX_MAX_DBM) { p->tx_power_dbm++; _task->applyTxPower(); _dirty = true; return true; }
+      if (left  && p->tx_power_dbm > radioctl::TX_MIN_DBM) { p->tx_power_dbm--; _task->applyTxPower(); _dirty = true; return true; }
     }
     if (_selected == RADIO_PRESET && p && enter) {
       _picker.open(p, radioTarget(p), "Radio Preset");

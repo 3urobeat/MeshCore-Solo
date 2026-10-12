@@ -25,8 +25,9 @@ int MyMesh::getDiscoverResults(DiscoverResult dest[], int max_count) {
 
 // ── Ping/Trace functionality ─────────────────────────────────────────────────
 
-uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width) {
-  if (hash_width == 0 || hash_width > 2) return 0;
+uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width, uint32_t* est_timeout) {
+  // A trace's hashes are 1 << flags bytes wide: 1, 2, 4 (no 3).
+  if (hash_width != 1 && hash_width != 2 && hash_width != 4) return 0;
 
   // Generate random tag and auth code
   uint32_t tag, auth;
@@ -61,9 +62,13 @@ uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width) {
   memcpy(path, dest_pubkey, path_len);
 
   // Create and send trace packet
-  auto pkt = createTrace(tag, auth, hash_width - 1); // flags = hash_width - 1
+  auto pkt = createTrace(tag, auth, hash_width == 4 ? 2 : hash_width - 1);   // flags = log2(hash_width)
   if (pkt) {
     sendDirect(pkt, path, path_len);
+    if (est_timeout) {   // as CMD_SEND_TRACE_PATH answers the app: from the airtime, one hop
+      uint32_t t = _radio->getEstAirtimeFor(pkt->payload_len + pkt->path_len + 2);
+      *est_timeout = calcDirectTimeoutMillisFor(t, 1);
+    }
     return tag;
   }
 

@@ -66,7 +66,6 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   char _ping_snr_back_str[24];
   bool _pinging;
   unsigned long _ping_started_ms;
-  static const unsigned long PING_TIMEOUT_MS = 3000UL;
 
   // ── helpers ──────────────────────────────────────────────────────────────────
   static void pubKeyToBase64(const uint8_t* key, char* out, int out_len) {
@@ -266,7 +265,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       if (snr_back != 0)
         snprintf(_ping_snr_back_str, sizeof(_ping_snr_back_str), "SNR back: %.1f", snr_back / 4.0f);
       _pinging = false;
-    } else if (_pinging && millis() - _ping_started_ms >= PING_TIMEOUT_MS) {
+    } else if (_pinging && millis() - _ping_started_ms >= _task->pingTimeoutMs()) {
       snprintf(_ping_time_str, sizeof(_ping_time_str), "RTT: timeout");
       _ping_snr_out_str[0] = '\0';
       _ping_snr_back_str[0] = '\0';

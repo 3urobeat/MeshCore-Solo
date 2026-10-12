@@ -473,6 +473,7 @@ public:
   // Ping helpers (engine in ui-core/PingEngine.h)
   bool startPing(const uint8_t* pub_key);
   bool isPingActive() const;
+  uint32_t pingTimeoutMs() const;
   void getPingResult(int16_t& snr_out_x4, int16_t& snr_back_x4, uint32_t& rtt_ms) const;
   void clearPing();
 

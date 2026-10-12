@@ -120,7 +120,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   if (memcmp(command, "set af ", 7) == 0) {
     char* end;
     float af = strtof(&command[7], &end);
-    if (end == &command[7] || af < 0 || af > 9) snprintf(reply, n, "ERROR: af must be 0-9");
+    if (end == &command[7] || !(af >= 0 && af <= 9)) snprintf(reply, n, "ERROR: af must be 0-9");
     else { _prefs.airtime_factor = af; savePrefs(); snprintf(reply, n, "OK"); }
     return true;
   }
@@ -131,7 +131,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   }
   if (memcmp(command, "set dutycycle ", 14) == 0) {
     float dc = atof(&command[14]);
-    if (dc < 1 || dc > 100) { snprintf(reply, n, "ERROR: dutycycle must be 1-100"); return true; }
+    if (!(dc >= 1 && dc <= 100))   // written so "nan" fails too { snprintf(reply, n, "ERROR: dutycycle must be 1-100"); return true; }
     _prefs.airtime_factor = 100.0f / dc - 1.0f;
     savePrefs();
     float a = 100.0f / (_prefs.airtime_factor + 1.0f);
@@ -172,6 +172,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
     if (p < -9 || p > MAX_LORA_TX_POWER) { snprintf(reply, n, "Error, must be -9 to %d", MAX_LORA_TX_POWER); return true; }
     radio_driver.setTxPower(p);
     _prefs.tx_power_dbm = radio_driver.getTxPower();   // what the radio applied (see CMD_SET_RADIO_TX_POWER)
+    if (_prefs.tx_apc) applyApc();                       // the new APC ceiling
     savePrefs();
     snprintf(reply, n, "OK");
     return true;
@@ -179,7 +180,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   if (strcmp(command, "get rxdelay") == 0) { snprintf(reply, n, "> %s", StrHelper::ftoa(_prefs.rx_delay_base)); return true; }
   if (memcmp(command, "set rxdelay ", 12) == 0) {
     float d = atof(&command[12]);
-    if (d < 0 || d > 20.0f) snprintf(reply, n, "Error, must be 0-20");
+    if (!(d >= 0 && d <= 20.0f)) snprintf(reply, n, "Error, must be 0-20");
     else { _prefs.rx_delay_base = d; savePrefs(); snprintf(reply, n, "OK"); }
     return true;
   }

@@ -4,18 +4,17 @@
 // view can keep showing it. The reply arrives through MyMesh's ping callback,
 // which is a plain function pointer -- routed here via a single static instance.
 //
-// The ping timeout is still decided by the view (NearbyScreen's
-// PING_TIMEOUT_MS), which calls clear() when it gives up.
+// The view gives up after timeoutMs() (from the airtime, so it scales with
+// the spreading factor) and calls clear().
 
 class PingEngine {
 public:
-  enum StartResult : uint8_t { STARTED = 0, BUSY, UNSUPPORTED, SEND_FAILED };
+  enum StartResult : uint8_t { STARTED = 0, BUSY, SEND_FAILED };
 
   void begin(NodePrefs* prefs) { _prefs = prefs; s_instance = this; }
 
   StartResult start(const uint8_t* pub_key) {
     if (_active || !pub_key) return BUSY;
-    if (_prefs && _prefs->path_hash_mode > 1) return UNSUPPORTED;   // no 3-byte path hash support
 
     _active = true;
     _tag = 0;
@@ -25,7 +24,11 @@ public:
 
     // Always install the callback before sending so the response cannot race it.
     the_mesh.setPingCallback(onPingResult, NULL);
-    _tag = the_mesh.sendPing(pub_key, _prefs ? _prefs->path_hash_mode + 1 : 1);
+    // The trace's hash width follows the path hash mode; a trace has no 3-byte
+    // width, so mode 2 pings with 4 bytes of the key.
+    uint8_t mode = _prefs ? _prefs->path_hash_mode : 0;
+    _timeout_ms = 3000;
+    _tag = the_mesh.sendPing(pub_key, mode >= 2 ? 4 : mode + 1, &_timeout_ms);
     if (_tag == 0) {
       clear();
       return SEND_FAILED;
@@ -41,6 +44,7 @@ public:
   }
 
   bool isActive() const { return _active; }
+  uint32_t timeoutMs() const { return _timeout_ms; }
   void getResult(int16_t& snr_out_x4, int16_t& snr_back_x4, uint32_t& rtt_ms) const {
     snr_out_x4 = _snr_out_x4;
     snr_back_x4 = _snr_back_x4;
@@ -70,6 +74,7 @@ private:
   int16_t  _snr_out_x4 = 0;
   int16_t  _snr_back_x4 = 0;
   uint32_t _rtt_ms = 0;
+  uint32_t _timeout_ms = 3000;
 };
 
 // Header-only Core, single TU (see UiCore.h) -- the one definition lives here.

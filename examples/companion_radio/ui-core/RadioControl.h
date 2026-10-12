@@ -11,6 +11,11 @@
 
 namespace radioctl {
 
+// The TX power range the device's own settings offer (the app and CLI take
+// -9 up). The top is the board's limit: 30 dBm on the GAT562 30S, not 22.
+static const int TX_MIN_DBM = 2;
+static const int TX_MAX_DBM = MAX_LORA_TX_POWER;
+
 // freq / bw / sf / cr -> the radio (or the repeater profile, while relaying with one).
 static void applyParams() { the_mesh.applyRepeaterRadio(); }
 

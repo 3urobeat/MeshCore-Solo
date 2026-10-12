@@ -356,10 +356,9 @@ void UITask::gotoAutoAdvertScreen() { setCurrScreen(auto_advert_screen); }
 void UITask::gotoBatteryCurve() { setCurrScreen(batt_curve_screen); }
 
 bool UITask::startPing(const uint8_t* pub_key) {
-  PingEngine::StartResult r = _core->ping.start(pub_key);
-  if (r == PingEngine::UNSUPPORTED) showAlert("Ping not supported with 3-byte path hashes", 3000);
-  return r == PingEngine::STARTED;
+  return _core->ping.start(pub_key) == PingEngine::STARTED;
 }
+uint32_t UITask::pingTimeoutMs() const { return _core->ping.timeoutMs(); }
 bool UITask::isPingActive() const { return _core->ping.isActive(); }
 void UITask::getPingResult(int16_t& snr_out_x4, int16_t& snr_back_x4, uint32_t& rtt_ms) const {
   _core->ping.getResult(snr_out_x4, snr_back_x4, rtt_ms);

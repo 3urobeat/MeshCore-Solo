@@ -463,6 +463,28 @@ public:
         return;
       }
     }
+    // A late ACK for an earlier attempt still proves delivery. Only the latest
+    // attempt's tag is kept, so rebuild the earlier ones (BaseChatMesh::
+    // composeMsgPacket(): timestamp, attempt & 3, text, our public key).
+    for (int i = 0; i < _dm_hist_count; i++) {
+      DmHistEntry& e = _dm_hist[(_dm_hist_head + i) % DM_HIST_MAX];
+      if (!e.outgoing || e.ack_status != ACK_PENDING || e.attempt == 0) continue;
+      uint8_t buf[5 + MSG_TEXT_BUF];
+      int tl = strnlen(e.text, MSG_TEXT_BUF - 1);
+      memcpy(buf, &e.msg_ts, 4);
+      memcpy(&buf[5], e.text, tl);
+      for (uint8_t a = 0; a < e.attempt && a < 4; a++) {   // the hash only sees attempt & 3
+        buf[4] = (uint8_t)(a & 3);
+        uint32_t crc;
+        mesh::Utils::sha256((uint8_t*)&crc, 4, buf, 5 + tl, the_mesh.self_id.pub_key, PUB_KEY_SIZE);
+        if (crc != ack_crc) continue;
+        e.ack_status = ACK_OK;
+#ifdef HIST_ARCHIVE
+        if (_arc) _arc->dmUpdate(e);
+#endif
+        return;
+      }
+    }
   }
 
   // Periodic resend driver for outgoing DMs whose ACK deadline lapsed with no
