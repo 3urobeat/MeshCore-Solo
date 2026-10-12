@@ -649,7 +649,7 @@ static int scanResults(char names[][33], int max) {
 enum { F_IDLE, F_REQUESTED, F_BUSY, F_DONE, F_FAILED };
 static volatile int s_fstate = F_IDLE;
 static volatile int s_fcode = 0;
-static char     s_furl[200];
+static char     s_furl[320];
 static uint8_t* s_fbuf = nullptr;
 static size_t   s_fcap = 0;
 static volatile size_t s_flen = 0;

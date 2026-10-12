@@ -442,6 +442,7 @@ bool RAK12035_SoilMoisture::sensor_on()
 			delay(10);                           //delay 10mS
         }
     }
+    return true;
 }
 
 bool RAK12035_SoilMoisture::reset()

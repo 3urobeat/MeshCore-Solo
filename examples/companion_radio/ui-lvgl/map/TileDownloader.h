@@ -306,7 +306,7 @@ public:
       struct stat st;
       if (!_force && stat(path, &st) == 0 && (st.st_size > 0 || _layer == 1)) { _skipped++; advance(); continue; }   // an empty trails file counts
       if ((int32_t)(millis() - _last_start) < (int32_t)_gap_ms) return;   // be gentle with the server (a retry waits longer)
-      char url[200];
+      char url[320];
       buildUrl(url, sizeof(url), _z, _x, _y, _layer);
       int r = lvport::fetchStart(url);
       if (r > 0) { _fetching = true; _last_start = millis(); }
@@ -346,7 +346,7 @@ private:
   uint32_t _last_start = 0, _connect_started = 0;
   uint32_t _placeholder_hash = 0;
   uint8_t  _placeholder_hits = 0;
-  char     _url_tpl[160] = "";
+  char     _url_tpl[256] = "";   // source.txt line 1: long enough for an API key
   char     _attr[96] = "";
   char     _host[48] = "";
   int      _src_zmax = 17;
@@ -442,7 +442,7 @@ private:
     _lv_cur = _lv_q[0];
     for (int i = 1; i < _lv_n; i++) _lv_q[i - 1] = _lv_q[i];
     _lv_n--;
-    char url[200];
+    char url[320];
     buildUrl(url, sizeof(url), _lv_cur.z, _lv_cur.x, _lv_cur.y, _lv_cur.layer);
     if (lvport::fetchStart(url) > 0) { _lv_fetching = true; _last_start = millis(); }
     else _lv_q[_lv_n++] = _lv_cur;   // fetcher busy: back in the queue
@@ -566,7 +566,7 @@ private:
     char path[64];
     snprintf(path, sizeof(path), "%s/source.txt", _root);
     if (FILE* f = fopen(path, "r")) {
-      char line[160];
+      char line[256];
       if (fgets(line, sizeof(line), f)) { trim(line); if (strstr(line, "{z}")) snprintf(_url_tpl, sizeof(_url_tpl), "%s", line); }
       if (fgets(line, sizeof(line), f)) { trim(line); if (line[0]) snprintf(_attr, sizeof(_attr), "%s", line); }
       if (fgets(line, sizeof(line), f)) { int z = atoi(line); if (z >= 1 && z <= 22) _src_zmax = z; }

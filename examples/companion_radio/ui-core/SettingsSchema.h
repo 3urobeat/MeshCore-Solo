@@ -217,7 +217,7 @@ static void applyRxGain(UiCore& c)       { if (c.prefs()) radio_driver.setRxBoos
 #define SW(label, hint, sec, f, chg)             { label, hint, sec, NP_OFF(f), 2, nullptr, chg, nullptr, 1 }
 #define MAP(label, hint, sec, f, vals, opt, chg) { label, hint, sec, NP_OFF(f), COUNT_OF(vals), opt, chg, vals, NP_SIZE(f) }
 #define MAPF(label, hint, sec, f, vals, opt)     { label, hint, sec, NP_OFF(f), COUNT_OF(vals), opt, nullptr, vals, FLOAT_X100 }
-#define BIT(label, hint, sec, f, mask)           { label, hint, sec, NP_OFF(f), 2, nullptr, nullptr, nullptr, 1, mask }
+#define FLAGBIT(label, hint, sec, f, mask)       { label, hint, sec, NP_OFF(f), 2, nullptr, nullptr, nullptr, 1, mask }
 static const Setting ALL[] = {
 #ifndef TRAIL_FIXED_MIN_DELTA_M   // else every sample past a fixed jitter gate is kept
   IDX("Point spacing", "Between trail points", SEC_TRAIL, trail_min_delta_idx,
@@ -284,12 +284,12 @@ static const Setting ALL[] = {
 
   // manual_add_contacts bit 0: 0 adds every node heard, 1 only the types below.
   IDX("Add heard nodes", "Every node, or only these types", SEC_AUTO_ADD, manual_add_contacts, 2, optAutoAdd, nullptr),
-  BIT("Companions", nullptr, SEC_AUTO_ADD, autoadd_config, 0x02),
-  BIT("Repeaters", nullptr, SEC_AUTO_ADD, autoadd_config, 0x04),
-  BIT("Rooms", nullptr, SEC_AUTO_ADD, autoadd_config, 0x08),
-  BIT("Sensors", nullptr, SEC_AUTO_ADD, autoadd_config, 0x10),
+  FLAGBIT("Companions", nullptr, SEC_AUTO_ADD, autoadd_config, 0x02),
+  FLAGBIT("Repeaters", nullptr, SEC_AUTO_ADD, autoadd_config, 0x04),
+  FLAGBIT("Rooms", nullptr, SEC_AUTO_ADD, autoadd_config, 0x08),
+  FLAGBIT("Sensors", nullptr, SEC_AUTO_ADD, autoadd_config, 0x10),
   MAP("Up to", "How far away a node may be", SEC_AUTO_ADD, autoadd_max_hops, MAX_HOPS, optMaxHops, nullptr),
-  BIT("Replace oldest", "When the list is full; not favourites", SEC_AUTO_ADD, autoadd_config, 0x01),
+  FLAGBIT("Replace oldest", "When the list is full; not favourites", SEC_AUTO_ADD, autoadd_config, 0x01),
 
   // On / Off / Auto spans two fields (soundctl::setMode): the frontend's own row.
   IDX("Volume", nullptr, SEC_SOUND, buzzer_volume, 5, optVolume, applySound),
@@ -363,7 +363,7 @@ static int indexOf(uint16_t offset) {
 #undef SW
 #undef MAP
 #undef MAPF
-#undef BIT
+#undef FLAGBIT
 #undef COUNT_OF
 #undef NP_SIZE
 #undef NP_OFF
