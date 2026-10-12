@@ -113,11 +113,17 @@ static Result addPublic() {
 }
 
 // "#topic": name and passphrase both "#topic" (a leading '#' typed is kept once).
+// Spaces around it are dropped and the case kept, as the phone app does
+// (meshcore-open's derivePskFromHashtag()), so "#Kraków " joins the same channel.
 static Result addHashtag(const char* topic) {
-  if (topic && topic[0] == '#') topic++;
-  if (!topic || !topic[0]) return NO_NAME;
+  if (!topic) return NO_NAME;
+  while (*topic == ' ') topic++;
+  if (topic[0] == '#') topic++;
   char name[32];
   snprintf(name, sizeof(name), "#%s", topic);
+  size_t n = strlen(name);
+  while (n > 1 && name[n - 1] == ' ') name[--n] = '\0';
+  if (n < 2) return NO_NAME;
   uint8_t secret[32];
   phraseToSecret(name, secret);
   return save(freeSlot(), name, secret);

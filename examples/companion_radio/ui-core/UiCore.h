@@ -246,6 +246,11 @@ public:
   }
   void onChannelMessageRecvEx(mesh::Packet *pkt, uint8_t channel_idx, ChannelDetails& channel_details,
                               uint32_t timestamp, const char* text) override {
+    // Our own posts are filed as "Me: ..." and every view reads that prefix as
+    // "ours". Someone else named "Me" gets quotes, so theirs stays theirs (a
+    // bubble on the left, counted unread).
+    char quoted[MSG_TEXT_BUF];
+    if (strncmp(text, "Me: ", 4) == 0) { snprintf(quoted, sizeof(quoted), "\"Me\"%s", text + 2); text = quoted; }
     addChannelMsg(channel_idx, text, timestamp, pkt->path, (uint8_t)pkt->path_len);
     pushMessageArrived(UIEventType::channelMessage, channel_details.name, channel_idx);
   }

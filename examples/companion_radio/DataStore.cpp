@@ -445,7 +445,18 @@ void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) 
       ok = file.read((uint8_t*)tmp, n) == (int)n;
       uint32_t crc = crc32(0, (const uint8_t*)&lat, sizeof(lat));
       crc = crc32(crc, (const uint8_t*)&lon, sizeof(lon));
-      ok = ok && crc32(crc, (const uint8_t*)tmp, n) == h.crc;
+      crc = crc32(crc, (const uint8_t*)tmp, n);
+      // Written by a newer build (a downgrade): its extra fields are skipped,
+      // but the CRC covers them, so read them through it rather than losing
+      // every setting to a mismatch.
+      for (size_t left = h.size - n; ok && left > 0; ) {
+        uint8_t buf[32];
+        size_t k = left < sizeof(buf) ? left : sizeof(buf);
+        ok = file.read(buf, k) == (int)k;
+        crc = crc32(crc, buf, k);
+        left -= k;
+      }
+      ok = ok && crc == h.crc;
     }
     file.close();
     if (ok) { prefs = *tmp; node_lat = lat; node_lon = lon; }
