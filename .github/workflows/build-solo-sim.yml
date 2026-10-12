@@ -89,6 +89,20 @@ jobs:
           SIM_EINK: portrait
         run: variants/sim/build_wasm.sh
 
+      # The 4.2" 400x300 build (the site's "E-ink · 4.2″").
+      - name: Build E-ink WASM (4.2")
+        env:
+          FIRMWARE_VERSION: ${{ env.BUILD_VERSION }}
+          SIM_EINK: wide
+        run: variants/sim/build_wasm.sh
+
+      # The 4.26" 800x480 build (the site's "E-ink · Large").
+      - name: Build E-ink WASM (4.26")
+        env:
+          FIRMWARE_VERSION: ${{ env.BUILD_VERSION }}
+          SIM_EINK: big
+        run: variants/sim/build_wasm.sh
+
       - name: Build repeater WASM
         run: variants/sim/build_wasm_repeater.sh
 
@@ -99,6 +113,8 @@ jobs:
           cp variants/sim/web/build/meshcore_sim_lvgl.js variants/sim/web/build/meshcore_sim_lvgl.wasm out/wasm/lvgl/
           cp variants/sim/web/build/meshcore_sim_eink_landscape.js variants/sim/web/build/meshcore_sim_eink_landscape.wasm out/wasm/eink/
           cp variants/sim/web/build/meshcore_sim_eink_portrait.js variants/sim/web/build/meshcore_sim_eink_portrait.wasm out/wasm/eink/
+          cp variants/sim/web/build/meshcore_sim_eink_wide.js variants/sim/web/build/meshcore_sim_eink_wide.wasm out/wasm/eink/
+          cp variants/sim/web/build/meshcore_sim_eink_big.js variants/sim/web/build/meshcore_sim_eink_big.wasm out/wasm/eink/
           cp variants/sim/web/build/repeater/meshcore_sim_repeater.js variants/sim/web/build/repeater/meshcore_sim_repeater.wasm out/wasm/repeater/
           cd out && zip -r solo-sim-wasm.zip wasm
 

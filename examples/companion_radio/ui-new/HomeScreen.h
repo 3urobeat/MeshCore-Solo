@@ -3,31 +3,26 @@
 // Home: the clock, favourites, status, Bluetooth ... pages, and the lock screen.
 
 // The time on a tall portrait panel (e-ink in portrait -- height > width): HH
-// and MM stacked on two lines in the huge built-in font (size 4, ~56 px tall)
-// so the digits fill the narrow width. Returns the y just below it.
+// and MM stacked on two lines in the splash's slanted lettering, as the wide
+// panels' big clock: as wide as the panel allows, the two lines no more than
+// ~45% of its height (the date and the month go under them). Returns the y
+// just below it.
 static int drawClockTall(DisplayDriver& d, int top_y, const struct tm* ti, bool h12) {
   int hh = ti->tm_hour;
   const char* ap = nullptr;
   if (h12) { ap = (hh < 12) ? "AM" : "PM"; hh %= 12; if (hh == 0) hh = 12; }
   const int cx = d.width() / 2;
   char hbuf[4], mbuf[4];
-  snprintf(hbuf, sizeof(hbuf), "%02d", hh);
+  snprintf(hbuf, sizeof(hbuf), h12 ? "%d" : "%02d", hh);
   snprintf(mbuf, sizeof(mbuf), "%02d", ti->tm_min);
 
+  int sc = (d.height() * 45 / 100) / (2 * lettering::LOGO_H);
+  while (sc > 1 && info::letteringW("00", sc, sc + 1) > d.width() - 2 * sc) sc--;
+  if (sc < 1) sc = 1;
+  const int h = lettering::LOGO_H * sc, gap = sc + 1;
   int y = top_y;
-  d.setTextSize(4);
-  const int lhb = d.getLineHeight();
-  // The built-in GFX font advances 6 px per char but the glyph is only 5 px
-  // wide, so getTextWidth() over-reports by one trailing blank column and
-  // drawTextCentered() would bias the digits ~half a column to the left.
-  // Centre on the visible width (minus that trailing column) instead.
-  const int trail = d.getCharWidth() / 6;   // one built-in column at this size
-  auto drawBig = [&](const char* s, int yy) {
-    d.setCursor(cx - ((int)d.getTextWidth(s) - trail) / 2, yy);
-    d.print(s);
-  };
-  drawBig(hbuf, y);  y += lhb + 2;
-  drawBig(mbuf, y);  y += lhb + 2;
+  info::lettering(d, cx - info::letteringW(hbuf, sc, gap) / 2, y, hbuf, sc, gap);  y += h + 2 * sc;
+  info::lettering(d, cx - info::letteringW(mbuf, sc, gap) / 2, y, mbuf, sc, gap);  y += h + sc;
   if (ap) {
     d.setTextSize(2);
     d.drawTextCentered(cx, y, ap);
