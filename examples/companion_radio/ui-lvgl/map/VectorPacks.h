@@ -59,6 +59,7 @@ public:
       Pack& p = _p[i];
       uint32_t off, len;
       if (!lookup(p, key, off, len)) continue;
+      if ((uint64_t)p.data_off + off + len > p.size) return false;   // an entry pointing past the file
       FILE* f = handle(i);
       if (!f || fseek(f, p.data_off + off, SEEK_SET) != 0) return false;
       s.f = f; s.len = len; s.owned = false;
@@ -128,8 +129,10 @@ private:
       fseek(f, 0, SEEK_END);
       p.size = (uint32_t)ftell(f);
       p.index = nullptr;
-      uint32_t isz = p.count * 16;
-      ok = p.index_off + isz <= p.size && p.data_off <= p.size;
+      // In 64 bits / by division: a damaged count would otherwise wrap count * 16
+      // to a small size, pass, and send the index search far past its buffer.
+      ok = p.count <= p.size / 16 && (uint64_t)p.index_off + (uint64_t)p.count * 16 <= p.size && p.data_off <= p.size;
+      uint32_t isz = ok ? p.count * 16 : 0;
       if (ok && isz <= INDEX_IN_RAM_MAX) {
         p.index = psramBuf<uint8_t>(isz ? isz : 1);
         if (p.index && (fseek(f, p.index_off, SEEK_SET) != 0 || !readFast(f, p.index, isz))) { free(p.index); p.index = nullptr; }

@@ -90,7 +90,9 @@ inline uint8_t hopCount(uint8_t path_len_packed) {
 inline void hopName(uint8_t path_len_packed, const uint8_t* path, int i, char* out, size_t n) {
   uint8_t hash_size = (path_len_packed >> 6) + 1;
   const uint8_t* hash = &path[i * hash_size];
-  for (int idx = 0; ; idx++) {
+  // From MAX_ANON_CONTACTS: the reserved slots before it are empty or anon
+  // requesters, and an empty one matched a 00 hash with a blank name.
+  for (int idx = MAX_ANON_CONTACTS; ; idx++) {
     ContactInfo c;
     if (!the_mesh.getContactByIdx(idx, c)) break;
     if (c.id.isHashMatch(hash, hash_size)) { snprintf(out, n, "%s", c.name); return; }

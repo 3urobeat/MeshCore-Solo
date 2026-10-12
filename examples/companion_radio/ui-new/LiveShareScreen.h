@@ -157,14 +157,17 @@ public:
   }
 
   void cycleTarget(int dir) {
-    struct T { uint8_t type, ch; uint8_t prefix[NodePrefs::FAVOURITE_PREFIX_LEN]; } list[24];
+    // Every channel and every dial favourite: a cap under MAX_GROUP_CHANNELS
+    // (40) left the favourites, listed last, out of reach.
+    static const int LIST_MAX = MAX_GROUP_CHANNELS + NodePrefs::FAVOURITES_COUNT;
+    struct T { uint8_t type, ch; uint8_t prefix[NodePrefs::FAVOURITE_PREFIX_LEN]; } list[LIST_MAX];
     int n = 0;
     ChannelDetails ch;
-    for (int i = 0; i < 64 && n < 24; i++) {
+    for (int i = 0; i < MAX_GROUP_CHANNELS && n < LIST_MAX; i++) {
       if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
       list[n].type = 0; list[n].ch = (uint8_t)i; n++;
     }
-    for (int i = 0; i < NodePrefs::FAVOURITES_COUNT && n < 24; i++) {
+    for (int i = 0; i < NodePrefs::FAVOURITES_COUNT && n < LIST_MAX; i++) {
       const uint8_t* pre = _prefs->favourite_contacts[i];
       bool empty = true;
       for (int b = 0; b < NodePrefs::FAVOURITE_PREFIX_LEN; b++) if (pre[b]) { empty = false; break; }

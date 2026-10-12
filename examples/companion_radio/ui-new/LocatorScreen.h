@@ -195,13 +195,13 @@ public:
     none.kind = 2; none.lat = 0; none.lon = 0; none.ts = 0; none.live = false; none.fav = false;
     memset(none.key, 0, 6);
     snprintf(none.name, sizeof(none.name), "(none)");
-    for (int idx = 0; _target_n < TARGET_MAX; idx++) {
+    for (int idx = MAX_ANON_CONTACTS; _target_n < TARGET_MAX; idx++) {
       ContactInfo c;
       if (!the_mesh.getContactByIdx(idx, c)) break;
       if (!contactctl::favourite(c)) continue;
       addPersonTarget(c.id.pub_key, c.name, /*require_position=*/false, true);
     }
-    for (int idx = 0; _target_n < TARGET_MAX; idx++) {
+    for (int idx = MAX_ANON_CONTACTS; _target_n < TARGET_MAX; idx++) {
       ContactInfo c;
       if (!the_mesh.getContactByIdx(idx, c)) break;
       addPersonTarget(c.id.pub_key, c.name, /*require_position=*/true, contactctl::favourite(c));

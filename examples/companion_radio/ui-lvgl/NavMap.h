@@ -993,7 +993,10 @@ void UITask::navToolsPopup() {
   _nav_share_lbl = noteLabel(list, "", THEME_FONT_SMALL, theme::TEXT);
   // Target: channels (as named -- "#" marks a hashtag channel), then
   // favourite contacts (starred, so the two stay apart).
-  char opts[MAX_GROUP_CHANNELS * 24 + 16 * 40];
+  // Worst case: "\n" + a 31-byte name per channel, "\n" + star (3) + space +
+  // 31 bytes per favourite. Static: ~1.9 KB is a lot for the loop's stack, and
+  // the dropdown copies it.
+  static char opts[MAX_GROUP_CHANNELS * 32 + 16 * 36 + 1];
   int o = 0, sel = 0;
   navmap::s_share_n = 0;
   for (int i = 0; i < MAX_GROUP_CHANNELS && navmap::s_share_n < navmap::SHARE_TARGETS; i++) {

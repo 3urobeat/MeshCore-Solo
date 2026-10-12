@@ -173,10 +173,12 @@ public:
 
   void refreshModel() { if (_source == SRC_SCAN) refreshScan(); else refreshStored(); }
 
-  // Index of the row for raw contact index `contact_idx`, or of the non-contact
-  // live row named `name` -- how a screen keeps its selection across a rebuild.
-  int findContact(int contact_idx) const {
-    for (int i = 0; i < _count; i++) if (_entries[i].contact_idx == contact_idx) return i;
+  // Index of the contact row with this public key, or of the non-contact live
+  // row named `name` -- how a screen keeps its selection across a rebuild. By
+  // key, not by contact index: deleting a contact shifts the table down.
+  int findContact(const uint8_t* pub_key) const {
+    for (int i = 0; i < _count; i++)
+      if (_entries[i].contact_idx >= 0 && memcmp(_entries[i].pub_key, pub_key, PUB_KEY_SIZE) == 0) return i;
     return -1;
   }
   int findLiveByName(const char* name) const {

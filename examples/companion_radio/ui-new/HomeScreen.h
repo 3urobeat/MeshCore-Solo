@@ -1491,7 +1491,7 @@ public:
             }
           }
         } else if (prefix) {
-          for (int idx = 0; ; idx++) {
+          for (int idx = MAX_ANON_CONTACTS; ; idx++) {
             ContactInfo c;
             if (!the_mesh.getContactByIdx(idx, c)) break;
             if (memcmp(c.id.pub_key, prefix, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {
@@ -1673,7 +1673,7 @@ public:
           _task->openChannelHistory(pfx[0]);
           return true;
         }
-        for (int idx = 0; ; idx++) {
+        for (int idx = MAX_ANON_CONTACTS; ; idx++) {
           ContactInfo c2;
           if (!the_mesh.getContactByIdx(idx, c2)) break;
           if (memcmp(c2.id.pub_key, pfx, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {

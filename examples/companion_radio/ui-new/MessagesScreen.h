@@ -383,24 +383,6 @@ class MessagesScreen : public UIScreen {
     }
   }
 
-  // Resolve one hop's path hash to a contact name, falling back to a short hex
-  // tag ("?AABB") when no known contact matches -- an unnamed/unknown repeater,
-  // or one whose contact card has since been removed.
-  void resolveHopName(const uint8_t* hash, uint8_t hash_size, char* out, size_t out_sz) {
-    for (int idx = 0; ; idx++) {
-      ContactInfo c;
-      if (!the_mesh.getContactByIdx(idx, c)) break;
-      if (c.id.isHashMatch(hash, hash_size)) {
-        snprintf(out, out_sz, "%s", c.name);
-        return;
-      }
-    }
-    char hex[9] = {0};
-    uint8_t n = hash_size > 4 ? 4 : hash_size;
-    for (uint8_t b = 0; b < n; b++) snprintf(hex + b * 2, 3, "%02X", hash[b]);
-    snprintf(out, out_sz, "?%s", hex);
-  }
-
   // Opens the path/relay detail popup for the entry stashed by buildFsMenu().
   // Incoming: hops listed oldest-hop-first (the order they were appended as the
   // message travelled). Outgoing channel: each distinct repeater heard echoing
@@ -423,7 +405,7 @@ class MessagesScreen : public UIScreen {
     uint8_t max_hops = MAX_HIST_PATH_BYTES / hash_size;   // matches capturePath()/markChannelRelayed()'s write-side bound
     if (hop_count > max_hops) hop_count = max_hops;
     for (uint8_t i = 0; i < hop_count; i++) {
-      resolveHopName(&path[i * hash_size], hash_size, _path_detail_names[i], sizeof(_path_detail_names[i]));
+      contactctl::hopName(path_len_packed, path, i, _path_detail_names[i], sizeof(_path_detail_names[i]));
     }
     _ctx_menu.begin(path_is_relay ? "Relayed by" : "Path", hop_count);
     for (uint8_t i = 0; i < hop_count; i++) _ctx_menu.addItem(_path_detail_names[i]);
@@ -724,7 +706,7 @@ class MessagesScreen : public UIScreen {
           DisplayDriver::translateUTF8Static(nm + 1, chanctl::bareName(ch.name), sizeof(nm) - 1);
         }
       } else {
-        for (int idx = 0; ; idx++) {
+        for (int idx = MAX_ANON_CONTACTS; ; idx++) {
           ContactInfo c2;
           if (!the_mesh.getContactByIdx(idx, c2)) break;
           if (memcmp(c2.id.pub_key, pfx, NodePrefs::FAVOURITE_PREFIX_LEN) == 0) {

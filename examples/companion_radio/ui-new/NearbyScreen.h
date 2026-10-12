@@ -105,20 +105,22 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   void refresh()       { refreshModel(); clampSelection(); }
 
   // Rebuild the stored list (re-merge live shares + re-sort) while keeping the
-  // currently highlighted node selected across the rebuild — by contact index
+  // currently highlighted node selected across the rebuild — by public key
   // for a stored node, or by name for a non-contact live sender. Returns false
   // if that node is no longer in the list (caller decides whether to drop the
   // detail/nav view). Shared by the list, detail and navigate refresh paths.
   bool refreshKeepingSelection() {
-    int  saved_idx  = (_sel < _count) ? _entries[_sel].contact_idx : -1;
-    bool saved_live = (_sel < _count) && _entries[_sel].is_live && saved_idx < 0;
+    bool saved_contact = (_sel < _count) && _entries[_sel].contact_idx >= 0;
+    bool saved_live = (_sel < _count) && _entries[_sel].is_live && !saved_contact;
+    uint8_t saved_key[PUB_KEY_SIZE];
+    if (saved_contact) memcpy(saved_key, _entries[_sel].pub_key, PUB_KEY_SIZE);
     char saved_name[sizeof(_entries[0].name)]; saved_name[0] = '\0';
     if (_sel < _count) {
       strncpy(saved_name, _entries[_sel].name, sizeof(saved_name) - 1);
       saved_name[sizeof(saved_name) - 1] = '\0';
     }
     refreshStored();
-    int i = saved_idx >= 0 ? findContact(saved_idx)
+    int i = saved_contact ? findContact(saved_key)
           : (saved_live && saved_name[0]) ? findLiveByName(saved_name) : -1;
     if (i >= 0) { _sel = i; return true; }
     return false;

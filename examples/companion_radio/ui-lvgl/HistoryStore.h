@@ -177,7 +177,12 @@ public:
   }
   void clearAll() {
     if (!ready()) return;
-    forEachFile([](const char* path, char) { remove(path); });
+    forEachFile([](const char* path, char) {
+      remove(path);
+      char bad[72];   // a set-aside copy (see append()) goes with it: append() always recreates the .bin
+      snprintf(bad, sizeof(bad), "%s.bad", path);
+      remove(bad);
+    });
   }
 
 private:
@@ -241,7 +246,15 @@ private:
       f = fopen(path, "r+b");
     }
     if (!f || !readHdr<E>(f, h)) {   // new (or unreadable: start it again)
-      if (f) fclose(f);
+      if (f) {
+        // Unreadable (a damaged header, a card edited elsewhere): set it aside
+        // as .bad -- one copy, the newest -- instead of writing over the history.
+        fclose(f);
+        char bad[72];
+        snprintf(bad, sizeof(bad), "%s.bad", path);
+        remove(bad);
+        rename(path, bad);
+      }
       f = fopen(path, "w+b");
       if (!f) return;
       h = { MAGIC, VERSION, (uint16_t)sizeof(E), _keep, 0, 0, 1 };
