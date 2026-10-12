@@ -568,7 +568,7 @@ struct KeyboardWidget {
     const int slots = len + (len < max_len ? 1 : 0);
     int x = display.width() / 2 - (slots * pitch - 3) / 2;
     for (int i = 0; i < slots; i++, x += pitch) {
-      if (i == len) { display.fillRect(x, y + lh - 2, cw, 1); continue; }   // next digit goes here
+      if (i == len) { display.fillRect(x, y + lh - 2, cw, display.sepH()); continue; }   // next digit goes here
       if (pin_kb_mask_enabled) {
         display.fillSoftRect(x, y + 1, cw, lh - 3);
       } else {
@@ -887,7 +887,7 @@ struct KeyboardWidget {
           // completely differently (one letter vs. every following letter).
           // caps_lock implies the cell is filled, so the current (inverted)
           // ink colour is the one that shows against it.
-          if (i == 0 && caps_lock) display.fillRect(sx + 2, spec_y + cell_h - 3, spec_w - 5, 1);
+          if (i == 0 && caps_lock) display.fillRect(sx + 2, spec_y + cell_h - 3, spec_w - 5, display.sepH());
         }
         display.setColor(DisplayDriver::LIGHT);
       }

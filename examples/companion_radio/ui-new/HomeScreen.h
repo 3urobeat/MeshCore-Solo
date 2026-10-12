@@ -572,19 +572,17 @@ class HomeScreen : public UIScreen {
     } else {  // icon — scales with lh, same box height as the status icons beside it (ind_h)
       const int iconH = ind_h;
       const int iconW = (bar_h > lh) ? ind_h * 2 : lh * 2;
-      const int bm = display.pixelScale() > 1 ? 3 : 2;  // inner margin: 3px on a doubled panel, else 2px
+      const int t  = display.sepH();   // outline: 1px, 2px on a doubled panel
+      const int bm = 2 * t;            // inner margin: the outline plus as much gap
       battLeftX = display.width() - iconW - 3;
       // The outline with its corner pixels left out, softly rounded.
-      display.fillRect(battLeftX + 1, 0, iconW - 2, 1);
-      display.fillRect(battLeftX + 1, iconH - 1, iconW - 2, 1);
-      display.fillRect(battLeftX, 1, 1, iconH - 2);
-      display.fillRect(battLeftX + iconW - 1, 1, 1, iconH - 2);
+      display.drawSoftRect(battLeftX, 0, iconW, iconH);
       // Nub height/2, vertically centred by remaining-space/2 rather than a flat
       // iconH/4 margin — the flat form only centres when iconH is a multiple of
       // 4 (true for the old built-in font's lh=8, false for misc-fixed's 7/9),
       // so it visibly drifted off-centre once the box height changed.
       const int nub_h = iconH / 2;
-      display.fillRect(battLeftX + iconW, (iconH - nub_h) / 2, 2, nub_h);
+      display.fillRect(battLeftX + iconW, (iconH - nub_h) / 2, 2 * t, nub_h);
       int fillW = (pct * (iconW - 2 * bm)) / 100;
       display.fillRect(battLeftX + bm, bm, fillW, iconH - 2 * bm);
     }
@@ -793,7 +791,7 @@ public:
         if (barpx < 5)        barpx = 5;
         if (barpx > aw / 4)   barpx = aw / 4;
         int bx = ax + 1, mid = ty + display.getLineHeight() / 2;
-        display.fillRect(bx, mid, barpx, 1);                // single tick, on the text baseline
+        display.fillRect(bx, mid, barpx, display.sepH());   // single tick, on the text baseline
         display.setCursor(bx + barpx + 2, ty);
         display.print(L[sel]);
       }
@@ -1023,8 +1021,9 @@ public:
       const int bar_y = y + bc.h + bar / 2 + 1;
       if (show_sec) {   // fills over the minute: dotted track, solid part
         const int x0 = W / 8, bw = W - 2 * x0, fill = bw * ti.tm_sec / 60;
-        d.fillRect(x0, bar_y, fill, 1);
-        for (int x = x0 + fill + (fill & 1); x < x0 + bw; x += 2) d.fillRect(x, bar_y, 1, 1);
+        const int t = d.sepH();
+        d.fillRect(x0, bar_y, fill, t);
+        for (int x = x0 + fill + (fill & 1) * t; x < x0 + bw; x += 2 * t) d.fillRect(x, bar_y, t, t);
       }
       // Alarm armed: the bell at the bar's left end (the status bar, which
       // shows it everywhere else, is hidden on this page).
@@ -1375,7 +1374,8 @@ public:
       int x = display.width() / 2 - pitch * (n - 1) / 2;
       // The current page: its icon knocked out of a soft pill. During a page
       // turn the pill glides over from the page being left.
-      int pw = icon_w + 4;
+      const int pad = display.sepH();                  // the pill's margin round the icon
+      int pw = icon_w + 4 * pad;
       if (pw > pitch - 1) pw = pitch - 1;
       int pill_x = x + pitch * curr_vis;
       if (slide >= 0) {
@@ -1383,7 +1383,7 @@ public:
           if (order[i] == _slide_from) { pill_x = x + pitch * i + (int)((pill_x - x - pitch * i) * slide + 0.5f); break; }
       }
       display.setColor(DisplayDriver::LIGHT);
-      display.fillSoftRect(pill_x - pw / 2, dots_y - pg_half - 1, pw, pg_half * 2 + 3);
+      display.fillSoftRect(pill_x - pw / 2, dots_y - pg_half - pad, pw, pg_half * 2 + 1 + 2 * pad);
       for (int i = 0; i < n; i++) {
         const MiniIcon* ic = pageIcon(order[i]);
         const int d2 = 2 * (x - pill_x < 0 ? pill_x - x : x - pill_x);
@@ -1455,8 +1455,9 @@ public:
         if (sel)         { display.fillSoftRect(tx, ty, tw, th); display.setColor(DisplayDriver::DARK); }
         else if (prefix)   display.drawSoftRect(tx, ty, tw, th);
         else {
-          for (int x = tx + 2; x < tx + tw - 1; x += 2) { display.fillRect(x, ty, 1, 1); display.fillRect(x, ty + th - 1, 1, 1); }
-          for (int y = ty + 2; y < ty + th - 1; y += 2) { display.fillRect(tx, y, 1, 1); display.fillRect(tx + tw - 1, y, 1, 1); }
+          const int t = display.sepH();   // dot size: 2px on a doubled panel
+          for (int x = tx + 2 * t; x < tx + tw - t; x += 2 * t) { display.fillRect(x, ty, t, t); display.fillRect(x, ty + th - t, t, t); }
+          for (int y = ty + 2 * t; y < ty + th - t; y += 2 * t) { display.fillRect(tx, y, t, t); display.fillRect(tx + tw - t, y, t, t); }
         }
 
         char    name[26];

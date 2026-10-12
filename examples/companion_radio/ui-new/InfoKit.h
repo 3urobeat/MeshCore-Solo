@@ -73,10 +73,7 @@ inline void battery(DisplayDriver& d, int x, int y, float frac) {
   const int s = miniIconScale(d), w = BATT_BODY_W * s, h = BATT_BODY_H * s;
   if (frac < 0) frac = 0;
   if (frac > 1) frac = 1;
-  d.fillRect(x + 1, y, w - 2, 1);           // the outline without its corner pixels
-  d.fillRect(x + 1, y + h - 1, w - 2, 1);
-  d.fillRect(x, y + 1, 1, h - 2);
-  d.fillRect(x + w - 1, y + 1, 1, h - 2);
+  d.drawSoftRect(x, y, w, h);               // the outline without its corner pixels
   d.fillRect(x + w, y + s, s, h - 2 * s);
   const int in = MINI_ICONS_LARGE ? 2 * s : s;   // the large one keeps a gap inside its outline
   const int fw = (int)((w - 2 * in) * frac + 0.5f);
@@ -92,15 +89,21 @@ inline void meter(DisplayDriver& d, int x, int y, int w, int h, float frac) {
   if (fw > 0) d.fillRect(x + in, y + in, fw, h - 2 * in);
 }
 
+// One point of a line or circle, sepH() square (2px on a doubled panel).
+inline void plot(DisplayDriver& d, int x, int y) {
+  const int t = d.sepH();
+  d.fillRect(x - t / 2, y - t / 2, t, t);
+}
+
 // Midpoint circle; `step` > 1 dots it (every step-th point of each octant).
 inline void circle(DisplayDriver& d, int cx, int cy, int r, int step = 1) {
   int x = r, y = 0, err = 1 - r, i = 0;
   while (x >= y) {
     if (i++ % step == 0) {
-      d.fillRect(cx + x, cy + y, 1, 1); d.fillRect(cx - x, cy + y, 1, 1);
-      d.fillRect(cx + x, cy - y, 1, 1); d.fillRect(cx - x, cy - y, 1, 1);
-      d.fillRect(cx + y, cy + x, 1, 1); d.fillRect(cx - y, cy + x, 1, 1);
-      d.fillRect(cx + y, cy - x, 1, 1); d.fillRect(cx - y, cy - x, 1, 1);
+      plot(d, cx + x, cy + y); plot(d, cx - x, cy + y);
+      plot(d, cx + x, cy - y); plot(d, cx - x, cy - y);
+      plot(d, cx + y, cy + x); plot(d, cx - y, cy + x);
+      plot(d, cx + y, cy - x); plot(d, cx - y, cy - x);
     }
     y++;
     if (err < 0) err += 2 * y + 1;
@@ -108,13 +111,13 @@ inline void circle(DisplayDriver& d, int cx, int cy, int r, int step = 1) {
   }
 }
 
-// A 1 px line (Bresenham).
+// A line (Bresenham), sepH() thick.
 inline void line(DisplayDriver& d, int x0, int y0, int x1, int y1) {
   const int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y0 - y1 : y1 - y0;
   const int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
   int err = dx + dy;
   for (;;) {
-    d.fillRect(x0, y0, 1, 1);
+    plot(d, x0, y0);
     if (x0 == x1 && y0 == y1) break;
     const int e2 = 2 * err;
     if (e2 >= dy) { err += dy; x0 += sx; }

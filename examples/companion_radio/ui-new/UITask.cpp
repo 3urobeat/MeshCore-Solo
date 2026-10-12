@@ -1085,9 +1085,12 @@ void UITask::loop() {
 #endif
   pollConnection();   // BLE link state -> hasConnection() (see UITaskBase)
   drainCoreEvents();  // react to what the Core filed during mesh processing (alerts, wake, sounds)
-  {  // a conversation in view again (display on, unlocked): on to what came in meanwhile
-    bool on = messagesInView();
-    if (on && !_display_was_on) ((MessagesScreen*)messages_screen)->onDisplayOn();
+  {  // a conversation in view again (display on, unlocked): on to what came in meanwhile.
+     // Only on the display or lock changing -- not on opening the screen, which
+     // positions itself (a second pass would re-anchor on what the first frame
+     // had just marked read, and the list jumped).
+    bool on = _display && _display->isOn() && !_locked;
+    if (on && !_display_was_on && curr == messages_screen) ((MessagesScreen*)messages_screen)->onDisplayOn();
     _display_was_on = on;
   }
   if (status_screen) ((StatusScreen*)status_screen)->sample();   // Status history lines, once a minute

@@ -28,12 +28,13 @@ inline void drawPill(DisplayDriver& display, int x, int w, const char* label, bo
 }
 
 // Small solid triangle pointing left (dir < 0) or right, 3 px wide and 5
-// tall, centred on row y_mid: "more tabs this way".
+// tall (times sepH()), centred on row y_mid: "more tabs this way".
 inline void drawEdgeArrow(DisplayDriver& display, int x, int y_mid, int dir) {
+  const int t = display.sepH();
   display.setColor(DisplayDriver::LIGHT);
   for (int c = 0; c < 3; c++) {
-    int h = dir < 0 ? c * 2 + 1 : 5 - c * 2;
-    display.fillRect(x + c, y_mid - h / 2, 1, h);
+    int h = (dir < 0 ? c * 2 + 1 : 5 - c * 2) * t;
+    display.fillRect(x + c * t, y_mid - h / 2, t, h);
   }
 }
 
@@ -75,16 +76,17 @@ inline void draw(DisplayDriver& display, const char* const* labels, int count, i
     return Fit{ shown, lx + gap, rx_limit - rx + gap };
   };
 
+  const int arr = 3 * display.sepH();   // the edge arrow's width
   drawPill(display, ax, aw, labels[active], true);
   Fit f = layout(0, false);
-  if (f.shown < count && f.left_free < 4 && f.right_free < 4)
-    f = layout(5, true);             // no room for an arrow anywhere: give up a tab for them
+  if (f.shown < count && f.left_free < arr + 1 && f.right_free < arr + 1)
+    f = layout(arr + 2, true);       // no room for an arrow anywhere: give up a tab for them
   else
     layout(0, true);
   if (f.shown < count) {             // more tabs off screen: an arrow wherever there's room
     int y_mid = display.getLineHeight() / 2;
-    if (f.left_free >= 4)  drawEdgeArrow(display, 0, y_mid, -1);
-    if (f.right_free >= 4) drawEdgeArrow(display, rx_limit - 3, y_mid, +1);
+    if (f.left_free >= arr + 1)  drawEdgeArrow(display, 0, y_mid, -1);
+    if (f.right_free >= arr + 1) drawEdgeArrow(display, rx_limit - arr, y_mid, +1);
   }
   display.setColor(DisplayDriver::LIGHT);
   display.fillRect(0, display.headerH() - display.sepH(), display.width(), display.sepH());

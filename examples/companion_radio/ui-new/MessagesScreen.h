@@ -1083,8 +1083,8 @@ public:
     int tw = d.getTextWidth(t);
     int tx = (w - tw) / 2, mid = y + lh / 2;
     d.setColor(DisplayDriver::LIGHT);
-    d.fillRect(1, mid, tx - 4, 1);
-    d.fillRect(tx + tw + 3, mid, w - 1 - (tx + tw + 3), 1);
+    d.fillRect(1, mid, tx - 4, d.sepH());
+    d.fillRect(tx + tw + 3, mid, w - 1 - (tx + tw + 3), d.sepH());
     d.setCursor(tx, y + 1);
     d.print(t);
   }

@@ -60,7 +60,7 @@ class UITask : public UITaskBase, public UiCoreHost {
   GenericVibration vibration;
 #endif
   unsigned long _next_refresh, _auto_off;
-  bool _display_was_on = true;   // loop(): messagesInView() last time round
+  bool _display_was_on = true;   // loop(): display on and unlocked last time round
   NodePrefs* _node_prefs;
   bool _locked;
   bool _tool_from_home = false;

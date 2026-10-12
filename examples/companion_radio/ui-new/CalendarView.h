@@ -49,7 +49,7 @@ inline void draw(DisplayDriver& d, int x, int y, int w, const struct tm& t, uint
     if (marked & (1UL << (day - 1))) {   // under the number, in the gap below it
       const int uw = d.getTextWidth(buf);
       d.setColor(today && day == t.tm_mday ? DisplayDriver::DARK : DisplayDriver::LIGHT);
-      d.fillRect(cx + (cw - uw) / 2, cy + (tight ? lh - 2 : lh), uw, 1);
+      d.fillRect(cx + (cw - uw) / 2, cy + (tight ? lh - 2 : lh), uw, d.sepH());
       d.setColor(DisplayDriver::LIGHT);
     }
   }
