@@ -81,9 +81,8 @@ struct NodePrefs {  // persisted to file
   // floor) and hardware Channel Activity Detection before TX. See
   // MyMesh::getInterferenceThreshold()/getCADEnabled() — CAD is also
   // auto-enabled whenever rx_powersave is active, regardless of this flag,
-  // since duty-cycle sleep leaves the noise floor stale. Both default 0/off,
-  // and neither has a Settings/CLI toggle yet on companion_radio — persisted
-  // and wired for a future manual override.
+  // since duty-cycle sleep leaves the noise floor stale. Both default 0/off;
+  // set from Settings > Radio and the CLI (ui-core/SettingsSchema.h).
   uint8_t  interference_threshold;
   uint8_t  cad_enabled;
   // Auto-resend for on-device DMs: number of extra send attempts (0..5) made when
@@ -169,20 +168,35 @@ struct NodePrefs {  // persisted to file
 
   // ── Connectivity (BLE) ────────────────────────────────────────────────
   uint32_t ble_pin;
+  // 1 = the user switched Bluetooth off: it stays off after a reboot or
+  // hibernate (MyMesh::startInterface). USB keeps working either way.
+  uint8_t  ble_off;
 
   // ── Power & battery ───────────────────────────────────────────────────
   uint16_t low_batt_mv;         // auto-shutdown threshold: 0=disabled, 3000-3500 mV
   uint8_t batt_display_mode;   // 0=icon, 1=percent, 2=voltage
+  // The cell voltage (mV) at 0, 10, ... 100 %, for the battery percentage
+  // (ui-core/Battery.h). All zeros = the built-in LiPo curve. Settings >
+  // Battery curve edits it; anything not rising point to point reads as unset.
+  static const uint8_t BATT_CURVE_PTS = 11;
+  uint16_t batt_curve_mv[BATT_CURVE_PTS];
 
   // ── Display & keyboard ────────────────────────────────────────────────
   uint8_t display_brightness;   // 0=min..4=max, default 2 (medium)
   uint16_t auto_off_secs;       // display auto-off: 0=never, else seconds (default 15)
   uint8_t  auto_lock;           // 0=disabled, 1=lock screen when display turns off
   int8_t tz_offset_hours;       // timezone offset from UTC, -12..+14 (default 0)
-  uint8_t  use_lemon_font;      // 0=default Adafruit font, 1=Lemon font (Unicode, pixel-accurate wrap)
   uint8_t  display_rotation;    // 0-3; only used on e-ink displays
   uint8_t  joystick_rotation;   // 0-3 steps CW; independent of display_rotation
   uint8_t  eink_full_refresh_every; // index into {0,5,10,20,30}: full refresh every N partials (0=off)
+  // Text and icon size (ui-new, big e-ink panels): Settings > Display, only on
+  // builds that opt in (EINK_FONT_SCALE / STATUS_ICON_SCALE). ui_text_scale:
+  // the font's pixel multiplier, 1-5; 0 is the build's own (DataStore sanitize
+  // sets EINK_FONT_SCALE there). ui_icon_scale: Home's status icons, 0 = Auto
+  // (1.5x the text), else 1-8.
+  static const uint8_t UI_TEXT_SCALE_MAX = 5, UI_ICON_SCALE_MAX = 8;
+  uint8_t  ui_text_scale;
+  uint8_t  ui_icon_scale;
   uint16_t home_pages_mask;    // bitmask of visible home pages (bit0=Clock..bit8=Shutdown); 0=all visible
   uint8_t  dashboard_fields[3]; // 0=None,1=Batt V,2=Temp,3=Hum,4=Pres,5=GPS,6=Alt,7=Lux,8=CO2,9=Nodes,10=Msgs,11=Batt %
   // Home screen page order: each byte = HomePageBit + 1. 0 terminates the list.
@@ -298,6 +312,10 @@ struct NodePrefs {  // persisted to file
   // Settings > Display > "Msg wake": an incoming message turns the display on
   // (UITask::newMsg()) if it was off and no companion app is already showing it.
   uint8_t  msg_wake;            // 1=wake display for incoming msgs (default), 0=not
+  // ui-new's new-message alert: the banner from the top, an envelope with a
+  // count in the corner, or nothing (the sound and the wake still happen).
+  static const uint8_t MSG_ALERT_NORMAL = 0, MSG_ALERT_COMPACT = 1, MSG_ALERT_OFF = 2;
+  uint8_t  msg_alert;
   uint8_t  ringtone_bpm_idx;   // index into {60,90,120,150,180}
   uint8_t  ringtone_len;        // number of notes in custom ringtone (0 = use default)
   uint8_t  ringtone_notes[32]; // packed: bits0-2=pitch, bits3-4=octave-4, bits5-6=dur_idx
@@ -485,6 +503,11 @@ struct NodePrefs {  // persisted to file
   uint32_t advert_auto_interval_sec; // periodic 0-hop advert with GPS: 0=off, else seconds
   // Advert sound filter: 0=all adverts, 1=zero-hop only
   uint8_t  advert_sound_scope;
+  // Settings > Privacy: with "Position in adverts" on, the position is snapped
+  // to a fixed grid (MyMesh::createOwnAdvert): 0 = exact, 1 = ~100 m,
+  // 2 = ~500 m, 3 = ~1 km.
+  static const uint8_t ADV_LOC_PREC_COUNT = 4;
+  uint8_t  advert_loc_prec;
 
   // ── GPIO ───────────────────────────────────────────────────────────────
   // User-assignable GPIO pins (board-specific, see PIN_GPIO1..4 in the
@@ -502,56 +525,16 @@ struct NodePrefs {  // persisted to file
   // ── Custom messages ────────────────────────────────────────────────────
   char custom_msgs[10][140];   // user-defined quick messages (supports {loc}, {time})
 
-  // ── Screen lock PIN ────────────────────────────────────────────────────
+  // ── Screen lock ────────────────────────────────────────────────────────
   // SHA-256 of salt + PIN (see ScreenLock.h); all zeros = no PIN. It locks the
   // screen only: the radio and the app link keep working.
   static const uint8_t LOCK_HASH_LEN = 32;
   static const uint8_t LOCK_SALT_LEN = 16;
   uint8_t lock_screen_password[LOCK_HASH_LEN];
   uint8_t lock_screen_password_salt[LOCK_SALT_LEN];
-
-  // ── Battery curve ──────────────────────────────────────────────────────
-  // The cell voltage (mV) at 0, 10, ... 100 %, for the battery percentage
-  // (ui-core/Battery.h). All zeros = the built-in LiPo curve. Settings >
-  // Battery curve edits it; anything not rising point to point reads as unset.
-  static const uint8_t BATT_CURVE_PTS = 11;
-  uint16_t batt_curve_mv[BATT_CURVE_PTS];
-
-  // ── Lock screen look ───────────────────────────────────────────────────
   // ui-new: 0 = big clock + date + unread pill, 1 = compact clock with the
   // clock fields as rows below. The L2 has its own lock screen.
   uint8_t  lock_compact;
-
-  // ── Bluetooth ──────────────────────────────────────────────────────────
-  // 1 = the user switched Bluetooth off: it stays off after a reboot or
-  // hibernate (MyMesh::startInterface). USB keeps working either way.
-  uint8_t  ble_off;
-
-  // 1 once ch_scope_idx knows CH_SCOPE_DEFAULT. A 2.0-rc1 file has 0 here and
-  // its channels' 0 ("*", then the only start value) becomes "follow the
-  // default" on load (DataStore sanitize).
-  uint8_t  ch_scope_follow;
-
-  // ── New-message alert (ui-new) ─────────────────────────────────────────
-  // How a message arriving shows: the banner from the top, an envelope with
-  // a count in the corner, or nothing (the sound and the wake still happen).
-  static const uint8_t MSG_ALERT_NORMAL = 0, MSG_ALERT_COMPACT = 1, MSG_ALERT_OFF = 2;
-  uint8_t  msg_alert;
-
-  // ── Advert position precision (Settings > Privacy) ─────────────────────
-  // With "Position in adverts" on, the position is snapped to a fixed grid
-  // (MyMesh::createOwnAdvert): 0 = exact, 1 = ~100 m, 2 = ~500 m, 3 = ~1 km.
-  static const uint8_t ADV_LOC_PREC_COUNT = 4;
-  uint8_t  advert_loc_prec;
-
-  // ── Text and icon size (ui-new, big e-ink panels) ──────────────────────
-  // Settings > Display, only on builds that opt in (EINK_FONT_SCALE /
-  // STATUS_ICON_SCALE). ui_text_scale: the font's pixel multiplier, 1-5; 0 is
-  // the build's own (DataStore sanitize sets EINK_FONT_SCALE there).
-  // ui_icon_scale: Home's status icons, 0 = Auto (1.5x the text), else 1-8.
-  static const uint8_t UI_TEXT_SCALE_MAX = 5, UI_ICON_SCALE_MAX = 8;
-  uint8_t  ui_text_scale;
-  uint8_t  ui_icon_scale;
 
   // Single source of truth for the live-share option tables (shared by the Map
   // UI labels and the auto-send engine in UITask).
@@ -633,7 +616,7 @@ struct NodePrefs {  // persisted to file
 
   // /prefs' layout (see the comment at the top). A file of another version
   // isn't read: the defaults stand.
-  static const uint16_t PREFS_VERSION = 1;
+  static const uint16_t PREFS_VERSION = 2;   // 2: 2.0 layout, rc1-rc3 files start from the defaults
 
   // Bit-index for each home page. Used by page_order (entries store bit+1) and
   // by home_pages_mask. Single source of truth — both HomeScreen::pageBit/bitToPage

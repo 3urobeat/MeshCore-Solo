@@ -55,8 +55,7 @@ public:
 
   // Fixed sampling cadence — matches the sensor manager's default GPS update
   // rate (1 s). Density is controlled by the min-delta gate (settings) rather
-  // than by throttling the GPS poll. The NodePrefs::trail_interval_idx field
-  // is retained as reserved for backwards compatibility but no longer used.
+  // than by throttling the GPS poll.
   static const uint16_t SAMPLING_SECS = 1;
 
   // Min-delta (metres) gates samples too close to the previous one.

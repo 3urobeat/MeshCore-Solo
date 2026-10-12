@@ -308,7 +308,6 @@ static void sanitize(NodePrefs& p) {
   flag(p.bot_room_enabled, 0);
   if (p.bot_quiet_start > 23) p.bot_quiet_start = 0;
   if (p.bot_quiet_end > 23) p.bot_quiet_end = 0;
-  flag(p.use_lemon_font, 0);
   flag(p.units_imperial, 0);
   flag(p.trail_show_pace, 0);
   if (p.advert_sound_scope > 1) p.advert_sound_scope = ADVERT_SOUND_SCOPE_ALL;
@@ -340,11 +339,6 @@ static void sanitize(NodePrefs& p) {
   if (p.ui_text_scale == 0) p.ui_text_scale = EINK_FONT_SCALE;
 #endif
   if (p.ui_icon_scale > NodePrefs::UI_ICON_SCALE_MAX) p.ui_icon_scale = 0;
-  if (!p.ch_scope_follow) {
-    for (uint8_t i = 0; i < NodePrefs::MAX_SCOPED_CHANNELS; i++)
-      if (p.ch_scope_idx[i] == 0) p.ch_scope_idx[i] = NodePrefs::CH_SCOPE_DEFAULT;
-    p.ch_scope_follow = 1;
-  }
 }
 
 // The settings a firmware before 2.0 kept in /new_prefs that still matter
