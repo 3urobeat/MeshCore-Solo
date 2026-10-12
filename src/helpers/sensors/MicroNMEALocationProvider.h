@@ -86,6 +86,10 @@ public :
 #ifdef GPS_SKYVIEW
         _sky.reset();   // restarts the time-to-first-fix clock
 #endif
+        // MicroNMEA's valid flag is sticky: without this the fix from before the
+        // last stop() still reads valid, and the GPS duty cycle put the receiver
+        // back to sleep a tick after waking it, before any new position came in.
+        nmea.clear();
         claim();
         if (_pin_en != -1) {
             digitalWrite(_pin_en, GPS_EN_ACTIVE);
