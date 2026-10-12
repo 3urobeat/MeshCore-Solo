@@ -336,7 +336,8 @@ public:
     if ((_state != LOGGING_IN && _state != WAITING) || (int32_t)(millis() - _deadline_ms) < 0) return;
     if (_state == LOGGING_IN) {
       the_mesh.cancelUiPendingLogin(_target.id.pub_key);   // a late answer mustn't land elsewhere
-      the_mesh.forgetRoomPassword(_target.id.pub_key);
+      // No answer says nothing about the password (out of range, busy mesh):
+      // keep a saved one, as RoomSessions does. Only a rejection forgets it.
       _state = IDLE;
       _outcome = LOGIN_TIMEOUT;
       return;

@@ -193,10 +193,18 @@ private:
       uint32_t run = m - got < h.cap - slot ? m - got : h.cap - slot;
       if (fseek(f, sizeof(Hdr) + (long)slot * sizeof(E), SEEK_SET) != 0) break;
       size_t r = fread(&out[got], sizeof(E), run, f);
+      for (size_t i = 0; i < r; i++) sanitize(out[got + i]);
       got += (uint32_t)r;
       if (r != run) break;
     }
     return got;
+  }
+  // The card comes out and goes on a computer: a damaged or edited record
+  // must not leave the text unterminated or a path longer than its buffer.
+  template <typename E>
+  static void sanitize(E& e) {
+    e.text[sizeof(e.text) - 1] = '\0';
+    if (((e.path_len >> 6) + 1) * (e.path_len & 63) > (int)sizeof(e.path)) e.path_len = 0;
   }
   static bool writeHdr(FILE* f, const Hdr& h) {
     return fseek(f, 0, SEEK_SET) == 0 && fwrite(&h, sizeof(h), 1, f) == 1;

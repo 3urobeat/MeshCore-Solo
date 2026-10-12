@@ -708,6 +708,9 @@ void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint3
   }
 }
 
+// Oldest room post the bot still answers (see onSignedMessageRecv()).
+#define BOT_ROOM_MAX_AGE_SECS  300
+
 void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                  const uint8_t *sender_prefix, const char *text) {
   markConnectionActive(from);
@@ -729,7 +732,12 @@ void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uin
   // Room-server auto-reply bot — only ever fires for the room server contact
   // itself (signed posts are how a room relays its members' messages back to
   // us); a defensive type check lives in tryBotReplyRoom/tryBotRoomCommand too.
-  if (from.type == ADV_TYPE_ROOM) {
+  // After login the room replays posts we missed: answer only fresh ones, or
+  // the bot would reply to (and run commands from) the whole backlog. A clock
+  // behind the room's makes every post look new, which keeps today's behaviour.
+  uint32_t now = getRTCClock()->getCurrentTime();
+  bool replayed = now > sender_timestamp && now - sender_timestamp > BOT_ROOM_MAX_AGE_SECS;
+  if (from.type == ADV_TYPE_ROOM && !replayed) {
     uint8_t hops = pkt ? pkt->getPathHashCount() : 0;
     if (!tryBotRoomCommand(from, sender_prefix, text, hops))  // commands take priority
       tryBotReplyRoom(from, sender_prefix, text, hops);
@@ -1796,8 +1804,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (pkt) {
       if (len >= 2 && cmd_frame[1] == 1) { // optional param (1 = flood, 0 = zero hop)
         unsigned long delay_millis = 0;
-        TransportKey default_scope;
-        memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+        TransportKey default_scope = _scope_list.key(_scope_list.default_idx);   // what messages use too
         sendFloodScoped(default_scope, pkt, delay_millis);
       } else {
         sendZeroHop(pkt);
@@ -2512,17 +2519,18 @@ void MyMesh::handleCmdFrame(size_t len) {
         // fields: since the scope list landed, every send and the relay filter
         // resolve through _scope_list, so writing default_scope_name/key alone
         // would leave the app's request with nothing reading it.
-        setPrimaryScope((char *) &cmd_frame[1]);
+        if (!setPrimaryScope((char *) &cmd_frame[1])) {
+          writeErrFrame(ERR_CODE_TABLE_FULL);   // no room for a new entry: default unchanged
+          return;
+        }
         // Honour the key the app derived rather than the one setPrimaryScope()
         // re-derived from the name. They agree today (same "#name" -> SHA256),
         // but the app is the authority on its own regions, and a silent
         // mismatch here would be an on-air difference nothing surfaces.
-        memcpy(_prefs.default_scope_key, &cmd_frame[1+31], 16);
-        if (_scope_list.default_idx >= 1) {
-          memcpy(_scope_list.entries[_scope_list.default_idx - 1].key, &cmd_frame[1+31], 16);
-          if (_store) _store->saveScopeList(_scope_list);
-          rebuildRepeatScopes();   // slot 0 of the relay filter tracks this key
-        }
+        memcpy(_scope_list.entries[_scope_list.default_idx - 1].key, &cmd_frame[1+31], 16);
+        syncLegacyDefaultScope();
+        if (_store) _store->saveScopeList(_scope_list);
+        rebuildRepeatScopes();   // slot 0 of the relay filter tracks this key
         savePrefs();
         writeOKFrame();
       } else {
@@ -2924,8 +2932,7 @@ bool MyMesh::advertFlood() {
   mesh::Packet* pkt;
   pkt = createOwnAdvert();
   if (pkt) {
-    TransportKey default_scope;
-    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+    TransportKey default_scope = _scope_list.key(_scope_list.default_idx);
     sendFloodScoped(default_scope, pkt, 0);
     return true;
   } else {

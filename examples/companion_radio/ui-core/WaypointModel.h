@@ -26,10 +26,12 @@ public:
   void save() {
     DataStore* ds = the_mesh.getDataStore();
     if (!ds) return;
-    File f = ds->openWrite("/waypoints");
+    File f = ds->openWrite("/waypoints.tmp");   // temp + rename: a cut-short write keeps the old file
     if (!f) return;
-    _store.writeTo(f);
+    bool ok = _store.writeTo(f);
     f.close();
+    if (ok) ds->commitFile("/waypoints.tmp", "/waypoints");
+    else ds->removeFile("/waypoints.tmp");
   }
 
   // `label` cut to what a waypoint holds (WAYPOINT_LABEL_LEN - 1 bytes) at a

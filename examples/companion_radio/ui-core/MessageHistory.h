@@ -467,7 +467,8 @@ public:
 
   // Periodic resend driver for outgoing DMs whose ACK deadline lapsed with no
   // ACK: resend with the next attempt# (reusing the original timestamp so the
-  // recipient dedups) while resends remain, else mark it failed (✗).
+  // recipient dedups) while resends remain, else mark it failed (✗). The last
+  // resend floods.
   void tickDmResends() {
     uint32_t now = millis();
     for (int i = 0; i < _dm_hist_count; i++) {
@@ -477,6 +478,13 @@ public:
       if (e.resends_left == 0) { failDm(e); continue; }
       ContactInfo c;
       if (!contactByPrefix(e.prefix, c)) { failDm(e); continue; }
+      // Last attempt over a direct path that went unanswered every time: drop
+      // the path and flood it, as the phone app does -- the route may be gone,
+      // and the flood finds a new one (the ACK's return path re-learns it).
+      if (e.resends_left == 1 && c.out_path_len != OUT_PATH_UNKNOWN &&
+          the_mesh.resetContactPath(c.id.pub_key)) {
+        c.out_path_len = OUT_PATH_UNKNOWN;
+      }
       uint32_t expected_ack = 0, est_timeout = 0;
       uint8_t next_attempt = e.attempt + 1;
       if (the_mesh.sendMessage(c, e.msg_ts, next_attempt, e.text,

@@ -4,41 +4,33 @@
 // Not part of upstream MyMesh.cpp: included at its bottom, after all class
 // definitions (as MyMeshBot.h and MyMeshCli.h).
 
-void MyMesh::setPrimaryScope(const char* name) {
-  // Keep the legacy fields in sync too -- inert for rebuildRepeatScopes()
-  // once /scopes1 exists, but still what a pre-list save file round-trips,
-  // and cheap to maintain.
-  strncpy(_prefs.default_scope_name, name, sizeof(_prefs.default_scope_name) - 1);
-  _prefs.default_scope_name[sizeof(_prefs.default_scope_name) - 1] = '\0';
-  if (_prefs.default_scope_name[0] == '\0') {
-    memset(_prefs.default_scope_key, 0, sizeof(_prefs.default_scope_key));
-  } else {
-    char hashtag[1 + sizeof(_prefs.default_scope_name)];
-    snprintf(hashtag, sizeof(hashtag), "#%s", _prefs.default_scope_name);
-    TransportKeyStore temp;
-    TransportKey key;
-    temp.getAutoKeyFor(0, hashtag, key);
-    memcpy(_prefs.default_scope_key, key.key, sizeof(key.key));
-  }
-
-  if (_prefs.default_scope_name[0] == '\0') {
+bool MyMesh::setPrimaryScope(const char* name) {
+  bool ok = true;
+  if (!name || name[0] == '\0') {
     _scope_list.default_idx = 0;   // "*"
   } else {
     // Find-or-create a matching named entry (e.g. the app driving this
     // remotely via CMD_SET_DEFAULT_FLOOD_SCOPE), then mark it default.
+    char nm[sizeof(_prefs.default_scope_name)];
+    StrHelper::strncpy(nm, name, sizeof(nm));
     uint8_t idx = 0;
     for (uint8_t i = 0; i < _scope_list.count; i++) {
-      if (strcmp(_scope_list.entries[i].name, _prefs.default_scope_name) == 0) { idx = i + 1; break; }
+      if (strcmp(_scope_list.entries[i].name, nm) == 0) { idx = i + 1; break; }
     }
-    if (idx == 0) idx = _scope_list.add(_prefs.default_scope_name);
+    if (idx == 0) idx = _scope_list.add(nm);
     // add() returns 0 only when the list is full. Keep the previous default
     // rather than taking that as "*": silently dropping to unscoped would put
     // traffic on the air outside any region, which is a louder failure than
     // ignoring a request we had no room to honour.
     if (idx != 0) _scope_list.default_idx = idx;
+    else ok = false;
   }
+  // The legacy fields always mirror the list's default, so a refused request
+  // can't leave them naming a scope nothing else sends with.
+  syncLegacyDefaultScope();
   if (_store) _store->saveScopeList(_scope_list);
   rebuildRepeatScopes();
+  return ok;
 }
 
 void MyMesh::syncLegacyDefaultScope() {
@@ -91,7 +83,7 @@ void MyMesh::removeScope(uint8_t idx) {
   for (uint8_t i = 0; i < NodePrefs::MAX_SCOPED_CHANNELS; i++) {
     uint8_t ci = _prefs.ch_scope_idx[i];
     if (ci == NodePrefs::CH_SCOPE_DEFAULT) continue;   // follows the default, fixed up above
-    if (ci == idx) _prefs.ch_scope_idx[i] = 0;
+    if (ci == idx) _prefs.ch_scope_idx[i] = NodePrefs::CH_SCOPE_DEFAULT;   // back to the default, not to unscoped "*"
     else if (ci > idx) _prefs.ch_scope_idx[i] = ci - 1;
   }
   // Live Share's own scope (stored as list index + 1; 0 = follow the target).

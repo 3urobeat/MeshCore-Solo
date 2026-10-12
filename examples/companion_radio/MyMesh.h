@@ -485,7 +485,7 @@ public:
   // device's own list too, not just in the two legacy fields. Empty name
   // clears the default back to list index 0 ("*"). Calls
   // rebuildRepeatScopes() and persists the list.
-  void setPrimaryScope(const char* name);
+  bool setPrimaryScope(const char* name);   // false: list full, default unchanged
 
   // Mirrors the list's current default entry back into the legacy
   // NodePrefs::default_scope_name/key pair. Those two fields are the only

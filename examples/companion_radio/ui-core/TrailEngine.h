@@ -63,10 +63,7 @@ public:
   // trail can't wipe a previously saved one.
   void onShutdown() {
     if (!_prefs || !_prefs->trail_autosave_lowbatt || _trail.count() == 0) return;
-    DataStore* ds = the_mesh.getDataStore();
-    if (!ds) return;
-    File f = ds->openWrite("/trail");
-    if (f) { _trail.writeTo(f); f.close(); }
+    save();
   }
 
   TrailStore& store() { return _trail; }
@@ -74,6 +71,7 @@ public:
   // ── Actions ────────────────────────────────────────────────────────────────
   enum FileResult : uint8_t { FILE_OK, FILE_NO_FS, FILE_MISSING, FILE_FAILED };
   static constexpr const char* TRAIL_FILE = "/trail";
+  static constexpr const char* TRAIL_TMP  = "/trail.tmp";
 
   bool isActive() const { return _trail.isActive(); }
   void setActive(bool on) { _trail.setActive(on); }
@@ -82,10 +80,14 @@ public:
   FileResult save() {
     DataStore* ds = the_mesh.getDataStore();
     if (!ds) return FILE_NO_FS;
-    File f = ds->openWrite(TRAIL_FILE);
+    // Through a temp file: a write cut short (flash full, power lost mid-save)
+    // keeps the previous saved trail instead of leaving a torn /trail.
+    File f = ds->openWrite(TRAIL_TMP);
     if (!f) return FILE_FAILED;
     bool ok = _trail.writeTo(f);
     f.close();
+    if (ok) ok = ds->commitFile(TRAIL_TMP, TRAIL_FILE);
+    else ds->removeFile(TRAIL_TMP);
     return ok ? FILE_OK : FILE_FAILED;
   }
   FileResult load() {
