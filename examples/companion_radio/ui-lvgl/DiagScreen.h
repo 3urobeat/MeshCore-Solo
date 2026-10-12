@@ -280,7 +280,9 @@ static void noiseSweep(Sweep& sw, const NodePrefs* p) {
     sw.v[i] = (int16_t)lroundf(v[K / 2]);
   }
   radio.standby();
-  if (p) radio_driver.setParams(p->freq, p->bw, p->sf, p->cr);
+  // Back to what the mesh uses: the repeater's own profile while relaying on
+  // one, not always the chat settings.
+  if (p) the_mesh.applyRepeaterRadio();
   radio.startReceive();
 }
 #endif

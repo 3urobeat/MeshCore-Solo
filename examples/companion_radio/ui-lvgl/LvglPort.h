@@ -287,7 +287,12 @@ static void backlightFadeIn() { display.fadeIn(); }
 // is picked up.
 static bool s_sd_mounted = false;
 static uint32_t s_sd_last_try = 0;
+// Lent to a computer as a USB drive (usbDriveStart()): its driver owns the
+// card's host. Mounting it again here as well -- the map, the history and
+// Settings > About all ask -- would put two drivers on one card.
+static bool s_sd_lent = false;
 static bool mountStorage() {
+  if (s_sd_lent) return false;
   if (s_sd_mounted) return true;
   if (s_sd_last_try && millis() - s_sd_last_try < 5000) return false;
   s_sd_last_try = millis() | 1;
@@ -373,6 +378,7 @@ static bool usbDriveStart() {
   if (s_usb_drive) return true;
   SD_MMC.end();
   s_sd_mounted = false;
+  s_sd_lent = true;
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
   host.flags = SDMMC_HOST_FLAG_1BIT;
   sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
@@ -386,7 +392,7 @@ static bool usbDriveStart() {
     sdmmc_host_deinit();
     ok = false;
   }
-  if (!ok) { s_sd_last_try = 0; mountStorage(); return false; }
+  if (!ok) { s_sd_lent = false; s_sd_last_try = 0; mountStorage(); return false; }
   s_msc.vendorID("MeshCore");
   s_msc.productID("Wio L2 SD card");
   s_msc.productRevision("1.0");
@@ -408,6 +414,7 @@ static void usbDriveStop() {
   delay(100);
   sdmmc_host_deinit();
   s_usb_drive = false;
+  s_sd_lent = false;   // the UI restarts next (restartScreen): the card is mounted afresh
 }
 #else
 static bool usbHost() { return false; }

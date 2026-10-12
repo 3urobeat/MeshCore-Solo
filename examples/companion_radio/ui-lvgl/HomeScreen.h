@@ -564,7 +564,8 @@ void UITask::buildHomeClock(lv_obj_t* box) {
   lv_obj_set_style_pad_top(row, 12, 0);
   char opts[200];
   int o = 0;
-  for (int k = 0; k < telemetry::COUNT; k++) o += snprintf(opts + o, sizeof(opts) - o, "%s%s", k ? "\n" : "", telemetry::NAME[k]);
+  for (int k = 0; k < telemetry::COUNT && o < (int)sizeof(opts) - 24; k++)   // 137 bytes today; the list only grows
+    o += snprintf(opts + o, sizeof(opts) - o, "%s%s", k ? "\n" : "", telemetry::NAME[k]);
   for (int i = 0; i < FIELDS; i++) {
     uint8_t f = _prefs ? _prefs->dashboard_fields[i] : telemetry::NONE;
     if (f >= telemetry::COUNT) f = telemetry::NONE;

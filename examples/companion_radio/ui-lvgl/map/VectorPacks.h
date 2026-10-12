@@ -35,25 +35,75 @@ public:
   // start), then done() -- a pack's file stays open for the next read.
   struct Src { FILE* f = nullptr; uint32_t len = 0; bool owned = false; };
 
+  // The loop (labels, the region list, a scan) and the tile task on the other
+  // core both read packs: one shared FILE* and index. A recursive lock spans
+  // find() to done() and every change to the list, so one never closes or
+  // seeks the file under the other.
+#if defined(ESP32)
+  VectorPacks() : _mx(xSemaphoreCreateRecursiveMutex()) {}
+  void lock()   { if (_mx) xSemaphoreTakeRecursive(_mx, portMAX_DELAY); }
+  void unlock() { if (_mx) xSemaphoreGiveRecursive(_mx); }
+#else
+  void lock() {}
+  void unlock() {}
+#endif
+
   // Lists the packs again (the map opening, a download finished).
   void scan() {
+    lock();
     closeOpen();
     for (int i = 0; i < _n; i++) free(_p[i].index);
     _n = 0;
     DIR* d = opendir(VECTOR_ROOT);
-    if (!d) return;
+    if (!d) { unlock(); return; }
     while (struct dirent* e = readdir(d)) {
       size_t l = strlen(e->d_name);
       if (_n >= MAX || l < 5 || l >= sizeof(_p[0].file) || strcasecmp(e->d_name + l - 4, ".vpk") != 0) continue;
       if (open(_p[_n], e->d_name)) _n++;
     }
     closedir(d);
+    unlock();
   }
 
   int count() const { return _n; }
   const Pack& at(int i) const { return _p[i]; }
 
+  // True: `s` is ready to read and the lock is held until done(s).
   bool find(uint8_t kind, int dz, int x, int y, Src& s) {
+    lock();
+    if (findLocked(kind, dz, x, y, s)) return true;
+    unlock();
+    return false;
+  }
+  void done(Src& s) {
+    if (s.owned && s.f) fclose(s.f);
+    s.f = nullptr;
+    unlock();
+  }
+
+  // Before a pack file is replaced or deleted.
+  void closeOpen() {
+    lock();
+    if (_open_f) fclose(_open_f);
+    _open_f = nullptr;
+    _open_i = -1;
+    unlock();
+  }
+
+  // Deletes a pack: closed and removed under the lock (the tile task can't
+  // reopen it in between), then the list read again.
+  void removePack(const char* file) {
+    lock();
+    closeOpen();
+    char path[64];
+    snprintf(path, sizeof(path), "%s/%s", VECTOR_ROOT, file);
+    remove(path);
+    scan();
+    unlock();
+  }
+
+private:
+  bool findLocked(uint8_t kind, int dz, int x, int y, Src& s) {
     uint64_t key = keyOf(kind, dz, x, y);
     for (int i = 0; i < _n; i++) {
       Pack& p = _p[i];
@@ -75,23 +125,14 @@ public:
     s.f = f; s.len = sz > 0 ? (uint32_t)sz : 0; s.owned = true;
     return true;
   }
-  void done(Src& s) {
-    if (s.owned && s.f) fclose(s.f);
-    s.f = nullptr;
-  }
 
-  // Before a pack file is replaced or deleted.
-  void closeOpen() {
-    if (_open_f) fclose(_open_f);
-    _open_f = nullptr;
-    _open_i = -1;
-  }
-
-private:
   Pack _p[MAX];
   int _n = 0;
   FILE* _open_f = nullptr;   // the pack read last
   int _open_i = -1;
+#if defined(ESP32)
+  SemaphoreHandle_t _mx;
+#endif
   static const uint32_t INDEX_IN_RAM_MAX = 2u * 1024 * 1024;
 
   static uint64_t keyOf(uint8_t kind, int dz, int x, int y) {

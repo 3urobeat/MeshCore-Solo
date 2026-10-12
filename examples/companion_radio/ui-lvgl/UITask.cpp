@@ -951,6 +951,7 @@ void UITask::fillStart(int n, int first, void (UITask::*row)(int)) {
 void UITask::fillStep() {
   FillJob& j = s_fill[0];
   (this->*j.fn)(j.next++);   // may queue more, behind
+  if (!s_fill_n) return;     // the piece built a new screen: the queue went with the old one
   if (j.next >= j.end) memmove(s_fill, s_fill + 1, --s_fill_n * sizeof(FillJob));
 }
 

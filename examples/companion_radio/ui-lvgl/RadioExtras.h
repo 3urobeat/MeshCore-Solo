@@ -200,7 +200,7 @@ void UITask::scopeAction(uint8_t act) {
       char t[40];
       snprintf(t, sizeof(t), "Delete %s?", sl.name((uint8_t)s_scope));
       confirmBody(navPopupPanel(t, false),
-                  "Channels using it go back to no scope. If it is the default, * becomes the default.",
+                  "Channels using it follow the default again. If it is the default, * becomes the default.",
                   LV_SYMBOL_TRASH "  Delete", onScopeAction, S_DELETE_GO);
       break;
     }

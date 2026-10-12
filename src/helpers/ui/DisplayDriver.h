@@ -441,6 +441,10 @@ public:
 
       int ellipsis_width = getTextWidth(ellipsis);
       int str_len = strlen(temp_str);
+      // Room for the ellipsis whatever the trim below leaves (a near-full
+      // buffer of narrow glyphs on a wide panel could keep all but one byte).
+      const int room = (int)sizeof(temp_str) - 1 - (int)strlen(ellipsis);
+      if (str_len > room) temp_str[str_len = room] = 0;
 
       while (str_len > 0 && getTextWidth(temp_str) > max_width - ellipsis_width) {
         temp_str[--str_len] = 0;

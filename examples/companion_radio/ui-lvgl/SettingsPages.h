@@ -487,7 +487,9 @@ void UITask::schemaRow(lv_obj_t* card, int i) {
     lv_obj_add_event_cb(sw, onSchemaSwitch, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)i);
     return;
   }
-  char opts[160];
+  // The longest list, the time zone, is 27 options and 167 bytes: at 160
+  // it lost UTC+8 .. +14, and a zone set from the app showed as UTC-12.
+  char opts[320];
   int o = 0;
   for (uint8_t k = 0; k < st.count && o < (int)sizeof(opts) - 16; k++) {
     if (k) opts[o++] = '\n';

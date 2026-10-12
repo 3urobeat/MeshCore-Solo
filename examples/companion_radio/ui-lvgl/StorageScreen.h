@@ -414,6 +414,7 @@ void UITask::storageFormatTap(bool go) {
   lv_refr_now(NULL);   // shown before the loop blocks
   stopWalk();
   if (mapview::s_dl.active()) mapDownloadStop();
+  mapview::s_vpacks.closeOpen();
   bool ok = lvport::formatCard();
   if (!ok) {
     if (s_fmt_overlay) lv_obj_delete_async(s_fmt_overlay);
@@ -504,6 +505,7 @@ void UITask::usbTap(bool drive) {
   if (!drive || locked()) return;
   storeview::stopWalk();
   if (mapview::s_dl.active()) mapDownloadStop();
+  mapview::s_vpacks.closeOpen();   // a pack file kept open between reads: not across the unmount
   if (!lvport::usbDriveStart()) { showToast("No SD card to share", 3000); return; }
   usbPanel("USB drive",
            "The computer has the SD card now. Eject it there (or unplug the cable) when you're done - "

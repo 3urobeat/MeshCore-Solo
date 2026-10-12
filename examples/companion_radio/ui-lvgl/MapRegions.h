@@ -83,10 +83,9 @@ void UITask::mapRegionAction(uint8_t act) {
     }
     case A_DELETE: {
       if (!tapConfirmed(s_del_lbl, "Delete?")) return;
-      char path[80];
-      snprintf(path, sizeof(path), "%s/%s", mapview::VECTOR_ROOT, p.file);
-      mapview::s_vpacks.closeOpen();
-      remove(path);
+      char file[sizeof(p.file)];
+      snprintf(file, sizeof(file), "%s", p.file);   // p is the list's: read again by removePack()
+      mapview::s_vpacks.removePack(file);
       mapview::s_vector.available();   // lists the packs again, forgets the data read
       mapview::labels::flush();
       mapview::s_cache.invalidate();
