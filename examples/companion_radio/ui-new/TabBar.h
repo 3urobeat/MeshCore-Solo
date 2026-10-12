@@ -17,13 +17,20 @@ namespace tabbar {
 // and the view below slides across as Home's page turn does, where the driver
 // can read its frame back (else it just cuts over). One tab bar is on screen
 // at a time, so one state.
-static constexpr unsigned long TURN_MS = 220;   // Home's SLIDE_MS
+static constexpr unsigned long TURN_MS = 220;   // the bar: Home's SLIDE_MS
+static constexpr unsigned long VIEW_MS = 140;   // the view: it covers the screen's width
+                                                // to the bar's few px, so sooner
+inline float easeOut(unsigned long el, unsigned long ms) {   // quick start, soft landing
+  if (el >= ms) return 1.0f;
+  const float u = 1.0f - (float)el / ms;
+  return 1.0f - u * u * u;
+}
 struct Turn {
   const char* const* labels = nullptr;   // the bar it belongs to
   int from = 0, dir = 0;                 // dir 0: none running
   unsigned long t0 = 0;
   bool content = false;                  // slideBegin() took the view below
-  float p = 0;                           // this frame's eased progress, set by draw()
+  float p = 0;                           // the bar's eased progress this frame, set by draw()
   bool drawn = false;                    // draw() painted a frame of it
 };
 inline Turn& turnState() { static Turn t; return t; }
@@ -45,7 +52,7 @@ inline bool endFrame(DisplayDriver& d) {
   if (!t.dir) return false;
   if (!t.drawn) { t = Turn(); return false; }   // the bar is gone (a popup, another view)
   t.drawn = false;
-  if (t.content) d.slideCompose(t.dir * (int)(d.width() * t.p + 0.5f));
+  if (t.content) d.slideCompose(t.dir * (int)(d.width() * easeOut(millis() - t.t0, VIEW_MS) + 0.5f));
   return true;
 }
 
@@ -122,8 +129,7 @@ inline void draw(DisplayDriver& display, const char* const* labels, int count, i
     else {
       // The strip laid out round the new tab, shifted to start with the old
       // one centred (it's the new one's neighbour) and easing over to it.
-      const float u = 1.0f - (float)el / TURN_MS;
-      t.p = 1.0f - u * u * u;          // ease-out: quick start, soft landing
+      t.p = easeOut(el, TURN_MS);
       t.drawn = true;
       const int wf = display.getTextWidth(labels[t.from]) + pad * 2;
       const int sh = (int)(t.dir * (aw / 2 + gap + wf / 2) * (1.0f - t.p) + 0.5f * t.dir);
