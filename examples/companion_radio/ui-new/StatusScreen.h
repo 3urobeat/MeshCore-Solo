@@ -475,8 +475,8 @@ public:
       _qr = c == KEY_ENTER && _qr == QR_CONTACT ? QR_MANUAL : c == KEY_ENTER && _qr == QR_MANUAL ? QR_CONTACT : QR_NONE;
       return true;
     }
-    if (keyIsPrev(c)) { _cur = (_cur + _count - 1) % _count; _scroll = 0; return true; }
-    if (keyIsNext(c)) { _cur = (_cur + 1) % _count;          _scroll = 0; return true; }
+    if (keyIsPrev(c)) { tabbar::turn(_task->getDisplay(), _labels, _cur, -1); _cur = (_cur + _count - 1) % _count; _scroll = 0; return true; }
+    if (keyIsNext(c)) { tabbar::turn(_task->getDisplay(), _labels, _cur, +1); _cur = (_cur + 1) % _count;          _scroll = 0; return true; }
     if (c == KEY_UP)   { if (_scroll > 0) _scroll--; return true; }
     if (c == KEY_DOWN) { if (_more) _scroll++; return true; }
 #if ENV_INCLUDE_GPS == 1

@@ -1398,6 +1398,7 @@ void UITask::loop() {
       _badge_in_bar = false;
       _kb.beginFrame();
       int delay_millis = curr->render(*_display);
+      if (tabbar::endFrame(*_display) && delay_millis > 15) delay_millis = 15;   // a tab turn sliding
       // Skip the alert overlay (new-message toast) while the keyboard is the
       // thing actually on screen this frame -- it's shared across Messages/
       // Bot/Settings/Admin/etc., so this covers every screen that uses it for

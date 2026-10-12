@@ -177,8 +177,8 @@ public:
       _task->leaveTool();
       return true;
     }
-    if (keyIsPrev(c)) { _tab = (_tab + botcfg::TAB_COUNT - 1) % botcfg::TAB_COUNT; _sel = _scroll = 0; return true; }
-    if (keyIsNext(c)) { _tab = (_tab + 1) % botcfg::TAB_COUNT;             _sel = _scroll = 0; return true; }
+    if (keyIsPrev(c)) { tabbar::turn(_task->getDisplay(), botcfg::TAB_LABELS, _tab, -1); _tab = (_tab + botcfg::TAB_COUNT - 1) % botcfg::TAB_COUNT; _sel = _scroll = 0; return true; }
+    if (keyIsNext(c)) { tabbar::turn(_task->getDisplay(), botcfg::TAB_LABELS, _tab, +1); _tab = (_tab + 1) % botcfg::TAB_COUNT;             _sel = _scroll = 0; return true; }
 
     int n = botcfg::rowCount(_tab);
     // drawList() reclamps _scroll from _sel every render.

@@ -1024,8 +1024,8 @@ public:
       _detail_refresh_ms = millis();
       return true;
     }
-    if (keyIsPrev(c)) { _filter = (_filter + F_COUNT - 1) % F_COUNT; refresh(); return true; }
-    if (keyIsNext(c)) { _filter = (_filter + 1) % F_COUNT;          refresh(); return true; }
+    if (keyIsPrev(c)) { tabbar::turn(_task->getDisplay(), filterLabels(), _filter, -1); _filter = (_filter + F_COUNT - 1) % F_COUNT; refresh(); return true; }
+    if (keyIsNext(c)) { tabbar::turn(_task->getDisplay(), filterLabels(), _filter, +1); _filter = (_filter + 1) % F_COUNT;          refresh(); return true; }
     return false;
   }
 };

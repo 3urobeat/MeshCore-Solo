@@ -9,8 +9,45 @@
 // Tab-switching itself (LEFT/RIGHT cycling the active index) is NOT part of
 // this helper -- each screen's cycle has different side effects (refresh a
 // list, reset a row selection, ...), so that one-liner stays inline per screen.
+// A screen that switches calls turn() too, for the animation.
 
 namespace tabbar {
+
+// A tab turn (OLED): the strip glides from the old tab centred to the new one,
+// and the view below slides across as Home's page turn does, where the driver
+// can read its frame back (else it just cuts over). One tab bar is on screen
+// at a time, so one state.
+static constexpr unsigned long TURN_MS = 220;   // Home's SLIDE_MS
+struct Turn {
+  const char* const* labels = nullptr;   // the bar it belongs to
+  int from = 0, dir = 0;                 // dir 0: none running
+  unsigned long t0 = 0;
+  bool content = false;                  // slideBegin() took the view below
+  float p = 0;                           // this frame's eased progress, set by draw()
+  bool drawn = false;                    // draw() painted a frame of it
+};
+inline Turn& turnState() { static Turn t; return t; }
+
+// Call on switching from tab `from` one step in `dir` (+1 next, -1 previous),
+// before the next frame is drawn.
+inline void turn(DisplayDriver* d, const char* const* labels, int from, int dir) {
+  Turn& t = turnState();
+  t = Turn();
+  if (!d || d->isEink()) return;
+  t.labels = labels; t.from = from; t.dir = dir; t.t0 = millis();
+  t.content = d->slideBegin(d->headerH());
+}
+
+// After the screen's render(): slides the view in behind the old one. True
+// while a turn runs, for the caller to refresh at animation pace.
+inline bool endFrame(DisplayDriver& d) {
+  Turn& t = turnState();
+  if (!t.dir) return false;
+  if (!t.drawn) { t = Turn(); return false; }   // the bar is gone (a popup, another view)
+  t.drawn = false;
+  if (t.content) d.slideCompose(t.dir * (int)(d.width() * t.p + 0.5f));
+  return true;
+}
 
 // One tab: short label; the active one is an inverted pill (same look as a
 // selected row) so it reads as "you are here" in the tab strip.
@@ -77,6 +114,50 @@ inline void draw(DisplayDriver& display, const char* const* labels, int count, i
   };
 
   const int arr = 3 * display.sepH();   // the edge arrow's width
+
+  Turn& t = turnState();
+  if (t.dir && t.labels == labels) {
+    const unsigned long el = millis() - t.t0;
+    if (el >= TURN_MS) t.dir = 0;
+    else {
+      // The strip laid out round the new tab, shifted to start with the old
+      // one centred (it's the new one's neighbour) and easing over to it.
+      const float u = 1.0f - (float)el / TURN_MS;
+      t.p = 1.0f - u * u * u;          // ease-out: quick start, soft landing
+      t.drawn = true;
+      const int wf = display.getTextWidth(labels[t.from]) + pad * 2;
+      const int sh = (int)(t.dir * (aw / 2 + gap + wf / 2) * (1.0f - t.p) + 0.5f * t.dir);
+      drawPill(display, ax + sh, aw, labels[active], true);
+      int lx = ax - gap + sh, rx = ax + aw + gap + sh;
+      for (int k = 1; k <= count / 2; k++) {
+        const int li = (active - k + count) % count, ri = (active + k) % count;
+        const int wl = display.getTextWidth(labels[li]) + pad * 2;
+        if (lx > 0) drawPill(display, lx - wl, wl, labels[li], false);
+        lx -= wl + gap;
+        if (ri == li) break;
+        const int wr = display.getTextWidth(labels[ri]) + pad * 2;
+        if (rx < rx_limit) drawPill(display, rx, wr, labels[ri], false);
+        rx += wr + gap;
+      }
+      // Seen through the window the settled bar spans, with its arrows: the
+      // tabs slide in and out at its ends instead of popping at the finish,
+      // and nothing slides under the caller's decoration.
+      Fit f = layout(0, false);
+      if (f.shown < count && f.left_free < arr + 1 && f.right_free < arr + 1) f = layout(arr + 2, false);
+      const int bh = display.headerH() - display.sepH(), y_mid = display.getLineHeight() / 2;
+      display.setColor(DisplayDriver::DARK);
+      display.fillRect(0, 0, f.left_free, bh);
+      display.fillRect(rx_limit - f.right_free, 0, f.right_free + right_reserve, bh);
+      if (f.shown < count) {
+        if (f.left_free >= arr + 1)  drawEdgeArrow(display, 0, y_mid, -1);
+        if (f.right_free >= arr + 1) drawEdgeArrow(display, rx_limit - arr, y_mid, +1);
+      }
+      display.setColor(DisplayDriver::LIGHT);
+      display.fillRect(0, display.headerH() - display.sepH(), display.width(), display.sepH());
+      return;
+    }
+  }
+
   drawPill(display, ax, aw, labels[active], true);
   Fit f = layout(0, false);
   if (f.shown < count && f.left_free < arr + 1 && f.right_free < arr + 1)

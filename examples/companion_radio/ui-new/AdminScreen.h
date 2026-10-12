@@ -292,8 +292,8 @@ public:
       return true;
     }
     if (c == KEY_CANCEL) { returnToOrigin(); return true; }
-    if (keyIsPrev(c)) { _tab = (_tab + admin::TAB_COUNT - 1) % admin::TAB_COUNT; _row_sel = _row_scroll = 0; return true; }
-    if (keyIsNext(c)) { _tab = (_tab + 1) % admin::TAB_COUNT;                    _row_sel = _row_scroll = 0; return true; }
+    if (keyIsPrev(c)) { tabbar::turn(_task->getDisplay(), admin::TAB_LABELS, _tab, -1); _tab = (_tab + admin::TAB_COUNT - 1) % admin::TAB_COUNT; _row_sel = _row_scroll = 0; return true; }
+    if (keyIsNext(c)) { tabbar::turn(_task->getDisplay(), admin::TAB_LABELS, _tab, +1); _tab = (_tab + 1) % admin::TAB_COUNT;                    _row_sel = _row_scroll = 0; return true; }
     int n = admin::rowCount(_tab);
     if (c == KEY_UP)   { _row_sel = (_row_sel > 0) ? _row_sel - 1 : n - 1; return true; }
     if (c == KEY_DOWN) { _row_sel = (_row_sel < n - 1) ? _row_sel + 1 : 0; return true; }
