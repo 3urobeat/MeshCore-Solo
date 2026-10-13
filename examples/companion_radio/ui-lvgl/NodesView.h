@@ -12,7 +12,7 @@ static NearbyModel::Entry s_node;   // the node open in SCR_NODE (a copy: the li
 // Its info card's values (UITask::_node_info is the card).
 static lv_obj_t *s_nd_type, *s_nd_status, *s_nd_dist, *s_nd_pos, *s_nd_heard, *s_nd_signal, *s_nd_id;
 enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV, NODE_ADMIN, NODE_WAYPOINT, NODE_PIN,
-                 NODE_RESET_PATH, NODE_SHARE };
+                 NODE_RESET_PATH, NODE_SHARE, NODE_ROUTE };
 
 static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
@@ -358,6 +358,7 @@ void UITask::buildNode() {
     nodeFavText();
     if (contact && e.has_key) actionRow(g, UI_SYMBOL_TACK "  Pin to Home", onNodeAction, (void*)(uintptr_t)NODE_PIN);
     ContactInfo* ci = (contact && e.has_key) ? the_mesh.lookupContactByPubKey(e.pub_key, PUB_KEY_SIZE) : nullptr;
+    if (ci) actionRow(g, UI_SYMBOL_ROUTE "  Route and trace", onNodeAction, (void*)(uintptr_t)NODE_ROUTE);
     if (ci && contactctl::hasPath(*ci))
       _node_path_lbl = actionRow(g, LV_SYMBOL_REFRESH "  Reset path", onNodeAction, (void*)(uintptr_t)NODE_RESET_PATH);
     if (ci) actionRow(g, LV_SYMBOL_UPLOAD "  Share with nodes in range", onNodeAction, (void*)(uintptr_t)NODE_SHARE);
@@ -523,6 +524,9 @@ void UITask::nodeAction(uint8_t action) {
         _node_path_lbl = nullptr;
         refreshNode();
       }
+      break;
+    case NODE_ROUTE:
+      showRoute(e.pub_key);
       break;
     case NODE_SHARE:
       showToast(contactctl::share(e.pub_key) ? "Sent to nodes in range" : "No advert saved to send");

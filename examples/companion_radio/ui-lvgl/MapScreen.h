@@ -160,13 +160,37 @@ static void fillAroundMap(lv_event_t* e) {
     if (a.x1 <= a.x2 && a.y1 <= a.y2) lv_draw_rect(layer, &d, &a);
 }
 
-// Markers, remembered so layout can reposition them. `idx` is the Nearby row
+// Markers: one drawn layer, not an object per marker (64 nodes were ~190
+// objects to lay out and invalidate on every pan). `idx` is the Nearby row
 // (MK_NODE), the waypoint index (MK_WAYPOINT) or the live-share slot (MK_LIVE).
+// layoutMapMarks() fills the placement (dot centre, name pill) from the view;
+// the layer's draw callback paints it; a tap is hit-tested by hitMark().
 enum : uint8_t { MK_NODE, MK_WAYPOINT, MK_LIVE };
-struct Mark { int32_t lat_e6, lon_e6; int idx; uint8_t kind; uint32_t col, text_hash; lv_obj_t* obj; lv_obj_t* dot; };
+static const int MARK_NAME = 31;
+struct Mark {
+  int32_t lat_e6, lon_e6; int idx; uint8_t kind; uint32_t col, text_hash;
+  char name[MARK_NAME + 1];
+  int16_t tw;                 // the name's width in px
+  int16_t x, y;               // dot centre, layer px (valid when vis)
+  int16_t lx, ly, lw, lh;     // name pill, layer px (lw 0: no room for it)
+  uint8_t order;              // 1.. while it is a hop of the route being picked, else 0
+  bool vis;                   // inside the view
+};
+// What was drawn for a slot last time, to repaint only what changed.
+struct MarkSig { int16_t x, y, lx, ly, lw; uint32_t col, hash; uint8_t order; bool vis; };
 static const int MAX_MARKS = NearbyModel::MAX_NEARBY > WaypointStore::CAPACITY + LiveTrackStore::CAPACITY
                              ? NearbyModel::MAX_NEARBY : WaypointStore::CAPACITY + LiveTrackStore::CAPACITY;   // Nearby map, or waypoints + live shares
 static Mark* s_marks = psramBuf<Mark>(MAX_MARKS);
+static MarkSig* s_sigs = psramBuf<MarkSig>(MAX_MARKS);
+static int  s_sig_n = 0;
+static lv_obj_t* s_mark_layer = nullptr;
+// The route being picked (Route > Map): its points as lat/lon, and in layer px
+// from the last layout, drawn as a line under the markers.
+static const int ROUTE_PTS = 10;
+static int32_t s_route_lat[ROUTE_PTS], s_route_lon[ROUTE_PTS];
+static int s_route_n = 0;
+static lv_point_precise_t s_route_px[ROUTE_PTS];
+static bool s_route_on = false;
 static int  s_mark_count = 0;
 static int  s_mark_prev = 0;   // during a rebuild: how many the last one left, reused where unchanged
 static int  s_drag = 0;   // px moved in the current press: a drag isn't a tap
@@ -235,6 +259,100 @@ static bool prefetchOne(double left, double top, int w, int h, int z) {
 }
 
 static const int MARK_D = 12;   // marker dot diameter
+static const int MARK_LABELS_MAX = 20;   // names shown at once: the rest stay dots
+
+// LV_EVENT_DRAW_MAIN of the marker layer: the name pills, then the dots over them.
+static void drawMarks(lv_event_t* e) {
+  lv_obj_t* o = (lv_obj_t*)lv_event_get_target(e);
+  lv_layer_t* layer = lv_event_get_layer(e);
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+  if (s_route_on && s_route_n >= 2) {
+    lv_draw_line_dsc_t ln;
+    lv_draw_line_dsc_init(&ln);
+    ln.color = lv_color_hex(theme::ACCENT);
+    ln.width = 3;
+    ln.round_start = ln.round_end = 1;
+    for (int i = 0; i + 1 < s_route_n; i++) {
+      ln.p1 = { s_route_px[i].x + a.x1, s_route_px[i].y + a.y1 };
+      ln.p2 = { s_route_px[i + 1].x + a.x1, s_route_px[i + 1].y + a.y1 };
+      lv_draw_line(layer, &ln);
+    }
+  }
+  lv_draw_rect_dsc_t pill;
+  lv_draw_rect_dsc_init(&pill);
+  pill.bg_color = lv_color_hex(theme::BG);
+  pill.bg_opa = LV_OPA_COVER;
+  pill.radius = 4;
+  lv_draw_label_dsc_t ld;
+  lv_draw_label_dsc_init(&ld);
+  ld.font = THEME_FONT_SMALL;
+  ld.color = lv_color_hex(theme::TEXT);
+  for (int k = 0; k < s_mark_count; k++) {
+    const Mark& m = s_marks[k];
+    if (!m.vis || !m.lw) continue;
+    lv_area_t pa = { a.x1 + m.lx, a.y1 + m.ly, a.x1 + m.lx + m.lw - 1, a.y1 + m.ly + m.lh - 1 };
+    lv_draw_rect(layer, &pill, &pa);
+    lv_area_t ta = { pa.x1 + 7, pa.y1 + 1, pa.x2 - 7, pa.y2 - 1 };
+    ld.text = m.name;
+    lv_draw_label(layer, &ld, &ta);
+  }
+  lv_draw_rect_dsc_t dot;
+  lv_draw_rect_dsc_init(&dot);
+  dot.bg_opa = LV_OPA_COVER;
+  dot.radius = LV_RADIUS_CIRCLE;
+  dot.border_color = lv_color_hex(theme::BG);
+  dot.border_opa = LV_OPA_COVER;
+  dot.border_width = 2;
+  const int half = MARK_D / 2;
+  for (int k = 0; k < s_mark_count; k++) {
+    const Mark& m = s_marks[k];
+    if (!m.vis) continue;
+    dot.bg_color = lv_color_hex(m.col);
+    lv_area_t da = { a.x1 + m.x - half, a.y1 + m.y - half, a.x1 + m.x + half - 1, a.y1 + m.y + half - 1 };
+    lv_draw_rect(layer, &dot, &da);
+  }
+  // Hop numbers of the route being picked: a badge at the dot's top right.
+  lv_draw_rect_dsc_t badge;
+  lv_draw_rect_dsc_init(&badge);
+  badge.bg_color = lv_color_hex(theme::ACCENT);
+  badge.bg_opa = LV_OPA_COVER;
+  badge.radius = LV_RADIUS_CIRCLE;
+  lv_draw_label_dsc_t bl;
+  lv_draw_label_dsc_init(&bl);
+  bl.font = THEME_FONT_SMALL;
+  bl.color = lv_color_hex(theme::BG);
+  bl.align = LV_TEXT_ALIGN_CENTER;
+  for (int k = 0; k < s_mark_count; k++) {
+    const Mark& m = s_marks[k];
+    if (!m.vis || !m.order) continue;
+    lv_area_t ba = { a.x1 + m.x + 1, a.y1 + m.y - 17, a.x1 + m.x + 15, a.y1 + m.y - 3 };
+    lv_draw_rect(layer, &badge, &ba);
+    char t[4];
+    snprintf(t, sizeof(t), "%d", m.order);
+    bl.text = t;
+    bl.text_local = true;   // t is on this stack
+    lv_area_t ta = { ba.x1, ba.y1 + 0, ba.x2, ba.y2 };
+    lv_draw_label(layer, &bl, &ta);
+  }
+}
+
+// The marker at a point of the map area (px relative to it): a name pill under
+// the point, else the nearest dot within a finger's reach; -1 if none.
+static int hitMark(int px, int py) {
+  for (int k = 0; k < s_mark_count; k++) {
+    const Mark& m = s_marks[k];
+    if (m.vis && m.lw && px >= m.lx - 3 && px < m.lx + m.lw + 3 && py >= m.ly - 3 && py < m.ly + m.lh + 3) return k;
+  }
+  int best = -1, best_d = 18 * 18 + 1;
+  for (int k = 0; k < s_mark_count; k++) {
+    const Mark& m = s_marks[k];
+    if (!m.vis) continue;
+    int d = (m.x - px) * (m.x - px) + (m.y - py) * (m.y - py);
+    if (d < best_d) { best_d = d; best = k; }
+  }
+  return best;
+}
 
 }  // namespace mapview
 
@@ -280,9 +398,14 @@ static void onDlResume(lv_event_t* e)    { (void)e; s_ui->mapDownloadResume(); }
 static void onDlDiscard(lv_event_t* e)   { (void)e; s_ui->mapDownloadDiscard(); }
 static void onNavTools(lv_event_t* e);   // NavMap.h
 static void onMapCredits(lv_event_t* e) { (void)e; s_ui->showToast(creditText(mapview::s_provider->attribution()), 4000); }
-static void onMapMarker(lv_event_t* e) {
-  if (mapview::s_drag > 8) return;   // the press was a pan that ended on a marker
-  s_ui->mapOpenMarker((int)(uintptr_t)lv_event_get_user_data(e));
+static void onMapClick(lv_event_t* e) {
+  if (mapview::s_drag > 8) return;   // the press was a pan
+  lv_point_t p;
+  lv_indev_get_point(lv_indev_active(), &p);
+  lv_area_t a;
+  lv_obj_get_coords((lv_obj_t*)lv_event_get_target(e), &a);
+  int k = mapview::hitMark(p.x - a.x1, p.y - a.y1);
+  if (k >= 0) s_ui->mapOpenMarker(k);
 }
 
 // The centre-on-me button in the accent colour while the map follows you.
@@ -394,6 +517,7 @@ void UITask::buildMap() {
   lv_obj_add_event_cb(body, onMapPress, LV_EVENT_PRESSED, NULL);
   lv_obj_add_event_cb(body, onMapPress, LV_EVENT_PRESSING, NULL);
   lv_obj_add_event_cb(body, onMapLongPress, LV_EVENT_LONG_PRESSED, NULL);
+  lv_obj_add_event_cb(body, onMapClick, LV_EVENT_CLICKED, NULL);   // a marker, hit-tested
   _map_area = body;
 
   for (int i = 0; i < mapview::GRID_COLS * mapview::GRID_ROWS; i++) {
@@ -430,6 +554,14 @@ void UITask::buildMap() {
   lv_obj_set_style_border_width(_map_me, 3, 0);
   lv_obj_remove_flag(_map_me, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(_map_me, LV_OBJ_FLAG_HIDDEN);
+
+  mapview::s_mark_layer = lv_obj_create(_map_marks);   // markers over the trail, target and own position
+  lv_obj_remove_style_all(mapview::s_mark_layer);
+  lv_obj_set_size(mapview::s_mark_layer, LV_PCT(100), LV_PCT(100));
+  lv_obj_remove_flag(mapview::s_mark_layer, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(mapview::s_mark_layer, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(mapview::s_mark_layer, mapview::drawMarks, LV_EVENT_DRAW_MAIN, NULL);
+  mapview::s_sig_n = 0;
 
   areaBuildLayer(body);   // download frame / area outlines, over the tiles (MapAreas.h)
 
@@ -499,6 +631,8 @@ void UITask::buildMap() {
   lv_obj_align(_map_hint, LV_ALIGN_TOP_MID, 0, 50);   // clear of own position, mid-map
   lv_obj_add_flag(_map_hint, LV_OBJ_FLAG_HIDDEN);
   if (_map_nav) buildNavControls(body);
+  _route_bar = _route_lbl = nullptr;
+  if (_route_pick) buildRouteBar(body);
 
   layoutNow(body);
   mapview::s_mark_count = 0;   // the previous markers went with the previous screen
@@ -587,14 +721,7 @@ void UITask::layoutMap() {
     lv_obj_add_flag(_map_me, LV_OBJ_FLAG_HIDDEN);
   }
   followShown(_map_center_btn, _map_follow);
-  const int half = mapview::MARK_D / 2;
-  for (int k = 0; k < mapview::s_mark_count; k++) {
-    const mapview::Mark& m = mapview::s_marks[k];
-    int dy = lv_obj_get_y(m.dot);   // the dot within the marker (vertically centred on the name)
-    double x = mapview::lonToTileX(m.lon_e6 / 1e6, _map_z) * mapview::TILE_PX - left;
-    double y = mapview::latToTileY(m.lat_e6 / 1e6, _map_z) * mapview::TILE_PX - top;
-    lv_obj_set_pos(m.obj, (int)lround(x) - half, (int)lround(y) - half - dy);   // the dot's centre on the spot
-  }
+  layoutMapMarks(left, top, w, h);
   if (_map_nav) layoutNav();
 
   if (over) setTextFmt(_map_zoom_lbl, "z%d  (map z%d)", _map_z, _map_z - over);   // magnified
@@ -696,9 +823,7 @@ void UITask::rebuildMapMarkers() {
   mapview::s_mark_count = 0;
   if (_map_nav) rebuildNavMarkers();
   if (_map_nodes || !_map_nav) rebuildNodeMarkers();
-  for (int k = mapview::s_mark_count; k < mapview::s_mark_prev; k++) lv_obj_delete(mapview::s_marks[k].obj);
   mapview::s_mark_prev = 0;
-  layoutNow(_map_marks);   // so layoutMap() knows where each dot sits in its marker
 }
 
 void UITask::rebuildNodeMarkers() {
@@ -712,48 +837,142 @@ void UITask::rebuildNodeMarkers() {
   }
 }
 
-// One clickable object per marker: a dot plus the name beside it. The object
-// is placed so the dot's centre is on the spot, from where layout actually put
-// the dot inside it (Mark::dot) -- the name may be taller than the dot. The
-// markers are rebuilt every few seconds: one the same as the last time in its
-// slot is kept as it is, so an unchanged map isn't redrawn under it.
+// A marker is a record: where it is, its colour and name. Placement and
+// painting are layoutMapMarks() and mapview::drawMarks(). The name's width is
+// measured here, not per pan: a slot whose name is unchanged keeps it.
 void UITask::addMapMark(uint8_t kind, int idx, int32_t lat_e6, int32_t lon_e6, uint32_t col, const char* text) {
   if (!_map_marks || mapview::s_mark_count >= mapview::MAX_MARKS) return;
   uint32_t h = 2166136261u;   // FNV-1a of the name
   for (const char* c = text; *c; c++) h = (h ^ (uint8_t)*c) * 16777619u;
-  int k = mapview::s_mark_count;
-  if (k < mapview::s_mark_prev) {
-    mapview::Mark& old = mapview::s_marks[k];
-    if (old.kind == kind && old.idx == idx && old.lat_e6 == lat_e6 && old.lon_e6 == lon_e6 && old.col == col && old.text_hash == h) {
-      mapview::s_mark_count++;
-      return;
-    }
-    lv_obj_delete(old.obj);
+  int k = mapview::s_mark_count++;
+  mapview::Mark& mk = mapview::s_marks[k];
+  bool same_name = k < mapview::s_mark_prev && mk.text_hash == h;
+  mk.lat_e6 = lat_e6; mk.lon_e6 = lon_e6; mk.idx = idx; mk.kind = kind; mk.col = col; mk.text_hash = h;
+  mk.vis = false; mk.lw = 0; mk.order = 0;
+  if (same_name) return;
+  size_t n = strlen(text);
+  if (n > (size_t)mapview::MARK_NAME) {   // cut at a character boundary
+    n = mapview::MARK_NAME;
+    while (n > 0 && ((uint8_t)text[n] & 0xC0) == 0x80) n--;
   }
-  lv_obj_t* m = lv_obj_create(_map_marks);
-  lv_obj_remove_style_all(m);
-  lv_obj_set_size(m, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(m, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(m, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(m, 3, 0);
-  lv_obj_add_flag(m, LV_OBJ_FLAG_EVENT_BUBBLE);   // a drag starting here still pans
-  lv_obj_add_event_cb(m, onMapMarker, LV_EVENT_CLICKED, (void*)(uintptr_t)mapview::s_mark_count);
-  lv_obj_t* dot = lv_obj_create(m);
-  lv_obj_remove_style_all(dot);
-  lv_obj_set_size(dot, mapview::MARK_D, mapview::MARK_D);
-  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
-  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(dot, lv_color_hex(theme::BG), 0);
-  lv_obj_set_style_border_width(dot, 2, 0);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_t* name = mapPill(m, text);
-  lv_obj_remove_flag(name, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_pad_ver(name, 1, 0);   // a marker's name stays small
-  lv_obj_set_style_radius(name, 4, 0);
+  memcpy(mk.name, text, n);
+  mk.name[n] = '\0';
+  lv_point_t sz;
+  lv_text_get_size(&sz, mk.name, THEME_FONT_SMALL, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  mk.tw = (int16_t)sz.x;
+}
 
-  mapview::Mark& mk = mapview::s_marks[mapview::s_mark_count++];
-  mk.lat_e6 = lat_e6; mk.lon_e6 = lon_e6; mk.idx = idx; mk.kind = kind; mk.col = col; mk.text_hash = h; mk.obj = m; mk.dot = dot;
+// Places the markers for the view: a dot on each spot inside it, and the name
+// beside it (right, left, above, below) where it covers neither the map's
+// controls, nor another name, nor another dot -- in marker order, so
+// waypoints and live shares keep their names before the many nodes. Only the
+// markers that changed since the last layout are repainted: a rebuild that
+// changed nothing leaves the tiles under them alone.
+void UITask::layoutMapMarks(double left, double top, int w, int h) {
+  using namespace mapview;
+  if (!s_mark_layer) return;
+  const int half = MARK_D / 2;
+  const int lh = lv_font_get_line_height(THEME_FONT_SMALL) + 2;
+  struct Box { int16_t x1, y1, x2, y2; };
+  static Box used[MAX_MARKS + 8];
+  int nu = 0;
+  const int bottom = _map_nav ? navmap::BAR_H : 0;
+  const int16_t W = (int16_t)w, H = (int16_t)(h - bottom);
+  used[nu++] = { 0, 0, 50, 144 };                                      // button columns
+  used[nu++] = { (int16_t)(W - 50), 0, W, 144 };
+  used[nu++] = { 0, 0, W, 36 };                                        // the going pills
+  used[nu++] = { 0, (int16_t)(H - 34), 180, (int16_t)h };              // credit / scale
+  used[nu++] = { (int16_t)(W - 50), (int16_t)(H - 50), W, (int16_t)h };   // centre button
+  if (bottom) used[nu++] = { 0, H, W, (int16_t)h };
+
+  for (int k = 0; k < s_mark_count; k++) {
+    Mark& m = s_marks[k];
+    double x = lonToTileX(m.lon_e6 / 1e6, _map_z) * TILE_PX - left;
+    double y = latToTileY(m.lat_e6 / 1e6, _map_z) * TILE_PX - top;
+    m.vis = x > -half - 4 && x < w + half + 4 && y > -half - 4 && y < h + half + 4;
+    m.lw = 0;
+    m.order = 0;
+    if (_route_pick && m.vis && m.kind == MK_NODE && m.idx < _nearby->count()) {
+      const NearbyModel::Entry& ne = _nearby->at(m.idx);
+      int at = ne.has_key ? _core->route.indexOf(ne.pub_key) : -1;
+      if (at >= 0) m.order = (uint8_t)(at + 1);
+    }
+    if (!m.vis) continue;
+    m.x = (int16_t)lround(x);
+    m.y = (int16_t)lround(y);
+    used[nu++] = { (int16_t)(m.x - half), (int16_t)(m.y - half), (int16_t)(m.x + half), (int16_t)(m.y + half) };
+  }
+  auto clearOf = [&](int x1, int y1, int x2, int y2) {
+    if (x1 < 2 || y1 < 2 || x2 > w - 2 || y2 > h - 2) return false;
+    for (int i = 0; i < nu; i++)
+      if (x1 <= used[i].x2 && x2 >= used[i].x1 && y1 <= used[i].y2 && y2 >= used[i].y1) return false;
+    return true;
+  };
+  int named = 0;
+  for (int k = 0; k < s_mark_count && named < MARK_LABELS_MAX; k++) {
+    Mark& m = s_marks[k];
+    if (!m.vis || !m.name[0]) continue;
+    int lw = m.tw + 14;
+    const struct { int x, y; } at[4] = {
+      { m.x + half + 3, m.y - lh / 2 }, { m.x - half - 3 - lw, m.y - lh / 2 },
+      { m.x - lw / 2, m.y - half - 2 - lh }, { m.x - lw / 2, m.y + half + 2 } };
+    for (const auto& c : at) {
+      if (!clearOf(c.x, c.y, c.x + lw - 1, c.y + lh - 1)) continue;
+      m.lx = (int16_t)c.x; m.ly = (int16_t)c.y; m.lw = (int16_t)lw; m.lh = (int16_t)lh;
+      used[nu++] = { m.lx, m.ly, (int16_t)(m.lx + lw - 1), (int16_t)(m.ly + lh - 1) };
+      named++;
+      break;
+    }
+  }
+
+  // What changed since the last layout, repainted (a pan changes all: the layer at once).
+  lv_area_t la;
+  lv_obj_get_coords(s_mark_layer, &la);
+  auto bbox = [&](int x, int y, int lx, int ly, int lw, lv_area_t& a) {
+    int x1 = x - half, y1 = y - half, x2 = x + half, y2 = y + half;
+    if (lw) { x1 = min(x1, lx); y1 = min(y1, ly); x2 = max(x2, lx + lw); y2 = max(y2, ly + lh); }
+    a = { la.x1 + x1 - 1, la.y1 + y1 - 1, la.x1 + x2 + 1, la.y1 + y2 + 1 };
+  };
+  s_route_on = _route_pick;
+  if (_route_pick) {   // the route's points, in px (any distance away: the line is clipped by the layer)
+    for (int i = 0; i < s_route_n; i++) {
+      double rx = lonToTileX(s_route_lon[i] / 1e6, _map_z) * TILE_PX - left;
+      double ry = latToTileY(s_route_lat[i] / 1e6, _map_z) * TILE_PX - top;
+      s_route_px[i] = { (lv_value_precise_t)lround(max(-30000.0, min(30000.0, rx))), (lv_value_precise_t)lround(max(-30000.0, min(30000.0, ry))) };
+    }
+    lv_obj_invalidate(s_mark_layer);   // the line may have moved: a pan repaints it anyway
+  }
+  int changed = 0;
+  const int n = max(s_mark_count, s_sig_n);
+  for (int k = 0; k < n; k++) {
+    bool have = k < s_mark_count, had = k < s_sig_n;
+    const Mark* m = have ? &s_marks[k] : nullptr;
+    MarkSig* g = had ? &s_sigs[k] : nullptr;
+    bool now_vis = have && m->vis, was_vis = had && g->vis;
+    bool same = now_vis == was_vis && (!now_vis || (m->x == g->x && m->y == g->y && m->lx == g->lx && m->ly == g->ly &&
+                                                    m->lw == g->lw && m->col == g->col && m->text_hash == g->hash && m->order == g->order));
+    if (!same) changed++;
+  }
+  if (changed > 6) {
+    lv_obj_invalidate(s_mark_layer);
+  } else if (changed) {
+    for (int k = 0; k < n; k++) {
+      bool have = k < s_mark_count, had = k < s_sig_n;
+      const Mark* m = have ? &s_marks[k] : nullptr;
+      MarkSig* g = had ? &s_sigs[k] : nullptr;
+      bool now_vis = have && m->vis, was_vis = had && g->vis;
+      if (now_vis == was_vis && (!now_vis || (m->x == g->x && m->y == g->y && m->lx == g->lx && m->ly == g->ly &&
+                                              m->lw == g->lw && m->col == g->col && m->text_hash == g->hash && m->order == g->order))) continue;
+      lv_area_t a;
+      if (was_vis) { bbox(g->x, g->y, g->lx, g->ly, g->lw, a); lv_obj_invalidate_area(s_mark_layer, &a); }
+      if (now_vis) { bbox(m->x, m->y, m->lx, m->ly, m->lw, a); lv_obj_invalidate_area(s_mark_layer, &a); }
+    }
+  }
+  for (int k = 0; k < s_mark_count; k++) {
+    const Mark& m = s_marks[k];
+    s_sigs[k] = { m.x, m.y, m.lx, m.ly, m.lw, m.col, m.text_hash, m.order, m.vis };
+  }
+  s_sig_n = s_mark_count;
 }
 
 void UITask::mapPan(int dx, int dy) {
@@ -787,6 +1006,13 @@ void UITask::mapCenterOnMe() {
 void UITask::mapOpenMarker(int idx) {
   if (idx < 0 || idx >= mapview::s_mark_count) return;
   const mapview::Mark& m = mapview::s_marks[idx];
+  if (_route_pick) {   // Route > Map: a repeater tapped in (or out again)
+    if (m.kind != mapview::MK_NODE || m.idx >= _nearby->count()) return;
+    const NearbyModel::Entry& e = _nearby->at(m.idx);
+    if (!e.has_key) { showToast("Pick repeaters"); return; }
+    routeMapTap(e.pub_key, e.type);
+    return;
+  }
   if (m.kind == mapview::MK_WAYPOINT) { navWaypointMenu(m.idx); return; }
   if (m.kind == mapview::MK_LIVE) { navPick(navmap::code(navmap::T_LIVE, m.idx)); return; }
   openNode(m.idx);
@@ -804,7 +1030,106 @@ void UITask::mapPointToLatLon(int x, int y, int32_t& lat_e6, int32_t& lon_e6) co
 }
 
 void UITask::mapLongPress(int x, int y) {
-  if (_map_nav) navDropAt(x, y);
+  if (_map_nav && !_route_pick) navDropAt(x, y);
+}
+
+
+// ── Picking a route (Route > Map) ─────────────────────────────────────────────
+
+static void onRouteUndo(lv_event_t* e) { (void)e; s_ui->routeMapUndo(); }
+static void onRouteDone(lv_event_t* e) { (void)e; s_ui->routeMapDone(); }
+
+// A bar over the nav bar: the route so far, Undo (last hop out) and Done.
+void UITask::buildRouteBar(lv_obj_t* body) {
+  _route_bar = lv_obj_create(body);
+  lv_obj_set_size(_route_bar, LV_PCT(100), navmap::BAR_H);
+  lv_obj_align(_route_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_remove_flag(_route_bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(_route_bar, 0, 0);
+  lv_obj_set_style_bg_color(_route_bar, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(_route_bar, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_side(_route_bar, LV_BORDER_SIDE_TOP, 0);
+  lv_obj_set_style_border_color(_route_bar, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_width(_route_bar, 2, 0);
+  lv_obj_set_style_pad_all(_route_bar, 4, 0);
+  _route_lbl = label(_route_bar, "", THEME_FONT_SMALL, theme::TEXT);
+  lv_label_set_long_mode(_route_lbl, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(_route_lbl, 150);
+  lv_obj_align(_route_lbl, LV_ALIGN_LEFT_MID, 2, 0);
+  lv_obj_t* done = lv_button_create(_route_bar);
+  lv_obj_set_size(done, 70, 34);
+  lv_obj_align(done, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_obj_set_style_shadow_width(done, 0, 0);
+  lv_obj_set_style_radius(done, theme::RADIUS, 0);
+  lv_obj_add_event_cb(done, onRouteDone, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(label(done, LV_SYMBOL_OK " Done", THEME_FONT_SMALL, theme::TEXT));
+  stylePrimary(done);
+  lv_obj_t* undo = lv_button_create(_route_bar);
+  lv_obj_set_size(undo, 64, 34);
+  lv_obj_align(undo, LV_ALIGN_RIGHT_MID, -76, 0);
+  lv_obj_set_style_shadow_width(undo, 0, 0);
+  lv_obj_set_style_radius(undo, theme::RADIUS, 0);
+  lv_obj_set_style_bg_color(undo, lv_color_hex(theme::SURFACE), 0);
+  lv_obj_add_event_cb(undo, onRouteUndo, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(label(undo, LV_SYMBOL_CLOSE " Undo", THEME_FONT_SMALL, theme::TEXT));
+  routeMapRefresh();
+}
+
+void UITask::routeMapUndo() {
+  _core->route.removeLast();
+  routeMapRefresh();
+}
+
+// The route changed: its points for the line, the text, the markers.
+void UITask::routeMapRefresh() {
+  using namespace mapview;
+  PathEditor& R = _core->route;
+  s_route_n = 0;
+  auto add = [&](int32_t lat, int32_t lon) {
+    if ((lat != 0 || lon != 0) && s_route_n < ROUTE_PTS) { s_route_lat[s_route_n] = lat; s_route_lon[s_route_n] = lon; s_route_n++; }
+  };
+  int32_t mlat, mlon;
+  if (_core->course.currentLocation(mlat, mlon)) add(mlat, mlon);
+  for (int i = 0; i < R.count(); i++) {
+    if (R.hop(i).known < 4) continue;
+    ContactInfo* c = the_mesh.lookupContactByPubKey(R.hop(i).key, 4);
+    if (c) add(c->gps_lat, c->gps_lon);
+  }
+  ContactInfo* d = the_mesh.lookupContactByPubKey(R.targetKey(), PUB_KEY_SIZE);
+  if (d) add(d->gps_lat, d->gps_lon);
+  if (_route_lbl) {
+    char t[96];
+    int o = snprintf(t, sizeof(t), "%d hop%s: ", R.count(), R.count() == 1 ? "" : "s");
+    for (int i = 0; i < R.count() && o < (int)sizeof(t) - 8; i++)
+      o += snprintf(t + o, sizeof(t) - o, "%s%.10s", i ? " > " : "", R.hop(i).name);
+    if (R.count() == 0) snprintf(t, sizeof(t), "Tap the repeaters in order, towards %.12s", R.targetName());
+    lv_label_set_text(_route_lbl, t);
+  }
+  if (_map_area) layoutMap();
+}
+
+// Frames this device and the node, so the hops between them are on screen.
+void UITask::routeMapFrame() {
+  using namespace mapview;
+  routeMapRefresh();
+  if (s_route_n == 0 || !_map_area) return;
+  int32_t la0 = s_route_lat[0], la1 = s_route_lat[0], lo0 = s_route_lon[0], lo1 = s_route_lon[0];
+  for (int i = 1; i < s_route_n; i++) {
+    la0 = min(la0, s_route_lat[i]); la1 = max(la1, s_route_lat[i]);
+    lo0 = min(lo0, s_route_lon[i]); lo1 = max(lo1, s_route_lon[i]);
+  }
+  int w = lv_obj_get_width(_map_area), h = lv_obj_get_height(_map_area) - navmap::BAR_H;
+  int z = MAX_Z;
+  for (; z > MIN_Z; z--) {
+    double dx = fabs(lonToTileX(lo1 / 1e6, z) - lonToTileX(lo0 / 1e6, z)) * TILE_PX;
+    double dy = fabs(latToTileY(la0 / 1e6, z) - latToTileY(la1 / 1e6, z)) * TILE_PX;
+    if (dx < w * 0.7 && dy < h * 0.6) break;
+  }
+  _map_z = z;
+  _map_follow = false;
+  _map_cx = lonToTileX((lo0 + lo1) / 2e6, z);
+  _map_cy = latToTileY((la0 + la1) / 2e6, z) + mapCenterBias();
+  layoutMap();
 }
 
 

@@ -244,6 +244,7 @@ public:
   #define PING_RESULT_MAX 4
   typedef void (*PingCallback)(uint32_t tag, int16_t snr_out_x4, int16_t snr_back_x4, uint32_t rtt_ms);
   
+  #define TRACE_SNR_MAX 16   // per-hop SNRs kept of a trace (a round trip over up to 8 repeaters)
   struct PingResult {
     uint32_t tag;
     uint32_t auth_code;
@@ -252,9 +253,20 @@ public:
     uint32_t rtt_ms;       // Round-trip time in milliseconds
     bool received;
     unsigned long sent_ms;
+    uint8_t n_snr;                    // hops of the trace that were heard back
+    int8_t  snrs_x4[TRACE_SNR_MAX];   // SNR × 4 at each hop, in path order
   };
-  
+
   uint32_t sendPing(const uint8_t* dest_pubkey, uint8_t hash_width = 1, uint32_t* est_timeout = nullptr);
+  // A trace over an explicit route: `path` is `hops` hashes of `hash_width`
+  // (1, 2 or 4) bytes each, in the order the packet visits them. The reply
+  // only reaches us if the last hop's retransmission is heard, so a route to
+  // a far node goes out and back (A B dest B A). Returns the tag, 0 on failure.
+  uint32_t sendTrace(const uint8_t* path, uint8_t hops, uint8_t hash_width, uint32_t* est_timeout = nullptr);
+  // Writes a route into a stored contact (hash_size 1..3 bytes, `hops` of them).
+  // `pin` keeps it (CONTACT_FLAG_ROUTE_PINNED): not replaced by a heard path or a failed send.
+  bool setContactPinned(const uint8_t* pub_key, bool pin);   // keep / release the stored route
+  bool setContactPath(const uint8_t* pub_key, const uint8_t* path, uint8_t hash_size, uint8_t hops, bool pin = false);
   void setPingCallback(PingCallback cb, void* arg);
   void clearPingResult(uint32_t tag);
   PingResult* getPingResult(uint32_t tag);

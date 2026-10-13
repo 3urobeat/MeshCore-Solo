@@ -25,9 +25,10 @@ int MyMesh::getDiscoverResults(DiscoverResult dest[], int max_count) {
 
 // ── Ping/Trace functionality ─────────────────────────────────────────────────
 
-uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width, uint32_t* est_timeout) {
+uint32_t MyMesh::sendTrace(const uint8_t* path, uint8_t hops, uint8_t hash_width, uint32_t* est_timeout) {
   // A trace's hashes are 1 << flags bytes wide: 1, 2, 4 (no 3).
   if (hash_width != 1 && hash_width != 2 && hash_width != 4) return 0;
+  if (hops == 0 || hops > TRACE_SNR_MAX || hops * hash_width > MAX_PATH_SIZE) return 0;
 
   // Generate random tag and auth code
   uint32_t tag, auth;
@@ -48,26 +49,17 @@ uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width, uint32
 
   // Initialize ping result tracking
   PingResult& result = _ping_results[slot];
+  memset(&result, 0, sizeof(result));
   result.tag = tag;
   result.auth_code = auth;
-  result.snr_out_x4 = 0;
-  result.snr_back_x4 = 0;
-  result.rtt_ms = 0;
-  result.received = false;
   result.sent_ms = millis();
 
-  // Create path hash from destination public key
-  uint8_t path_len = hash_width;
-  uint8_t path[MAX_PATH_SIZE];
-  memcpy(path, dest_pubkey, path_len);
-
-  // Create and send trace packet
   auto pkt = createTrace(tag, auth, hash_width == 4 ? 2 : hash_width - 1);   // flags = log2(hash_width)
   if (pkt) {
-    sendDirect(pkt, path, path_len);
-    if (est_timeout) {   // as CMD_SEND_TRACE_PATH answers the app: from the airtime, one hop
+    sendDirect(pkt, path, hops * hash_width);
+    if (est_timeout) {   // as CMD_SEND_TRACE_PATH answers the app: from the airtime, per hop
       uint32_t t = _radio->getEstAirtimeFor(pkt->payload_len + pkt->path_len + 2);
-      *est_timeout = calcDirectTimeoutMillisFor(t, 1);
+      *est_timeout = calcDirectTimeoutMillisFor(t, hops);
     }
     return tag;
   }
@@ -75,6 +67,12 @@ uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width, uint32
   // Failed to create packet
   memset(&result, 0, sizeof(result));
   return 0;
+}
+
+// Ping: a trace over just the destination's hash (one hop, it must be heard directly).
+uint32_t MyMesh::sendPing(const uint8_t* dest_pubkey, uint8_t hash_width, uint32_t* est_timeout) {
+  if (hash_width != 1 && hash_width != 2 && hash_width != 4) return 0;
+  return sendTrace(dest_pubkey, 1, hash_width, est_timeout);
 }
 
 void MyMesh::setPingCallback(PingCallback cb, void* arg) {

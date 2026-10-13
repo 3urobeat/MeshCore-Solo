@@ -343,10 +343,9 @@ void UITask::layoutNav() {
     lv_obj_set_pos(navmap::s_target_ring, tx - navmap::RING_D / 2, ty - navmap::RING_D / 2);
     lv_obj_remove_flag(navmap::s_target_ring, LV_OBJ_FLAG_HIDDEN);
     bool marked = false;   // a waypoint / live marker already sits on the target
-    const int half = mapview::MARK_D / 2;
     for (int k = 0; k < mapview::s_mark_count && !marked; k++) {
-      lv_obj_t* m = mapview::s_marks[k].obj;
-      marked = abs(lv_obj_get_x(m) + half - tx) <= 3 && abs(lv_obj_get_y(m) + lv_obj_get_y(mapview::s_marks[k].dot) + half - ty) <= 3;
+      const mapview::Mark& m = mapview::s_marks[k];
+      marked = m.vis && abs(m.x - tx) <= 3 && abs(m.y - ty) <= 3;
     }
     if (marked) lv_obj_add_flag(navmap::s_target_dot, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_remove_flag(navmap::s_target_dot, LV_OBJ_FLAG_HIDDEN);

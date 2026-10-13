@@ -5,6 +5,140 @@
 #include "NavView.h"
 #include "TabBar.h"
 
+// ── Path (Nodes > a contact > Path) ───────────────────────────────────────────
+// The repeaters between this node and a contact as a list: edit it, trace it
+// out and back (the SNR of every hop), save it as the contact's route. The
+// list, the trace and the save are the UI Core's PathEditor (`core().route`);
+// ui-lvgl's Route screen is a view over the same. Picking a repeater to add
+// hands the Nodes list over for a moment (NearbyScreen: `_route_pick`).
+class RouteView {
+  UITask* _task = nullptr;
+  bool _active = false;
+  bool _pick = false;       // the Add row was chosen: NearbyScreen takes over the pick
+  int  _sel = 0, _scroll = 0;
+  PopupMenu _menu;          // one hop: up / down / remove
+  int  _menu_hop = 0;
+
+  PathEditor& R() { return _task->core().route; }
+  // Rows: the hops, Add, Trace, Save, Keep.
+  int rows() { return R().count() + 4; }
+  int addRow() { return R().count(); }
+
+  void openHopMenu(int i) {
+    _menu_hop = i;
+    _menu.begin("Hop", 3);
+    _menu.addItem("Move up");
+    _menu.addItem("Move down");
+    _menu.addItem("Remove");
+  }
+
+public:
+  bool active() const { return _active; }
+  bool takePick() { bool p = _pick; _pick = false; return p; }
+
+  bool open(UITask* task, const uint8_t* pub_key) {
+    _task = task;
+    if (!task->core().route.open(pub_key)) return false;
+    _active = true;
+    _pick = false;
+    _sel = _scroll = 0;
+    _menu.active = false;
+    return true;
+  }
+  void show() { _active = true; }   // back from picking a repeater: the list as it was
+  void close() {
+    if (_task) R().cancelTrace();
+    _active = false;
+    _menu.active = false;
+  }
+
+  int render(DisplayDriver& display) {
+    PathEditor& r = R();
+    r.poll();
+    const int n = r.count();
+    char title[32];
+    switch (r.state()) {
+      case PathEditor::RUNNING: snprintf(title, sizeof(title), "Tracing..."); break;
+      case PathEditor::DONE:    snprintf(title, sizeof(title), "Path %lums", (unsigned long)r.rttMs()); break;
+      case PathEditor::TIMEOUT: snprintf(title, sizeof(title), "Path: no reply"); break;
+      case PathEditor::FAILED:  snprintf(title, sizeof(title), "Path: no key"); break;
+      default:                  snprintf(title, sizeof(title), "Path: %s", r.targetName());
+    }
+    drawScreenHeader(display, title, -1, 0, true, false);
+    const bool done = r.state() == PathEditor::DONE;
+    drawList(display, rows(), _sel, _scroll, [&](int idx, int y, bool sel, int reserve) {
+      drawRowSelection(display, y, sel, reserve);
+      char left[40], right[16] = "";
+      if (idx < n) {
+        snprintf(left, sizeof(left), "%d %s", idx + 1, r.hop(idx).name);
+        int16_t o, b;
+        if (done && r.hopSnrX4(idx, o) && r.hopSnrX4(2 * n - idx, b)) snprintf(right, sizeof(right), "%d/%d", (int)lroundf(o / 4.0f), (int)lroundf(b / 4.0f));
+        else if (r.hop(idx).known < 4) snprintf(right, sizeof(right), "?");
+      } else {
+        const int a = idx - n;   // 0 Add, 1 Trace, 2 Save
+        if (a == 0) snprintf(left, sizeof(left), "+ Add repeater");
+        else if (a == 1) snprintf(left, sizeof(left), "%s", r.state() == PathEditor::RUNNING ? "Stop trace" : "Trace");
+        else if (a == 2) snprintf(left, sizeof(left), "Save path");
+        else snprintf(left, sizeof(left), "Keep path: %s", r.pinned() ? "ON" : "OFF");
+      }
+      const int rw = right[0] ? display.getTextWidth(right) + display.getCharWidth() : 0;
+      display.drawTextEllipsized(2, y, display.width() - reserve - 4 - rw, left, sel);
+      if (right[0]) {
+        display.setColor(sel ? DisplayDriver::DARK : DisplayDriver::LIGHT);
+        display.drawTextRightAlign(display.width() - reserve - 2, y, right);
+      }
+    });
+    if (_menu.active) _menu.render(display);
+    return r.state() == PathEditor::RUNNING ? 100 : 2000;
+  }
+
+  // Returns true: the key was used (the view is modal).
+  bool handleInput(char c) {
+    PathEditor& r = R();
+    if (_menu.active) {
+      auto res = _menu.handleInput(c);
+      if (res == PopupMenu::SELECTED) {
+        int i = _menu.selectedIndex();
+        if (i == 0) { r.move(_menu_hop, -1); if (_sel > 0) _sel--; }
+        else if (i == 1) { r.move(_menu_hop, +1); if (_sel < r.count() - 1) _sel++; }
+        else r.remove(_menu_hop);
+        if (_sel >= rows()) _sel = rows() - 1;
+        _menu.active = false;
+      }
+      return true;
+    }
+    if (c == KEY_CANCEL) { close(); return true; }
+    if (c == KEY_UP)   { _sel = _sel > 0 ? _sel - 1 : rows() - 1; return true; }
+    if (c == KEY_DOWN) { _sel = _sel < rows() - 1 ? _sel + 1 : 0; return true; }
+    const int n = r.count();
+    if (_sel < n && (keyIsPrev(c) || keyIsNext(c))) {   // reorder in place
+      int dir = keyIsNext(c) ? 1 : -1;
+      int to = _sel + dir;
+      if (to >= 0 && to < n) { r.move(_sel, dir); _sel = to; }
+      return true;
+    }
+    if (c != KEY_ENTER && c != KEY_CONTEXT_MENU) return true;
+    if (_sel < n) { openHopMenu(_sel); return true; }
+    switch (_sel - n) {
+      case 0:
+        if (r.full()) _task->showAlert("Path is full", 1000);
+        else { r.cancelTrace(); _pick = true; _active = false; }
+        break;
+      case 1:
+        if (r.state() == PathEditor::RUNNING) r.cancelTrace();
+        else if (!r.trace() && r.state() != PathEditor::FAILED) _task->showAlert("Busy", 800);
+        break;
+      case 2:
+        if (r.count() == 0) _task->showAlert("Add a repeater", 1000);
+        else _task->showAlert(r.save() ? "Path saved" : "Can't save", 1000);
+        break;
+      default:   // Keep: not replaced by a path heard, nor dropped after a failed send
+        r.setPinned(!r.pinned());
+    }
+    return true;
+  }
+};
+
 // ── Nearby Nodes ──────────────────────────────────────────────────────────────
 // One list / detail / action-menu interaction path over two sources:
 //   SRC_STORED — contacts known to the mesh (distance / bearing / last-heard)
@@ -22,7 +156,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   // ── action-menu actions (matched by id, not by row index) ────────────────────
   enum Action : uint8_t { ACT_NAV, ACT_PING, ACT_WAYPOINT, ACT_LOCATOR,
                           ACT_ADD, ACT_DELETE, ACT_FAV, ACT_PIN, ACT_ADMIN, ACT_SORT, ACT_SCAN, ACT_MAP,
-                          ACT_TELEM, ACT_RESET_PATH, ACT_SHARE };
+                          ACT_TELEM, ACT_RESET_PATH, ACT_SHARE, ACT_ROUTE };
 
   // Set by UITask::pickAdminTarget() (Tools > Admin, which is remote-only):
   // while true, ENTER on an eligible row (a stored repeater/room contact) hands
@@ -32,6 +166,13 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   // this screen for anything else. Mirrors MessagesScreen's
   // startPickBotChannel()/startPickBotRoom() pick-mode idiom.
   bool _pick_admin_target = false;
+
+  // Path view (RouteView above) and its repeater pick: Add hands the list over
+  // filtered to repeaters; Enter on one adds it, Back returns without.
+  RouteView _route;
+  bool    _route_pick = false;
+  uint8_t _route_filter = F_ALL;   // the filter to restore after the pick
+  uint8_t _route_key[PUB_KEY_SIZE];
 
   int     _sel;
   int     _scroll;
@@ -374,6 +515,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       buildTelemLabel(contactctl::telemetry(*ci));
       addValue(_telem_label, ACT_TELEM);
     }
+    if (ci) add("Path / trace", ACT_ROUTE);
     if (ci && contactctl::hasPath(*ci)) add("Reset path", ACT_RESET_PATH);
     if (ci) add("Share nearby", ACT_SHARE);
     if (is_admin_target)       add("Admin", ACT_ADMIN);
@@ -457,6 +599,14 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
         if (e && contactctl::resetPath(e->pub_key)) _task->showAlert("Path reset", 800);
         break;
       }
+      case ACT_ROUTE: {
+        const Entry* e = selected();
+        if (e && e->has_key && _route.open(_task, e->pub_key)) {
+          memcpy(_route_key, e->pub_key, PUB_KEY_SIZE);
+          _detail = true;   // Back from the path lands on the node
+        }
+        break;
+      }
       case ACT_SHARE: {
         const Entry* e = selected();
         _task->showAlert(e && contactctl::share(e->pub_key) ? "Shared nearby" : "No advert saved", 1000);
@@ -485,6 +635,25 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
         break;
       }
     }
+  }
+
+  // Add on the Path view: the list, repeaters only, until one is picked.
+  void startRoutePick() {
+    _route_pick = true;
+    _route_filter = _filter;
+    _filter = F_RPT;
+    _detail = false;
+    _sel = _scroll = 0;
+    refresh();
+  }
+  void endRoutePick() {
+    _route_pick = false;
+    _filter = _route_filter;
+    refresh();
+    int i = findContact(_route_key);   // the node whose path it is, selected again
+    if (i >= 0) _sel = i;
+    _detail = true;
+    _route.show();
   }
 
   // ── detail rendering ──────────────────────────────────────────────────────────
@@ -762,6 +931,8 @@ public:
     _confirm.active = false;
     _pinging = false;
     _pick_admin_target = false;   // stale pick-mode from a previous visit shouldn't linger
+    _route.close();
+    _route_pick = false;
     resetPingLines();
     _task->clearPing();
     refreshStored();
@@ -787,6 +958,9 @@ public:
       if (!refreshKeepingSelection()) { _detail = false; _nav = false; }  // node/share gone
       _detail_refresh_ms = millis();
     }
+
+    // ── path view (over the detail) ──────────────────────────────────────────
+    if (_route.active()) return _route.render(display);
 
     // ── navigate-to-node view ────────────────────────────────────────────────
     if (_nav && _sel < _count) {
@@ -940,6 +1114,13 @@ public:
   }
 
   bool handleInput(char c) override {
+    // ── path view: modal; Add hands the Nodes list over for one repeater ──────
+    if (_route.active()) {
+      _route.handleInput(c);
+      if (_route.takePick()) startRoutePick();
+      return true;
+    }
+
     // ── navigate-to-node view — any nav key returns to detail ─────────────────
     if (_nav) {
       if (c == KEY_CANCEL) _nav = false;   // only Back leaves a navigate view
@@ -998,16 +1179,25 @@ public:
 
     // ── list view ───────────────────────────────────────────────────────────
     if (c == KEY_CANCEL) {
+      if (_route_pick) { endRoutePick(); return true; }
       if (_pick_admin_target) { _pick_admin_target = false; _task->leaveTool(); return true; }
       if (_source == SRC_SCAN) leaveScan();
       else                     _task->leaveTool();
       return true;
     }
-    if (c == KEY_CONTEXT_MENU) { openActionMenu(); return true; }
+    if (c == KEY_CONTEXT_MENU) { if (!_route_pick) openActionMenu(); return true; }
     // drawList() reclamps _scroll from _sel every render.
     if (c == KEY_UP   && _count > 0) { _sel = (_sel > 0) ? _sel - 1 : _count - 1; return true; }
     if (c == KEY_DOWN && _count > 0) { _sel = (_sel < _count - 1) ? _sel + 1 : 0; return true; }
     if (c == KEY_ENTER) {
+      if (_route_pick) {   // a repeater into the path
+        const Entry* e = selected();
+        if (e && e->has_key && e->type == ADV_TYPE_REPEATER) {
+          if (!_task->core().route.addRepeater(e->pub_key)) _task->showAlert("Already the last hop", 1000);
+          endRoutePick();
+        }
+        return true;
+      }
       if (_pick_admin_target) {
         const Entry* e = selected();
         ContactInfo ci;
@@ -1024,6 +1214,7 @@ public:
       _detail_refresh_ms = millis();
       return true;
     }
+    if (_route_pick) return true;   // the filter stays on repeaters
     if (keyIsPrev(c)) { tabbar::turn(_task->getDisplay(), filterLabels(), _filter, -1); _filter = (_filter + F_COUNT - 1) % F_COUNT; refresh(); return true; }
     if (keyIsNext(c)) { tabbar::turn(_task->getDisplay(), filterLabels(), _filter, +1); _filter = (_filter + 1) % F_COUNT;          refresh(); return true; }
     return false;

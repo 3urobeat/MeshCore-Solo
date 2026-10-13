@@ -21,6 +21,7 @@ public:
     _snr_out_x4 = 0;
     _snr_back_x4 = 0;
     _rtt_ms = 0;
+    _n_hops = 0;
 
     // Always install the callback before sending so the response cannot race it.
     the_mesh.setPingCallback(onPingResult, NULL);
@@ -35,6 +36,29 @@ public:
     }
     return STARTED;
   }
+
+  // A trace over an explicit route (ui-core/PathEditor.h): `hops` hashes of
+  // `width` (1, 2 or 4) bytes. The reply carries the SNR at every hop, kept
+  // after the slot is released (hopCount() / hopSnrX4()).
+  StartResult startTrace(const uint8_t* path, uint8_t hops, uint8_t width) {
+    if (_active || !path) return BUSY;
+    _active = true;
+    _tag = 0;
+    _snr_out_x4 = _snr_back_x4 = 0;
+    _rtt_ms = 0;
+    _n_hops = 0;
+    the_mesh.setPingCallback(onPingResult, NULL);
+    _timeout_ms = 3000;
+    _tag = the_mesh.sendTrace(path, hops, width, &_timeout_ms);
+    if (_tag == 0) {
+      clear();
+      return SEND_FAILED;
+    }
+    return STARTED;
+  }
+
+  uint8_t hopCount() const { return _n_hops; }
+  int16_t hopSnrX4(int i) const { return i >= 0 && i < _n_hops ? _hop_snr_x4[i] : 0; }
 
   // Release the in-flight slot (result values are kept).
   void clear() {
@@ -57,6 +81,10 @@ private:
       _snr_out_x4 = snr_out_x4;
       _snr_back_x4 = snr_back_x4;
       _rtt_ms = rtt_ms;
+      // Called before the mesh frees the slot: the per-hop SNRs are still there.
+      const MyMesh::PingResult* r = the_mesh.getPingResult(tag);
+      _n_hops = r ? r->n_snr : 0;
+      for (int i = 0; i < _n_hops; i++) _hop_snr_x4[i] = (int16_t)r->snrs_x4[i];
       // Release the in-flight slot immediately; the view keeps the result values.
       clear();
     }
@@ -75,6 +103,8 @@ private:
   int16_t  _snr_back_x4 = 0;
   uint32_t _rtt_ms = 0;
   uint32_t _timeout_ms = 3000;
+  uint8_t  _n_hops = 0;
+  int16_t  _hop_snr_x4[TRACE_SNR_MAX];
 };
 
 // Header-only Core, single TU (see UiCore.h) -- the one definition lives here.

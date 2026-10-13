@@ -503,7 +503,8 @@ public:
       // Last attempt over a direct path that went unanswered every time: drop
       // the path and flood it, as the phone app does -- the route may be gone,
       // and the flood finds a new one (the ACK's return path re-learns it).
-      if (e.resends_left == 1 && c.out_path_len != OUT_PATH_UNKNOWN &&
+      // A route kept by hand isn't dropped: it was chosen over the flood.
+      if (e.resends_left == 1 && c.out_path_len != OUT_PATH_UNKNOWN && !(c.flags & CONTACT_FLAG_ROUTE_PINNED) &&
           the_mesh.resetContactPath(c.id.pub_key)) {
         c.out_path_len = OUT_PATH_UNKNOWN;
       }

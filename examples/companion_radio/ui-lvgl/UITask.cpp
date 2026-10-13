@@ -344,6 +344,10 @@ void UITask::loop() {
     if (_screen == SCR_WIFI) pollWifiScan();
     if (_screen == SCR_STORAGE) pollStorage();
     if (_screen == SCR_ADMIN) adminPoll();
+    if (_screen == SCR_ROUTE && (int32_t)(millis() - _next_route_ms) >= 0) {
+      _next_route_ms = millis() + 200;
+      routePoll();
+    }
     roomPoll();
     if (_screen == SCR_CLOCK && (int32_t)(millis() - _next_clock_ms) >= 0) {
       _next_clock_ms = millis() + 100;   // stopwatch tenths
@@ -1085,6 +1089,12 @@ void UITask::back() {
     case SCR_BOT:      if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_DIAG:     if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_ADMIN_PICK: showHome(); break;
+    case SCR_ROUTE:      // back to the node; a trace in flight is dropped
+      _core->route.cancelTrace();
+      _screen = SCR_NODE;
+      buildNode();
+      break;
+    case SCR_ROUTE_PICK: _screen = SCR_ROUTE; buildRoute(); break;
     case SCR_OTA:      otaLeave(); break;
     case SCR_COMPASS:  showHome(); break;
     case SCR_BATT:     showSchemaSettings(PG_POWER); break;
@@ -1141,6 +1151,7 @@ void UITask::back() {
       if (_node_from_scan) showScanPopup();
       break;
     case SCR_MAP:
+      if (_route_pick) { routeMapDone(); break; }
       if (_nav_overlay) navClosePopup();
       else if (areaSelecting()) areaSelectEnd();
       else if (_dl_overlay) mapDownloadClose();
@@ -1194,6 +1205,7 @@ static void onOpenSchemaPage(lv_event_t* e);   // Radio > Advanced
 #include "WifiScreen.h"
 #include "ChannelScreen.h"
 #include "AdminScreen.h"
+#include "RouteScreen.h"
 #include "BotScreen.h"
 
 #include "ThreadView.h"

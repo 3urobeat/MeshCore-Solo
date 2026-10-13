@@ -112,6 +112,23 @@ public:
   void mapCenterOnMe();
   void mapPan(int dx, int dy);
   void mapOpenMarker(int idx);
+  // Node detail > Route (RouteScreen.h) and picking its hops on the map
+  void showRoute(const uint8_t* pub_key);
+  void buildRoute();
+  void routeRebuild();
+  void routeStatus();
+  void routePoll();
+  void routeAct(uint8_t act);
+  void routeOp(int code);
+  void showRoutePick();
+  void buildRoutePick();
+  void routePick(int row);
+  void routeMapTap(const uint8_t* pub_key, uint8_t type);
+  void routeMapDone();
+  void routeMapRefresh();
+  void routeMapUndo();
+  void routeMapFrame();
+  void buildRouteBar(lv_obj_t* body);
   void mapDownloadPopup();
   // Map areas (MapAreas.h)
   void areaBuildLayer(lv_obj_t* body);
@@ -347,7 +364,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)from_picker; openAdmin(ci.id.pub_key); }
 
 private:
-  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE, SCR_GPS, SCR_BATT };
+  enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE, SCR_GPS, SCR_BATT, SCR_ROUTE, SCR_ROUTE_PICK };
 
   void buildStatusBar();
   void refreshStatusBar();
@@ -407,6 +424,7 @@ private:
   void refreshScanPopup();
   void buildMap();
   void layoutMap();
+  void layoutMapMarks(double left, double top, int w, int h);
   void mapLoop();
   void rebuildMapMarkers();
   void rebuildNodeMarkers();
@@ -610,6 +628,15 @@ private:
   lv_obj_t* _node_delete_lbl = nullptr;
   lv_obj_t* _node_path_lbl = nullptr;
   bool      _node_from_map = false;
+  lv_obj_t* _route_status = nullptr;     // Route screen (RouteScreen.h)
+  lv_obj_t* _route_list = nullptr;
+  lv_obj_t* _route_trace_btn = nullptr;
+  lv_obj_t* _route_pin_btn = nullptr;
+  uint8_t   _route_shown_state = 255;
+  uint32_t  _next_route_ms = 0;
+  bool      _route_pick = false;         // the nodes map taps repeaters into the route
+  lv_obj_t* _route_bar = nullptr;
+  lv_obj_t* _route_lbl = nullptr;
 
   // Map (SCR_MAP): view centre in fractional tile coords at zoom _map_z
   double    _map_cx = 0, _map_cy = 0;

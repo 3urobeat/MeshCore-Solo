@@ -5,6 +5,12 @@
 
 #define OUT_PATH_UNKNOWN   0xFF
 
+// ContactInfo::flags bit 4: the route in out_path was set by hand (the device's
+// Route editor) and is kept: a path heard from the contact, or a message that
+// goes unanswered, doesn't replace it. Bit 0 is the favourite star, bits 1-3 the
+// telemetry permissions. Reset path (or a new route saved) clears / sets it.
+#define CONTACT_FLAG_ROUTE_PINNED  0x10
+
 struct ContactInfo {
   mesh::Identity id;
   char name[32];

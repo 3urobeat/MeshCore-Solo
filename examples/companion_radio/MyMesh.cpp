@@ -1054,8 +1054,22 @@ bool MyMesh::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t i
   int path_bytes = (out_path_len & 63) * ((out_path_len >> 6) + 1);
   _path_same = contact.out_path_len == out_path_len && path_bytes <= MAX_PATH_SIZE
             && memcmp(contact.out_path, out_path, path_bytes) == 0;
+  // A route kept by hand stays: the base class takes the path and handles the
+  // ACK / response riding on it, then the held route goes back (nothing is
+  // written for it: _path_same).
+  const bool pinned = (contact.flags & CONTACT_FLAG_ROUTE_PINNED) != 0 && contact.out_path_len != OUT_PATH_UNKNOWN;
+  uint8_t held_len = contact.out_path_len;
+  uint8_t held[MAX_PATH_SIZE];
+  if (pinned) {
+    memcpy(held, contact.out_path, sizeof(held));
+    _path_same = true;
+  }
   bool r = BaseChatMesh::onContactPathRecv(contact, in_path, in_path_len, out_path, out_path_len, extra_type, extra, extra_len);
   _path_same = false;
+  if (pinned) {
+    contact.out_path_len = held_len;
+    memcpy(contact.out_path, held, sizeof(held));
+  }
   // A flood DM's ACK comes back folded into the return path, which the base
   // class matches without going through onAckRecv() -- so the UI's delivery
   // marker never heard of it and kept resending. Tell it here too; it only
@@ -1197,6 +1211,10 @@ void MyMesh::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code,
         result.rtt_ms = 0xFFFFFFFF; // Overflow
       }
       
+      uint8_t n = snr_count > TRACE_SNR_MAX ? TRACE_SNR_MAX : snr_count;
+      result.n_snr = n;
+      memcpy(result.snrs_x4, path_snrs, n);
+
       result.received = true;
       
       // Notify callback if set
@@ -1818,6 +1836,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
       recipient->out_path_len = OUT_PATH_UNKNOWN;
+      recipient->flags &= ~CONTACT_FLAG_ROUTE_PINNED;
       // recipient->lastmod = ??   shouldn't be needed, app already has this version of contact
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();

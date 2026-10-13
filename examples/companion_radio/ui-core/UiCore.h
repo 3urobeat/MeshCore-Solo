@@ -19,6 +19,7 @@
 #include "UiCoreHost.h"
 #include "ClockEngine.h"
 #include "PingEngine.h"
+#include "PathEditor.h"
 #include "CourseEngine.h"
 #include "LiveShareEngine.h"
 #include "LocatorEngine.h"
@@ -37,6 +38,7 @@ public:
     _sensors = sensors;
     clock.begin(prefs, &events);
     ping.begin(prefs);
+    route.begin(prefs, &ping);
     course.begin(sensors);
     live_share.begin(prefs, &course, &events);
     locator.begin(prefs, &course, &live_share, &events);
@@ -63,7 +65,8 @@ public:
 
   // ── Engines ───────────────────────────────────────────────────────────────
   ClockEngine clock;        // alarm / countdown / ring
-  PingEngine  ping;         // single in-flight ping + last result
+  PingEngine  ping;         // single in-flight ping / trace + last result
+  PathEditor  route;        // route to a node: edit, trace out and back, save
   CourseEngine course;      // GPS position + course-over-ground ring
   LiveShareEngine live_share; // [LOC] auto-share session + peers' shared positions
   LocatorEngine locator;    // active target, geofence crossings, proximity beeper
