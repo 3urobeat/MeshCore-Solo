@@ -173,21 +173,35 @@ static void flushWait(lv_display_t* disp) {
 }
 #endif
 
+// The first finger only. Typing with two thumbs, the second lands before the
+// first lifts; when the first goes the point jumps to the second -- to LVGL
+// one press sliding from key to key (the first key lost, or a scroll begun).
+// A new finger (the panel's track id) is a release, then a press of its own.
+static int16_t s_touch_id = -1;   // the finger reported, -1 none
 static void touchCb(lv_indev_t* indev, lv_indev_data_t* data) {
   (void)indev;
   lgfx::touch_point_t tp;
   bool down = s_gfx->getTouch(&tp, 1) > 0;
   if (s_swallow) {
     if (!down) s_swallow = false;
+    s_touch_id = -1;
     data->state = LV_INDEV_STATE_RELEASED;
+    return;
+  }
+  if (down && s_touch_id >= 0 && tp.id != s_touch_id) {
+    s_touch_id = -1;
+    data->state = LV_INDEV_STATE_RELEASED;   // at the last point; read again for the new finger
+    data->continue_reading = true;
     return;
   }
   if (down) {
     cpuSlow(false);   // the frame this touch causes: at the full clock
+    s_touch_id = tp.id;
     data->state = LV_INDEV_STATE_PRESSED;
     data->point.x = tp.x;
     data->point.y = tp.y;
   } else {
+    s_touch_id = -1;
     data->state = LV_INDEV_STATE_RELEASED;
   }
 }

@@ -279,6 +279,8 @@ static lv_obj_t* create(lv_obj_t* parent, NodePrefs* prefs) {
   lv_obj_add_event_cb(kbd, onLongPress, LV_EVENT_LONG_PRESSED, NULL);
   lv_obj_add_event_cb(kbd, onDelete, LV_EVENT_DELETE, NULL);
   lv_keyboard_set_popovers(kbd, true);
+  // A finger rolling on a key is still that key: no scroll or gesture taken up the tree
+  lv_obj_remove_flag(kbd, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLL_CHAIN | LV_OBJ_FLAG_GESTURE_BUBBLE));
   apply(kbd, s_script * 2);
   return kbd;
 }
