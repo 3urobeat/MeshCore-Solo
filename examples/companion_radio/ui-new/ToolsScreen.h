@@ -14,7 +14,7 @@ public:
   enum Action {
     ACT_NEARBY, ACT_LIVESHARE, ACT_TRAIL, ACT_LOCATOR, ACT_COMPASS,
     ACT_BOT, ACT_AUTOADVERT, ACT_REPEATER, ACT_ADMIN,
-    ACT_CLOCK, ACT_RINGTONE
+    ACT_CLOCK, ACT_RINGTONE, ACT_FLASHLIGHT
 #if defined(PIN_GPIO1)
     , ACT_GPIO
 #endif
@@ -51,6 +51,7 @@ public:
       case ACT_ADMIN:       task->pickAdminTarget();       break;  // Admin is remote-only: pick a node first
       case ACT_CLOCK:       task->gotoClockTools();        break;
       case ACT_RINGTONE:    task->gotoRingtoneEditor();    break;
+      case ACT_FLASHLIGHT:  task->gotoFlashlight();        break;
 #if defined(PIN_GPIO1)
       case ACT_GPIO:        task->gotoGpioScreen();        break;
 #endif
@@ -135,6 +136,9 @@ const ToolsScreen::Tool ToolsScreen::COMMS_TOOLS[] = {
 const ToolsScreen::Tool ToolsScreen::SYSTEM_TOOLS[] = {
   { "Clock Tools",     ACT_CLOCK },
   { "Ringtone Editor", ACT_RINGTONE },
+#if !defined(EINK_DISPLAY_MODEL)   // Features::IS_EINK: no light to give
+  { "Flashlight",      ACT_FLASHLIGHT },
+#endif
 #if defined(PIN_GPIO1)
   { "GPIO",            ACT_GPIO },
 #endif

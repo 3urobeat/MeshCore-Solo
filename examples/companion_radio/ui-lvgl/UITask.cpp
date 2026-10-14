@@ -260,7 +260,8 @@ void UITask::loop() {
   else if (btn_hold) mute_armed = true;
   else if (mute) toggleMute();
   else if (btn_click) {   // the side button doesn't wake: pockets
-    if (quickPanelOpen()) quickPanelClose(true);
+    if (flashlightOn()) flashlightClose();
+    else if (quickPanelOpen()) quickPanelClose(true);
     else if (!_asleep && !locked()) goHome();
   }
 
@@ -276,7 +277,7 @@ void UITask::loop() {
     // even with auto-off at Never (a woken-up pocket, a boot PIN, a message).
     uint32_t aoff = autoOffMillis();
     if (locked() && (aoff == 0 || aoff > LOCK_OFF_MS)) aoff = LOCK_OFF_MS;
-    if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging() && !otaBusy()) sleep();
+    if (aoff > 0 && lv_display_get_inactive_time(NULL) > aoff && !_core->clock.isRinging() && !otaBusy() && !flashlightOn()) sleep();
   }
 
   _core->loop();
@@ -422,6 +423,7 @@ void UITask::sleep() {
   if (_asleep) return;
   _asleep = true;
   quickPanelClose(false);
+  flashlightClose();
   if (_display) _display->turnOff();
   prefsSaveSoon(0);   // nothing to stall now
   lvport::powerSave(true, _tap_wake);
@@ -1246,6 +1248,7 @@ static void onOpenNodesMap(lv_event_t* e) { (void)e; s_ui->openMap(false); }
 static void onOpenClock(lv_event_t* e);   // ClockScreen.h
 static void onOpenBot(lv_event_t* e);     // BotScreen.h
 static void onOpenCompass(lv_event_t* e);   // CompassScreen.h
+static void onOpenFlashlight(lv_event_t* e);   // Flashlight.h
 static void onOpenDiag(lv_event_t* e);      // DiagScreen.h
 static void onOpenGps(lv_event_t* e);       // GpsScreen.h
 static void onOpenGpsFromSettings(lv_event_t* e);
@@ -1287,6 +1290,7 @@ static void onOpenSchemaPage(lv_event_t* e);   // Radio > Advanced
 #include "DeviceScreen.h"
 #include "DiagScreen.h"
 #include "CompassScreen.h"
+#include "Flashlight.h"
 #include "BatteryScreen.h"
 #include "GpsScreen.h"
 #include "RadioExtras.h"

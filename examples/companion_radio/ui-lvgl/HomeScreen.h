@@ -33,6 +33,7 @@ static const App APP_LIST[] = {
   { 'R', LV_SYMBOL_LOOP,     "Repeater",    onOpenRepeater,  false },
   { 'A', UI_SYMBOL_KEY,      "Admin",       onOpenAdminPick, false },
   { 'D', UI_SYMBOL_CHART,    "Diagnostics", onOpenDiag,      false },
+  { 'L', UI_SYMBOL_BULB,     "Flashlight",  onOpenFlashlight, false },
 };
 static const int APP_COUNT = sizeof(APP_LIST) / sizeof(APP_LIST[0]);
 static const int PER_PAGE = 6;

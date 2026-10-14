@@ -131,6 +131,7 @@ class UITask : public UITaskBase, public UiCoreHost {
   UIScreen* status_screen = nullptr;   // Home › Status (radio, GPS, sky, power, mesh, system)
   UIScreen* repeater_screen = nullptr;
   UIScreen* clock_tools = nullptr;
+  UIScreen* flashlight = nullptr;   // not on e-ink (Features::IS_EINK)
 #if defined(PIN_GPIO1)
   UIScreen* gpio_screen = nullptr;
 #endif
@@ -386,6 +387,7 @@ public:
   void gotoRepeaterScreen();
   void gotoGpioScreen();   // no-op on boards without user GPIO pins (see PIN_GPIO1)
   void gotoClockTools();   // Alarm / Timer / Stopwatch (from the home Clock page)
+  void gotoFlashlight();
   // Wake the display for an alarm/timer ring (force an immediate refresh).
   void wakeForAlarm();
   // Clear any active alert overlay early (alarm dismiss).

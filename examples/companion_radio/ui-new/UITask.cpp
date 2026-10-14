@@ -105,6 +105,7 @@ static const telemetry::Style L1_INFO      = { "\xc2\xb0", true,  false, 5 };
 #if defined(PIN_GPIO1)
 #include "GpioScreen.h"
 #endif
+#include "FlashlightScreen.h"
 #include "ToolsScreen.h"
 #include "CalendarView.h"       // the month under a tall clock, Clock tools › Calendar
 #include "ClockToolsScreen.h"   // Alarm / Timer / Stopwatch / Calendar (Clock page › Enter)
@@ -226,6 +227,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   status_screen      = new StatusScreen(this);
   repeater_screen    = new RepeaterScreen(this);
   clock_tools        = new ClockToolsScreen(this, node_prefs);
+  if (!Features::IS_EINK) flashlight = new FlashlightScreen(this);
 #if defined(PIN_GPIO1)
   gpio_screen        = new GpioScreen(this, node_prefs);
 #endif
@@ -273,6 +275,7 @@ void UITask::gotoStatusScreen(uint8_t tab) {
 }
 void UITask::gotoRepeaterScreen()  { setCurrScreen(repeater_screen); }
 void UITask::gotoClockTools()      { setCurrScreen(clock_tools); }
+void UITask::gotoFlashlight()      { setCurrScreen(flashlight); }
 void UITask::gotoGpioScreen() {
 #if defined(PIN_GPIO1)
   setCurrScreen(gpio_screen);
@@ -729,6 +732,7 @@ void UITask::setCurrScreen(UIScreen* c) {
   // begin()) stays nullptr thanks to the in-class initialisers. Bail here so
   // that mistake is an inert no-op instead of a null deref in render()/poll().
   if (!c) return;
+  if (flashlight && curr == flashlight && c != flashlight) applyBrightness();   // its full brightness goes with it
   curr = c;
   c->onShow();          // central per-visit reset hook (see UIScreen::onShow)
   _next_refresh = 0;
@@ -1440,6 +1444,10 @@ void UITask::loop() {
       _auto_off = millis() + AUTO_OFF_MILLIS;
     }
 #endif
+    if (flashlight && curr == flashlight) {   // a torch stays lit; after it, the usual timeout
+      uint32_t aoff = autoOffMillis();
+      _auto_off = millis() + (aoff > 0 ? aoff : AUTO_OFF_MILLIS);
+    }
     if (!_locked && autoOffMillis() > 0 && (int32_t)(millis() - _auto_off) >= 0 && !isRinging()) {
       _display->turnOff();
 #ifdef PIN_LED

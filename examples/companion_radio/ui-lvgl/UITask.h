@@ -358,6 +358,9 @@ public:
   void diagReset();
   void diagNoiseRun();
   void showCompass();
+  void showFlashlight();   // Flashlight.h
+  void flashlightClose();
+  bool flashlightOn() const;
   void showBattCurve();            // Settings > Power > Battery curve (BatteryScreen.h)
   void refreshBattCurve();
   int  battMv() const { return _batt_mv; }   // smoothed cell voltage, 0 before the first read

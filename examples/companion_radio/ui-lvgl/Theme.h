@@ -65,6 +65,7 @@ namespace theme {
   #define UI_SYMBOL_MUTE    "\xEF\x9A\xA9"   // U+F6A9, muted (speaker with a cross)
   #define UI_SYMBOL_LOCK    "\xEF\x80\xA3"   // U+F023, quick panel: lock the screen
   #define UI_SYMBOL_SUN     "\xEF\x86\x85"   // U+F185, quick panel: brightness
+  #define UI_SYMBOL_BULB    "\xEF\x83\xAB"   // U+F0EB, Flashlight
 
   // Accent choices; the fill is the colour at 42% over the background.
   struct Accent { const char* name; uint32_t col; };

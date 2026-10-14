@@ -8,7 +8,7 @@ home page.
 
 > [!NOTE]
 > **Wio Tracker L2:** the tools are apps on the home screen: Messages, Nodes,
-> Settings, Compass, Clock, GPS, Bot, Repeater, Admin, Diagnostics. The trail,
+> Settings, Compass, Clock, GPS, Bot, Repeater, Admin, Diagnostics, Flashlight. The trail,
 > live sharing and the locator are on the map (its tools button) and in
 > Settings › Map.
 
@@ -89,6 +89,16 @@ single contact or channel from its options.
 
 > [!NOTE]
 > **Wio Tracker L2:** the melody editor is under Settings › Sound.
+
+## Flashlight
+
+**Tools › System › Flashlight** lights the whole screen white at full
+brightness and keeps it on until you press a key; the brightness goes back
+when you leave. Not on e-ink, which gives no light.
+
+> [!NOTE]
+> **Wio Tracker L2:** the Flashlight app. A tap, the side button or the top
+> button puts it away.
 
 ## Status
 
