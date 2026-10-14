@@ -524,14 +524,15 @@ static void bannerBuild() {
   lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(s_banner, w - 12, LV_SIZE_CONTENT);
   lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 2);
-  lv_obj_set_style_bg_color(s_banner, lv_color_hex(theme::SURFACE_2), 0);
-  lv_obj_set_style_bg_color(s_banner, lv_color_hex(theme::SURFACE), LV_STATE_PRESSED);
-  lv_obj_set_style_border_color(s_banner, lv_color_hex(theme::ACCENT), 0);
+  // Raised off the page: lighter than it on the dark theme, white on the light.
+  lv_obj_set_style_bg_color(s_banner, lv_color_hex(theme::s_light ? theme::SURFACE : theme::SURFACE_2), 0);
+  lv_obj_set_style_bg_color(s_banner, lv_color_hex(theme::s_light ? theme::SURFACE_2 : theme::SURFACE), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(s_banner, lv_color_hex(theme::EDGE), 0);
   lv_obj_set_style_border_width(s_banner, 1, 0);
   lv_obj_set_style_radius(s_banner, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(s_banner, 12, 0);
   lv_obj_set_style_shadow_color(s_banner, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_shadow_opa(s_banner, LV_OPA_60, 0);
+  lv_obj_set_style_shadow_opa(s_banner, theme::s_light ? LV_OPA_20 : LV_OPA_60, 0);
   lv_obj_set_style_pad_all(s_banner, 8, 0);
   lv_obj_set_style_pad_column(s_banner, 10, 0);
   lv_obj_set_flex_flow(s_banner, LV_FLEX_FLOW_ROW);
@@ -644,14 +645,15 @@ void UITask::buildStatusBar() {
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(_toast, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_color(_toast, lv_color_hex(theme::SURFACE_2), 0);
-  lv_obj_set_style_border_color(_toast, lv_color_hex(theme::ACCENT), 0);
-  lv_obj_set_style_border_width(_toast, 1, 0);
+  // On the light theme a dark pill, as a phone's: a light one was lost on the page.
+  lv_obj_set_style_bg_color(_toast, lv_color_hex(theme::s_light ? theme::TEXT : theme::SURFACE_2), 0);
+  lv_obj_set_style_border_color(_toast, lv_color_hex(theme::EDGE), 0);
+  lv_obj_set_style_border_width(_toast, theme::s_light ? 0 : 1, 0);
   lv_obj_set_style_radius(_toast, theme::RADIUS, 0);
   lv_obj_set_style_pad_hor(_toast, 12, 0);
   lv_obj_set_style_pad_ver(_toast, 6, 0);
   lv_obj_align(_toast, LV_ALIGN_TOP_MID, 0, theme::STATUS_H + 4);   // slides down from under the status bar
-  lv_obj_t* tl = label(_toast, "", THEME_FONT_BODY, theme::TEXT);
+  lv_obj_t* tl = label(_toast, "", THEME_FONT_BODY, theme::s_light ? theme::SURFACE : theme::TEXT);
   lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);   // long texts wrap instead of running off the screen
   lv_obj_set_style_max_width(tl, lv_display_get_horizontal_resolution(NULL) - 40, 0);
   lv_obj_set_style_text_align(tl, LV_TEXT_ALIGN_CENTER, 0);

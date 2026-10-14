@@ -100,9 +100,9 @@ void UITask::channelMenu(int idx) {
   };
   for (auto& b : btns) {
     if (b.act == A_READ && !unread) continue;
-    lv_obj_t* bt = barButton(acts, b.text, onChanAction, b.act, b.act == A_FAV && chanctl::favourite(_prefs, idx));
+    lv_obj_t* bt = barButton(acts, b.text, onChanAction, b.act);
     if (b.act == A_DELETE) s_del_lbl = lv_obj_get_child(bt, 0);
-    if (b.act == A_FAV) s_fav_btn = bt;
+    if (b.act == A_FAV) { s_fav_btn = bt; styleSelected(bt, chanctl::favourite(_prefs, idx)); }
   }
 }
 
@@ -124,7 +124,7 @@ void UITask::channelAction(uint8_t act) {
       bool on = !chanctl::favourite(_prefs, idx);
       chanctl::setFavourite(_prefs, idx, on);
       prefsSave();
-      if (s_fav_btn) barButtonOn(s_fav_btn, on);
+      if (s_fav_btn) styleSelected(s_fav_btn, on);
       showToast(on ? "Added to favourites" : "Removed from favourites", 1200);
       if (_screen == SCR_CHATS) { buildChats(); channelMenu(idx); }   // list order / star
       break;

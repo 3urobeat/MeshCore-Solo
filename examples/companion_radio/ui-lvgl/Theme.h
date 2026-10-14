@@ -14,7 +14,10 @@
 //
 // Two themes, dark (the default) and light (Settings > Display > Theme). The
 // colours are set once, before anything is built (setLight()), so changing
-// the theme restarts the device.
+// the theme restarts the device. The light one isn't the dark one inverted:
+// something selected is a tint of the accent with the accent's text (SEL_*),
+// not a full accent fill -- that stays for the primary action and own
+// bubbles -- values read in grey, and popups and banners have a quiet edge.
 #include <src/themes/lv_theme_private.h>   // lv_theme_t's fields, to layer a theme
 
 namespace theme {
@@ -28,6 +31,12 @@ namespace theme {
   static uint32_t TEXT_MUTED= 0x9A958C;
   static uint32_t OK        = 0x6FCF6F;   // delivered / relayed
   static uint32_t FAIL      = 0xE5534B;   // not delivered
+  // Set from those by setAccent():
+  static uint32_t SEL_BG    = 0xFFB000;   // something selected / on: a tab, a segment, a tile
+  static uint32_t SEL_FG    = 0x0B0B0D;   // its text and icons
+  static uint32_t SEL_PRESS = 0xC08400;   // it pressed
+  static uint32_t VALUE     = 0xFFB000;   // a setting's value (a choice, a typed value)
+  static uint32_t EDGE      = 0xFFB000;   // the edge of a popup, the banner, the toast
   static bool s_light = false;
 
   // Spacing (px)
@@ -96,20 +105,34 @@ namespace theme {
     if (idx < 0 || idx >= ACCENT_COUNT) idx = 0;
     s_accent = idx;
     ACCENT = s_light ? ACCENTS[idx].light : ACCENTS[idx].col;
+    if (s_light) {
+      SEL_BG = mix(ACCENT, SURFACE, 20);
+      SEL_FG = mix(ACCENT, 0x000000, 78);
+      SEL_PRESS = mix(ACCENT, SURFACE, 32);
+      VALUE = TEXT_MUTED;
+      EDGE = SURFACE_2;
+    } else {
+      SEL_BG = ACCENT;
+      SEL_FG = ON_ACCENT;
+      SEL_PRESS = mix(ACCENT, BG, 75);
+      VALUE = ACCENT;
+      EDGE = ACCENT;
+    }
   }
   // Before anything is built (the colours are copied into what is).
   static void setLight(bool on) {
     s_light = on;
     if (on) {
-      BG = 0xF2F0EC; SURFACE = 0xFFFFFF; SURFACE_2 = 0xE2DFD9;
-      ON_ACCENT = 0xFFFFFF; TEXT = 0x1C1B19; TEXT_MUTED = 0x6E6A62;
+      // Neutral greys the panel's RGB565 keeps neutral (0xF3F3F1 came out pink).
+      BG = 0xEFEFEF; SURFACE = 0xFFFFFF; SURFACE_2 = 0xDEDEDE;
+      ON_ACCENT = 0xFFFFFF; TEXT = 0x1C1C1C; TEXT_MUTED = 0x6B6D6B;
       OK = 0x2E9A3E; FAIL = 0xD23A32;
     }
     setAccent(s_accent);
   }
 
   // Over LVGL's default theme, for every widget: a checked button is
-  // "selected" (the accent, ON_ACCENT text), buttons
+  // "selected" (SEL_BG, SEL_FG text), buttons
   // have the card radius and give a little under the finger (the default
   // theme's transitions animate it both ways). Scrollbars are thin and hug
   // the edge, inside the padding every panel and list has, instead of the
@@ -137,7 +160,7 @@ namespace theme {
       lv_style_set_transform_width(&s_press, -2);
       lv_style_set_transform_height(&s_press, -2);
       lv_style_init(&s_checked);
-      lv_style_set_text_color(&s_checked, lv_color_hex(ON_ACCENT));
+
       lv_style_init(&s_sbar);
       lv_style_set_width(&s_sbar, 3);
       lv_style_set_pad_right(&s_sbar, 2);    // vertical bar: 2 px off the edge
@@ -145,7 +168,8 @@ namespace theme {
       lv_style_set_pad_top(&s_sbar, RADIUS / 2);
       lv_style_set_pad_left(&s_sbar, RADIUS / 2);
     }
-    lv_style_set_bg_color(&s_checked, lv_color_hex(ACCENT));
+    lv_style_set_bg_color(&s_checked, lv_color_hex(SEL_BG));
+    lv_style_set_text_color(&s_checked, lv_color_hex(SEL_FG));
     lv_theme_t* base = lv_theme_default_init(disp, lv_color_hex(ACCENT), lv_color_hex(ACCENT), !s_light, THEME_FONT_BODY);
     s_theme = *base;
     lv_theme_set_parent(&s_theme, base);

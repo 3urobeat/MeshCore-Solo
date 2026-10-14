@@ -419,7 +419,7 @@ void UITask::setAccent(int idx) {
   theme::setAccent(idx);
   lvport::saveAccent(theme::s_accent);
   theme::install(lv_display_get_default());
-  if (_toast) lv_obj_set_style_border_color(_toast, lv_color_hex(theme::ACCENT), 0);
+  if (_toast) lv_obj_set_style_border_color(_toast, lv_color_hex(theme::EDGE), 0);
   _status_sig[0] = '\0';   // icons in the accent rebuilt
   refreshStatusBar();
   pinRowRefresh();   // the page, kept at its bottom where this row is

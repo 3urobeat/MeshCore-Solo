@@ -99,15 +99,15 @@ static void onPagesScrolled(lv_event_t* e) {
   dotsSet(lv_obj_get_scroll_x(s_pages) > lv_obj_get_width(s_pages) / 2);
 }
 
-// A tile's look: on in the accent with dark text, off on the surface;
+// A tile's look: on in SEL_BG / SEL_FG (Theme.h), off on the surface;
 // `dim`: nothing to switch on this device.
 static void tileSet(int t, const char* icon, const char* cap, bool on, bool dim = false) {
-  const uint32_t fg = on ? theme::ON_ACCENT : dim ? theme::TEXT_MUTED : theme::TEXT;
+  const uint32_t fg = on ? theme::SEL_FG : dim ? theme::TEXT_MUTED : theme::TEXT;
   const uint8_t look = 1 | (on ? 2 : 0);
   if (s_look[t] != look) {   // LVGL restyles, and redraws, on every set (the refresh is each second)
     s_look[t] = look;
-    lv_obj_set_style_bg_color(s_tile[t], lv_color_hex(on ? theme::ACCENT : theme::SURFACE), 0);
-    lv_obj_set_style_bg_color(s_tile[t], lv_color_hex(on ? theme::mix(theme::ACCENT, theme::BG, 75) : theme::SURFACE_2), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(s_tile[t], lv_color_hex(on ? theme::SEL_BG : theme::SURFACE), 0);
+    lv_obj_set_style_bg_color(s_tile[t], lv_color_hex(on ? theme::SEL_PRESS : theme::SURFACE_2), LV_STATE_PRESSED);
   }
   setText(s_icon[t], icon);
   setText(s_cap[t], cap);

@@ -185,7 +185,8 @@ void UITask::conversationMenu(const uint8_t* pub_key) {
   }
 
   lv_obj_t* acts = buttonBar(panel);
-  s_fav_btn = barButton(acts, UI_SYMBOL_STAR " Fav", onConvAction, A_FAV, contactctl::favourite(ci));
+  s_fav_btn = barButton(acts, UI_SYMBOL_STAR " Fav", onConvAction, A_FAV);
+  styleSelected(s_fav_btn, contactctl::favourite(ci));
   if (!room && _core->dmUnread(ci.id.pub_key) > 0) barButton(acts, LV_SYMBOL_OK " Read", onConvAction, A_READ, false);
   barButton(acts, UI_SYMBOL_TACK, onConvAction, A_PIN, favslots::findContact(_prefs, ci.id.pub_key) >= 0);
   if (room) {
@@ -208,7 +209,7 @@ void UITask::conversationAction(uint8_t act) {
     case A_FAV: {
       bool on = !contactctl::favourite(ci);
       if (!contactctl::setFavourite(ci.id.pub_key, on)) break;
-      if (s_fav_btn) barButtonOn(s_fav_btn, on);
+      if (s_fav_btn) styleSelected(s_fav_btn, on);
       showToast(on ? "Added to favourites" : "Removed from favourites", 1200);
       if (_screen == SCR_CHATS) { buildChats(); conversationMenu(s_key); }   // star / filter
       break;

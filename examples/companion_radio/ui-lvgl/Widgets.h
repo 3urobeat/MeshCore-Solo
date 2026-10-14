@@ -346,7 +346,7 @@ static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int
   }
   if (fit != POP_FIT) lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(panel, lv_color_hex(theme::BG), 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(theme::ACCENT), 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(theme::EDGE), 0);
   lv_obj_set_style_border_width(panel, 1, 0);
   lv_obj_set_style_radius(panel, theme::RADIUS, 0);
   lv_obj_set_style_pad_all(panel, theme::PAD, 0);
@@ -855,7 +855,7 @@ static lv_obj_t* choiceCreate(lv_obj_t* parent, const char* opts, int sel, const
   Choice* ch = (Choice*)lv_malloc(sizeof(Choice));
   memset(ch, 0, sizeof(*ch));
   snprintf(ch->title, sizeof(ch->title), "%s", title ? title : "");
-  ch->value = label(c, "", THEME_FONT_BODY, theme::ACCENT);
+  ch->value = label(c, "", THEME_FONT_BODY, theme::VALUE);
   lv_obj_set_style_max_width(ch->value, 140, 0);   // a long value wraps (LONG_DOT mis-sizes with SIZE_CONTENT)
   lv_obj_set_style_text_align(ch->value, LV_TEXT_ALIGN_RIGHT, 0);
   label(c, LV_SYMBOL_DOWN, THEME_FONT_SMALL, theme::TEXT_MUTED);
@@ -917,7 +917,7 @@ static lv_obj_t* rowValue(lv_obj_t* row, const char* text, lv_event_cb_t cb, voi
   lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_ext_click_area(c, 10);
   lv_obj_set_style_opa(c, LV_OPA_60, LV_STATE_PRESSED);
-  label(c, text, THEME_FONT_BODY, theme::ACCENT);
+  label(c, text, THEME_FONT_BODY, theme::VALUE);
   label(c, LV_SYMBOL_EDIT, THEME_FONT_SMALL, theme::TEXT_MUTED);
   lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, user);
   return c;
@@ -970,9 +970,9 @@ static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, i
   lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(m, 0, 0);
   lv_obj_set_style_bg_color(m, lv_color_hex(item), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(m, lv_color_hex(theme::ACCENT), LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(m, lv_color_hex(theme::SEL_BG), LV_PART_ITEMS | LV_STATE_CHECKED);
   lv_obj_set_style_text_color(m, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(m, lv_color_hex(theme::ON_ACCENT), LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(m, lv_color_hex(theme::SEL_FG), LV_PART_ITEMS | LV_STATE_CHECKED);
   lv_obj_set_style_text_font(m, THEME_FONT_SMALL, LV_PART_ITEMS);
   lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
   lv_obj_set_style_radius(m, theme::RADIUS, LV_PART_ITEMS);
@@ -1024,8 +1024,8 @@ static void stylePrimary(lv_obj_t* b) {
     lv_obj_set_style_text_color(lv_obj_get_child(b, i), lv_color_hex(theme::ON_ACCENT), 0);
 }
 
-// Something selected / on (a tab, a chip, a row): the accent with ON_ACCENT
-// text, or back to the surface with TEXT. Every label under it follows.
+// Something selected / on (a tab, a chip, a row): SEL_BG with SEL_FG text
+// (Theme.h), or back to the surface with TEXT. Every label under it follows.
 static void textUnder(lv_obj_t* o, uint32_t col) {
   for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) {
     lv_obj_t* c = lv_obj_get_child(o, i);
@@ -1034,14 +1034,15 @@ static void textUnder(lv_obj_t* o, uint32_t col) {
   }
 }
 static void styleSelected(lv_obj_t* b, bool on) {
-  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::ACCENT : theme::SURFACE), 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::mix(theme::ACCENT, theme::BG, 75) : theme::SURFACE_2), LV_STATE_PRESSED);
-  textUnder(b, on ? theme::ON_ACCENT : theme::TEXT);
+  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::SEL_BG : theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::SEL_PRESS : theme::SURFACE_2), LV_STATE_PRESSED);
+  textUnder(b, on ? theme::SEL_FG : theme::TEXT);
 }
 
 // A row of equal buttons at the foot of a popup or screen: buttonBar(), then
-// barButton() for each -- `accent` for the main action or one that's on
-// (barButtonOn() flips it later). Returns the button; its label is child 0.
+// barButton() for each -- `accent` for the main action, in the full accent
+// (barButtonOn() flips it later; a button that is on, as Fav, takes
+// styleSelected() instead). Returns the button; its label is child 0.
 static lv_obj_t* buttonBar(lv_obj_t* parent) {
   lv_obj_t* bar = lv_obj_create(parent);
   styleSurface(bar, theme::BG);
@@ -1051,7 +1052,11 @@ static lv_obj_t* buttonBar(lv_obj_t* parent) {
   lv_obj_set_style_pad_column(bar, theme::GAP, 0);
   return bar;
 }
-static void barButtonOn(lv_obj_t* b, bool on) { styleSelected(b, on); }
+static void barButtonOn(lv_obj_t* b, bool on) {
+  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::ACCENT : theme::SURFACE), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::mix(theme::ACCENT, theme::BG, 75) : theme::SURFACE_2), LV_STATE_PRESSED);
+  textUnder(b, on ? theme::ON_ACCENT : theme::TEXT);
+}
 static lv_obj_t* barButton(lv_obj_t* bar, const char* text, lv_event_cb_t cb, uintptr_t user, bool accent = false) {
   lv_obj_t* b = lv_button_create(bar);
   lv_obj_set_height(b, 40);
@@ -1264,7 +1269,8 @@ static lv_obj_t* create(lv_obj_t* parent) {
   lv_obj_t* o = lv_obj_create(parent);
   lv_obj_remove_style_all(o);
   lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_text_color(o, lv_color_hex(theme::TEXT), 0);
+  // Graphite on the light theme: that much black, that big, was heavy.
+  lv_obj_set_style_text_color(o, lv_color_hex(theme::s_light ? theme::mix(theme::TEXT, theme::BG, 80) : theme::TEXT), 0);
   Text* t = (Text*)lv_malloc(sizeof(Text));
   if (t) { snprintf(t->hm, sizeof(t->hm), "--:--"); t->sec[0] = 0; }
   lv_obj_set_user_data(o, t);
