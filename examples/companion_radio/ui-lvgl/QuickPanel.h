@@ -4,12 +4,14 @@
 // GPS, sound, the trail, live share -- the advert, the lock, and the
 // brightness under them. Holding a tile opens its settings. The tiles are two
 // pages of four, swiped sideways. Swiped up, a tap under it or on the status
-// bar, the side button or another screen puts it away. The screen under it
-// is frozen and dimmed in one snapshot (freeze::early, as under a popup), so
-// the slide redraws an image and the panel -- a live screen under it, or a
-// dim blended over that, was redrawn every frame -- and nothing under it
-// takes a touch. ui-new has the same things as Home pages (Radio, Bluetooth,
-// Advert, GPS).
+// bar, the side button or another screen puts it away. Nothing under it
+// takes a touch (a clear layer catches it). The screen under it isn't dimmed
+// or frozen: the panel is opaque, so sliding down it covers the screen
+// without redrawing it, where a frozen, dimmed copy took a snapshot of the
+// whole screen as the finger started (the panel stalled, then jumped) and
+// sent all of it to the panel at once (it tore, top to bottom). Built at
+// start, so the first pull doesn't stall either. ui-new has the same things
+// as Home pages (Radio, Bluetooth, Advert, GPS).
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after QuickScreen.h.
 
@@ -19,7 +21,7 @@ enum : uint8_t { T_BT, T_WIFI, T_GPS, T_SOUND, T_ADVERT, T_TRAIL, T_SHARE, T_LOC
 static const int PER_PAGE = 4;
 
 static lv_obj_t* s_panel = nullptr;
-static lv_obj_t* s_catch = nullptr;   // under it, while it's out: a tap there closes it
+static lv_obj_t* s_catch = nullptr;   // under it, while it's out: a tap there closes it (clear)
 static lv_obj_t* s_pages = nullptr;
 static lv_obj_t* s_dot[2];
 static uint8_t s_look[T_COUNT];       // what tileSet() last drew (0: nothing yet)
@@ -38,18 +40,48 @@ static void place(int32_t ty) {
   if (ty < -s_h) ty = -s_h;
   lv_obj_set_style_translate_y(s_panel, ty, 0);
 }
-static void placeCb(void* o, int32_t v) { (void)o; place(v); }
 static void hidden(lv_anim_t* a) {
   (void)a;
   lv_obj_add_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
-  if (s_catch) { lv_obj_delete(s_catch); s_catch = nullptr; }   // the frozen screen goes with it
+  if (s_catch) { lv_obj_delete(s_catch); s_catch = nullptr; }
   s_sb_panel = false;   // back under the title bar, if the screen has one
   s_ui->statusBarSync();
 }
+// The slide, timed by its own frames: a frame that took long (the map
+// redrawing under it) moves it at most STEP_MS on, where an lv_anim, timed
+// by the clock alone, was over by then and the panel just appeared.
+static const uint32_t STEP_MS = 30;
+static lv_timer_t* s_mover = nullptr;
+static int32_t s_from = 0, s_to = 0;
+static uint32_t s_t = 0, s_dur = 1, s_last = 0;
+static bool s_away = false;
+static void moverStop() {
+  if (s_mover) { lv_timer_delete(s_mover); s_mover = nullptr; }
+}
+static void moverTick(lv_timer_t* t) {
+  (void)t;
+  uint32_t dt = lv_tick_elaps(s_last);
+  s_last = lv_tick_get();
+  s_t += dt < STEP_MS ? dt : STEP_MS;
+  if (s_t >= s_dur) {
+    moverStop();
+    place(s_to);
+    if (s_away) hidden(nullptr);
+    return;
+  }
+  const int32_t k = 1024 - (int32_t)((s_dur - s_t) * 1024 / s_dur);   // 0..1024, then eased out
+  const int32_t e = 1024 - (1024 - k) * (1024 - k) / 1024 * (1024 - k) / 1024;
+  place(s_from + (s_to - s_from) * e / 1024);
+}
 static void slide(int32_t to, bool away) {
-  lv_anim_delete(s_panel, NULL);
-  anim::run(s_panel, placeCb, lv_obj_get_style_translate_y(s_panel, LV_PART_MAIN), to,
-            away ? anim::OUT_MS : anim::POP_MS, away ? hidden : nullptr);
+  moverStop();
+  s_from = lv_obj_get_style_translate_y(s_panel, LV_PART_MAIN);
+  s_to = to;
+  s_away = away;
+  s_t = 0;
+  s_dur = away ? anim::OUT_MS : anim::POP_MS;
+  s_last = lv_tick_get();
+  s_mover = lv_timer_create(moverTick, LV_DEF_REFR_PERIOD / 2, NULL);
 }
 
 static void onTile(lv_event_t* e) {
@@ -142,7 +174,7 @@ static void onStatusBarTouch(lv_event_t* e) {
   }
 }
 
-// Built the first time it's pulled, on the top layer between the screen and
+// Built at start (UITask::begin), hidden, on the top layer between the screen and
 // the toast and status bar (which stay over it).
 void UITask::quickPanelBuild() {
   using namespace qpanel;
@@ -245,19 +277,16 @@ bool UITask::quickPanelBegin() {
   if (_nav_overlay) navClosePopup();
   pickerClose();
   quickPanelRefresh();
-  lv_anim_delete(s_panel, NULL);
-  if (!s_catch) {   // a still copy of the screen, dimmed, under it: a tap or swipe there closes it
+  moverStop();
+  if (!s_catch) {   // a clear layer under it: a tap or swipe there closes it
     s_catch = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_catch);
     lv_obj_set_size(s_catch, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_catch, lv_color_hex(0x000000), 0);
     lv_obj_add_flag(s_catch, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(s_catch, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(s_catch, onCatch, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(s_catch, onPanelGesture, LV_EVENT_GESTURE, NULL);
     lv_obj_move_to_index(s_catch, lv_obj_get_index(s_panel));
-    lv_obj_add_event_cb(s_catch, freeze::ownerDeleted, LV_EVENT_DELETE, NULL);
-    freeze::early(s_catch, LV_OPA_50);   // no memory, or a popup's still frozen: the screen stays as it is
   }
   lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
   s_sb_panel = true;   // the full status bar over it, a title bar or not
@@ -275,7 +304,7 @@ void UITask::quickPanelClose(bool animate) {
   if (!s_panel || (!s_open && lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))) return;
   s_open = s_drag = false;
   if (animate) { slide(-s_h, true); return; }
-  lv_anim_delete(s_panel, NULL);
+  moverStop();
   hidden(nullptr);
 }
 

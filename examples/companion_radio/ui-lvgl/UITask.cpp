@@ -182,6 +182,7 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
   lv_display_add_event_cb(lv_display_get_default(), [](lv_event_t*) { rowsFitPending(); }, LV_EVENT_REFR_START, NULL);
 
   buildStatusBar();
+  quickPanelBuild();   // QuickPanel.h: ready before the first pull
   applyDisplayPrefs();   // a slider percentage overrides the level main.cpp set
   { char c[24]; lvport::crashSummary(c, sizeof(c)); }   // the dump in flash read now (~45 ms), not on the first Diagnostics
   showHome();

@@ -34,7 +34,7 @@ static lv_obj_t *s_quality = nullptr, *s_pos = nullptr, *s_grid = nullptr, *s_al
                 *s_speed = nullptr, *s_course = nullptr, *s_hdop = nullptr, *s_vdop = nullptr,
                 *s_pdop = nullptr, *s_cn0 = nullptr, *s_best = nullptr, *s_nmea = nullptr, *s_rx = nullptr;
 static lv_obj_t *s_d_fix = nullptr, *s_d_ttff = nullptr, *s_d_search = nullptr, *s_d_utc = nullptr;
-static const int SKY = 168;
+static const int SKY = 168;   // the plot at most; less when the screen under the tabs is shorter
 static const int BAR_PITCH = 26, BAR_W = 16, BARS_H = 120, AXIS_W = 22;
 
 // Snapshot the screen draws from, sorted: used first, then by signal.
@@ -108,7 +108,7 @@ static void onGpsSkyDraw(lv_event_t* e) {
   lv_area_t a;
   lv_obj_get_coords(o, &a);
   int32_t cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2;
-  int32_t r = SKY / 2 - 10;
+  int32_t r = lv_area_get_height(&a) / 2 - 10;
 
   lv_draw_arc_dsc_t arc;
   lv_draw_arc_dsc_init(&arc);
@@ -275,7 +275,12 @@ void UITask::buildGps() {
     styleSurface(s_sky, theme::BG);
     lv_obj_remove_flag(s_sky, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(s_sky, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(s_sky, SKY, SKY);
+    {   // as tall as is left under the tabs
+      layoutNow(body);
+      int32_t h = lv_obj_get_content_height(body) - theme::TAB_H - lv_obj_get_style_pad_row(body, LV_PART_MAIN);
+      if (h > SKY) h = SKY;
+      lv_obj_set_size(s_sky, h, h);
+    }
     lv_obj_add_event_cb(s_sky, onGpsSkyDraw, LV_EVENT_DRAW_MAIN_END, NULL);
 
     lv_obj_t* col = lv_obj_create(top);
