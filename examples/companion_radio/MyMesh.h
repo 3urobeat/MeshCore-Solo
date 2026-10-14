@@ -188,6 +188,10 @@ public:
       // its state and restarts. Returns false if it doesn't handle it, and
       // MyMesh then flushes and reboots by itself.
       virtual bool requestShutdown(bool restart) { return false; }
+      // Every packet heard / sent, for a picture of the mesh at work
+      // (ui-core/PacketFlow.h). Called before the packet is handled.
+      virtual void onPacketHeard(const mesh::Packet* pkt) { }
+      virtual void onPacketSent(const mesh::Packet* pkt) { }
       // A companion CLI command MyMesh has no answer for (its settings keys):
       // the reply into `reply` (n bytes), false when unknown.
       virtual bool onCliCommand(const char* command, char* reply, int n) { return false; }
@@ -292,6 +296,8 @@ protected:
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
 
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override;
+  void logRx(mesh::Packet* pkt, int len, float score) override { if (_listener) _listener->onPacketHeard(pkt); }
+  void logTx(mesh::Packet* pkt, int len) override { if (_listener) _listener->onPacketSent(pkt); }
   bool isAutoAddEnabled() const override;
   bool shouldAutoAddContactType(uint8_t type) const override;
   bool shouldOverwriteWhenFull() const override;

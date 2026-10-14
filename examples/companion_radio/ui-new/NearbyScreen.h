@@ -263,7 +263,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   // ── action-menu actions (matched by id, not by row index) ────────────────────
   enum Action : uint8_t { ACT_NAV, ACT_PING, ACT_WAYPOINT, ACT_LOCATOR,
                           ACT_ADD, ACT_DELETE, ACT_FAV, ACT_PIN, ACT_ADMIN, ACT_SORT, ACT_SCAN, ACT_MAP,
-                          ACT_TELEM, ACT_RESET_PATH, ACT_SHARE, ACT_ROUTE };
+                          ACT_TELEM, ACT_RESET_PATH, ACT_SHARE, ACT_ROUTE, ACT_FLOW };
 
   // Set by UITask::pickAdminTarget() (Tools > Admin, which is remote-only):
   // while true, ENTER on an eligible row (a stored repeater/room contact) hands
@@ -286,6 +286,8 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   bool    _detail;
   bool    _nav = false;     // full-screen navigate-to-node view (over detail)
   bool    _map = false;     // the nodes with a position on a map (under detail)
+  static const uint32_t FLOW_SHOW_MS = 60000;   // packet flow lines stay this long
+  uint32_t _flow_seen = 0;
   int     _map_zoom = 0;    // 0: all of them in view; each step halves it, on the selected
   navview::EtaTracker _nav_eta;  // closing-speed/ETA for the navigate view
   unsigned long _detail_refresh_ms;
@@ -552,6 +554,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   }
 
   char _fav_label[12];   // "Fav: ON" / "Fav: OFF" -- rewritten in place by L/R
+  char _flow_label[12];  // "Flow: ON" / "Flow: OFF" -- the map's packet flow
   char _pin_label[24];   // "Pin to dial" / "Unpin (slot N)" -- _menu stores the pointer
   char _telem_label[20]; // "Telem: ..." -- rewritten in place by L/R
 
@@ -598,6 +601,10 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     };
 
     if (stored && !_map && positioned(0, 1) >= 0) add("Map", ACT_MAP);
+    if (_map) {   // packet flow: what the radio hears, as lines (ui-core/PacketFlow.h)
+      buildFlowLabel();
+      addValue(_flow_label, ACT_FLOW);
+    }
     if (has_gps) add("Navigate",      ACT_NAV);
     if (has_key) add("Ping",          ACT_PING);
     if (has_gps) add("Save waypoint", ACT_WAYPOINT);
@@ -645,6 +652,11 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
 
   // Advance the value on the menu's value rows (Sort, Fav, Telem). Sort and Fav
   // are two-state, so LEFT and RIGHT do the same there; Telem steps by `dir`.
+  void buildFlowLabel() {
+    NodePrefs* p = _task->getNodePrefs();
+    snprintf(_flow_label, sizeof(_flow_label), "Flow: %s", p && p->flow_show ? "ON" : "OFF");
+  }
+
   void cycleMenuValue(int i, int dir = 1) {
     if (i < 0 || i >= _menu_action_count) return;
     if (_menu_actions[i] == ACT_SORT) {
@@ -653,6 +665,13 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       refresh();
     } else if (_menu_actions[i] == ACT_FAV) {
       toggleFavSelected();
+    } else if (_menu_actions[i] == ACT_FLOW) {
+      NodePrefs* p = _task->getNodePrefs();
+      if (!p) return;
+      p->flow_show = p->flow_show ? 0 : 1;
+      the_mesh.savePrefs();
+      if (!p->flow_show) _task->core().flow.clear();
+      buildFlowLabel();
     } else if (_menu_actions[i] == ACT_TELEM) {
       const Entry* e = selected();
       ContactInfo* ci = e ? the_mesh.lookupContactByPubKey(e->pub_key, PUB_KEY_SIZE) : nullptr;
@@ -733,6 +752,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
         break;
       }
       case ACT_SORT:     break;  // value rows -- see cycleMenuValue()
+      case ACT_FLOW:     break;
       case ACT_SCAN:     enterScan();            break;
       case ACT_MAP: {
         _map = true; _map_zoom = 0;
@@ -916,6 +936,25 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       if (!inside(x, y)) continue;
       miniIconDrawCentered(d, x, y, _entries[i].is_live ? ICON_MAP_CONTACT : ICON_MAP_DOT);
     }
+    // Packet flow (ui-core/PacketFlow.h): the lines of the packets heard in
+    // the last minute, the newest drawn twice as thick; a ring for a packet
+    // sent, or heard on its way to a repeater.
+    const PacketFlow& fl = _task->core().flow;
+    for (int i = 0; fl.enabled() && i < fl.count(); i++) {
+      const PacketFlow::Flow& f = fl.at(i);
+      if (millis() - f.t_ms > FLOW_SHOW_MS) break;   // newest first
+      int px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
+      for (int k = 0; k < f.n; k++) project(f.lat[k], f.lon[k], px[k], py[k]);
+      if (f.n == 1) {
+        if (inside(px[0], py[0])) gfx::drawCircle(d, px[0], py[0], 6 * s);
+        continue;
+      }
+      const bool bold = i < 2;
+      for (int k = 1; k < f.n; k++) {
+        gfx::drawLineClipped(d, px[k - 1], py[k - 1], px[k], py[k], ax, ay, aw, ah);
+        if (bold) gfx::drawLineClipped(d, px[k - 1] + 1, py[k - 1], px[k] + 1, py[k], ax, ay, aw, ah);
+      }
+    }
     if (_own_gps) { int x, y; project(_own_lat, _own_lon, x, y); if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_CURRENT); }
     if (target)   { int x, y; project(tla, tlo, x, y);           if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_TARGET); }
     const int r = 4 * s;
@@ -1093,7 +1132,9 @@ public:
         _detail_refresh_ms = millis();
       }
       renderMap(display);
-      return renderActivePopup(display) ? 50 : 2000;
+      if (renderActivePopup(display)) return 50;
+      const PacketFlow& fl = _task->core().flow;   // new lines show within a second
+      return fl.enabled() && (fl.seq() != _flow_seen || fl.active(FLOW_SHOW_MS)) ? (_flow_seen = fl.seq(), 1000) : 2000;
     }
 
     // ── list view ────────────────────────────────────────────────────────────
@@ -1218,6 +1259,17 @@ public:
     if (_source == SRC_SCAN) ret = _scanning ? 200 : 2000;
     else ret = _count == 0 ? 3000 : 2000;
     return (mq_delay > 0 && mq_delay < ret) ? mq_delay : ret;
+  }
+
+  // The nodes map, from outside the list (the sim harness).
+  bool openMap() {
+    int i = positioned(0, 1);
+    if (i < 0) return false;
+    _sel = i;
+    _detail = false;   // the map is drawn from the list
+    _map = true; _map_zoom = 0;
+    _detail_refresh_ms = millis();
+    return true;
   }
 
   // Path / trace for a contact, from outside the list (the sim harness).

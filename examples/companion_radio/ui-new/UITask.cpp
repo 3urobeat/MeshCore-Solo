@@ -256,6 +256,10 @@ void UITask::openAdminFor(const ContactInfo& ci, bool from_picker) {
   setCurrScreen(admin_screen);   // runs AdminScreen::onShow()'s reset first
   ((AdminScreen*)admin_screen)->startFor(ci, from_picker);
 }
+bool UITask::openNodesMap() {
+  setCurrScreen(nearby_screen);
+  return ((NearbyScreen*)nearby_screen)->openMap();
+}
 void UITask::openRouteFor(const uint8_t* pub_key) {
   setCurrScreen(nearby_screen);   // its onShow() reset first
   ((NearbyScreen*)nearby_screen)->openRoute(pub_key);

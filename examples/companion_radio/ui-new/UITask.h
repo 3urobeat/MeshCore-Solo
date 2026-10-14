@@ -331,6 +331,7 @@ public:
   void openAdminFor(const ContactInfo& ci, bool from_picker); // canonical Admin entry for a specific target (Nodes' Hold-Enter menu or the picker above)
   void openRouteFor(const uint8_t* pub_key);   // Nodes > a contact > Path / trace (sim harness)
   void openMessagesList() { gotoMessagesScreen(); }   // sim harness
+  bool openNodesMap();                                  // sim harness: Nodes > Map
   void gotoNearbyScreen();
   void gotoDashboardConfig();
   void gotoAutoAdvertScreen();

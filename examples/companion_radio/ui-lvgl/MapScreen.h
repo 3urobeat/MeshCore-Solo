@@ -258,6 +258,141 @@ static bool prefetchOne(double left, double top, int w, int h, int z) {
   return true;
 }
 
+// ── Packet flow (ui-core/PacketFlow.h) ──
+// Each packet heard runs along its line, sender -> repeaters -> here, as a
+// dot leaving a trail that fades; a packet sent (and one heard on its way
+// elsewhere) is a ring spreading from where it is. Drawn on the marker
+// layer, under the names and dots. Only the area the flows cover is
+// repainted while they move.
+static PacketFlow* s_flow = nullptr;
+static double s_view_left = 0, s_view_top = 0;   // the view, from the last layout
+static int s_view_z = 0;
+static bool s_view_ok = false;
+static const uint32_t FLOW_LIFE = 7000;     // ms a flow stays on the map
+static const uint32_t FLOW_TRAVEL = 1500;   // ms the dot takes from end to end
+static const uint32_t PULSE_MS = 1400;
+static lv_area_t s_flow_area;               // what the flows covered at the last tick
+static bool s_flow_area_on = false;
+
+static uint32_t flowColour(uint8_t kind) {
+  switch (kind) {
+    case PacketFlow::K_ADVERT: return 0x4FC3F7;   // blue
+    case PacketFlow::K_MSG:    return theme::OK;  // green
+    case PacketFlow::K_GROUP:  return theme::ACCENT;
+    case PacketFlow::K_SENT:   return theme::TEXT;
+    case PacketFlow::K_AHEAD:  return theme::TEXT_MUTED;
+    default:                   return 0xB39DDB;   // violet
+  }
+}
+
+static void flowPx(int32_t lat, int32_t lon, int32_t& x, int32_t& y) {
+  double fx = lonToTileX(lon / 1e6, s_view_z) * TILE_PX - s_view_left;
+  double fy = latToTileY(lat / 1e6, s_view_z) * TILE_PX - s_view_top;
+  x = (int32_t)lround(fx < -30000 ? -30000 : fx > 30000 ? 30000 : fx);
+  y = (int32_t)lround(fy < -30000 ? -30000 : fy > 30000 ? 30000 : fy);
+}
+
+// The area (layer px) the live flows cover, with room for a ring; false: none.
+static bool flowArea(lv_area_t& r) {
+  if (!s_flow || !s_view_ok || !s_flow->enabled()) return false;
+  const uint32_t now = millis();
+  bool any = false;
+  for (int i = 0; i < s_flow->count(); i++) {
+    const PacketFlow::Flow& f = s_flow->at(i);
+    if (now - f.t_ms >= FLOW_LIFE) break;   // newest first: the rest are older
+    for (int k = 0; k < f.n; k++) {
+      int32_t x, y;
+      flowPx(f.lat[k], f.lon[k], x, y);
+      if (!any) { r = { x, y, x, y }; any = true; }
+      r.x1 = min(r.x1, x); r.y1 = min(r.y1, y); r.x2 = max(r.x2, x); r.y2 = max(r.y2, y);
+    }
+  }
+  if (any) { r.x1 -= 28; r.y1 -= 28; r.x2 += 28; r.y2 += 28; }
+  return any;
+}
+
+static void drawFlows(lv_layer_t* layer, const lv_area_t& a) {
+  if (!s_flow || !s_view_ok || !s_flow->enabled()) return;
+  const uint32_t now = millis();
+  lv_draw_line_dsc_t ln, halo;   // the line, over a dark halo that lifts it off the map
+  lv_draw_line_dsc_init(&ln);
+  ln.width = 3;
+  ln.round_start = ln.round_end = 1;
+  halo = ln;
+  halo.width = 6;
+  halo.color = lv_color_hex(theme::BG);
+  lv_draw_arc_dsc_t ring;
+  lv_draw_arc_dsc_init(&ring);
+  ring.start_angle = 0; ring.end_angle = 360;
+  ring.width = 3;
+  lv_draw_rect_dsc_t dot;
+  lv_draw_rect_dsc_init(&dot);
+  dot.radius = LV_RADIUS_CIRCLE;
+  dot.bg_opa = LV_OPA_COVER;
+  dot.border_color = lv_color_hex(theme::BG);
+  dot.border_width = 2;
+  dot.border_opa = LV_OPA_COVER;
+  for (int i = s_flow->count() - 1; i >= 0; i--) {   // oldest first: the newest on top
+    const PacketFlow::Flow& f = s_flow->at(i);
+    const uint32_t age = now - f.t_ms;
+    if (age >= FLOW_LIFE) continue;
+    const lv_color_t col = lv_color_hex(flowColour(f.kind));
+    int32_t px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
+    for (int k = 0; k < f.n; k++) { flowPx(f.lat[k], f.lon[k], px[k], py[k]); px[k] += a.x1; py[k] += a.y1; }
+    if (f.n == 1) {   // a pulse
+      if (age >= PULSE_MS) continue;
+      ring.color = col;
+      ring.center.x = px[0]; ring.center.y = py[0];
+      ring.radius = (uint16_t)(5 + 22 * age / PULSE_MS);
+      ring.opa = (lv_opa_t)(255 - 255 * age / PULSE_MS);
+      lv_draw_arc(layer, &ring);
+      continue;
+    }
+    // The trail behind the dot, fading over the flow's life.
+    float len[PacketFlow::MAX_PTS];
+    float total = 0;
+    for (int k = 1; k < f.n; k++) {
+      float dx = px[k] - px[k - 1], dy = py[k] - py[k - 1];
+      len[k] = sqrtf(dx * dx + dy * dy);
+      total += len[k];
+    }
+    const float t = age >= FLOW_TRAVEL ? 1.0f : (float)age / FLOW_TRAVEL;
+    float left = total * t;
+    ln.color = col;
+    ln.opa = (lv_opa_t)(age < FLOW_TRAVEL ? 255 : 255 - 215 * (age - FLOW_TRAVEL) / (FLOW_LIFE - FLOW_TRAVEL));
+    halo.opa = (lv_opa_t)(ln.opa * 2 / 3);
+    int32_t hx = px[0], hy = py[0];   // the dot
+    int32_t ex_[PacketFlow::MAX_PTS], ey_[PacketFlow::MAX_PTS];
+    int segs = 0;
+    for (int k = 1; k < f.n && left > 0; k++, segs++) {
+      float part = left >= len[k] ? 1.0f : left / len[k];
+      ex_[k] = px[k - 1] + (int32_t)lroundf((px[k] - px[k - 1]) * part);
+      ey_[k] = py[k - 1] + (int32_t)lroundf((py[k] - py[k - 1]) * part);
+      hx = ex_[k]; hy = ey_[k];
+      left -= len[k];
+    }
+    for (int pass = 0; pass < 2; pass++)   // all the halo, then all the line: joints stay clean
+      for (int k = 1; k <= segs; k++) {
+        lv_draw_line_dsc_t& d = pass ? ln : halo;
+        d.p1 = { px[k - 1], py[k - 1] };
+        d.p2 = { ex_[k], ey_[k] };
+        lv_draw_line(layer, &d);
+      }
+    if (age < FLOW_TRAVEL) {
+      dot.bg_color = col;
+      lv_area_t d = { hx - 5, hy - 5, hx + 5, hy + 5 };
+      lv_draw_rect(layer, &dot, &d);
+    } else if (age < FLOW_TRAVEL + PULSE_MS) {   // arrived: a ring here
+      uint32_t p = age - FLOW_TRAVEL;
+      ring.color = col;
+      ring.center.x = px[f.n - 1]; ring.center.y = py[f.n - 1];
+      ring.radius = (uint16_t)(5 + 16 * p / PULSE_MS);
+      ring.opa = (lv_opa_t)(220 - 220 * p / PULSE_MS);
+      lv_draw_arc(layer, &ring);
+    }
+  }
+}
+
 static const int MARK_D = 12;   // marker dot diameter
 static const int MARK_LABELS_MAX = 20;   // names shown at once: the rest stay dots
 
@@ -279,6 +414,7 @@ static void drawMarks(lv_event_t* e) {
       lv_draw_line(layer, &ln);
     }
   }
+  drawFlows(layer, a);
   lv_draw_rect_dsc_t pill;
   lv_draw_rect_dsc_init(&pill);
   pill.bg_color = lv_color_hex(theme::BG);
@@ -561,6 +697,9 @@ void UITask::buildMap() {
   lv_obj_remove_flag(mapview::s_mark_layer, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(mapview::s_mark_layer, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(mapview::s_mark_layer, mapview::drawMarks, LV_EVENT_DRAW_MAIN, NULL);
+  mapview::s_flow = &_core->flow;
+  mapview::s_view_ok = false;
+  mapview::s_flow_area_on = false;
   mapview::s_sig_n = 0;
 
   areaBuildLayer(body);   // download frame / area outlines, over the tiles (MapAreas.h)
@@ -744,6 +883,7 @@ void UITask::layoutMap() {
 
 // One tile decode per call, nearest to the centre first.
 void UITask::mapLoop() {
+  mapFlowTick();
   if (_map_follow && (int32_t)(millis() - _next_follow_ms) >= 0) {   // following you: every fix
     _next_follow_ms = millis() + 1000;
     int32_t lat, lon;
@@ -871,6 +1011,9 @@ void UITask::addMapMark(uint8_t kind, int idx, int32_t lat_e6, int32_t lon_e6, u
 void UITask::layoutMapMarks(double left, double top, int w, int h) {
   using namespace mapview;
   if (!s_mark_layer) return;
+  if (s_view_ok && (s_view_left != left || s_view_top != top || s_view_z != _map_z) && flowArea(s_flow_area))
+    lv_obj_invalidate(s_mark_layer);   // the view moved under live flows
+  s_view_left = left; s_view_top = top; s_view_z = _map_z; s_view_ok = true;
   const int half = MARK_D / 2;
   const int lh = lv_font_get_line_height(THEME_FONT_SMALL) + 2;
   struct Box { int16_t x1, y1, x2, y2; };
@@ -1033,6 +1176,27 @@ void UITask::mapLongPress(int x, int y) {
   if (_map_nav && !_route_pick) navDropAt(x, y);
 }
 
+
+// Packet flow: while flows move, the area they cover (and covered) is
+// repainted ~20 times a second; nothing at all when none is live.
+void UITask::mapFlowTick() {
+  using namespace mapview;
+  if (!s_mark_layer || (int32_t)(millis() - _next_flow_ms) < 0) return;
+  _next_flow_ms = millis() + 50;
+  lv_area_t r;
+  bool now_on = flowArea(r);
+  if (!now_on && !s_flow_area_on) return;
+  lv_area_t la;
+  lv_obj_get_coords(s_mark_layer, &la);
+  auto inval = [&](const lv_area_t& b) {
+    lv_area_t x = { la.x1 + b.x1, la.y1 + b.y1, la.x1 + b.x2, la.y1 + b.y2 };
+    lv_obj_invalidate_area(s_mark_layer, &x);
+  };
+  if (s_flow_area_on) inval(s_flow_area);
+  if (now_on) inval(r);
+  s_flow_area = r;
+  s_flow_area_on = now_on;
+}
 
 // ── Picking a route (Route > Map) ─────────────────────────────────────────────
 

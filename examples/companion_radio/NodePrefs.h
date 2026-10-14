@@ -540,6 +540,9 @@ struct NodePrefs {  // persisted to file
   // 1 = latest message first, 2 = by name. See chanctl::order().
   static const uint8_t CH_SORT_COUNT = 3;
   uint8_t  ch_sort;
+  // Map > options > "Packet flow": what the radio hears drawn on the map as
+  // lines between the nodes (ui-core/PacketFlow.h). 0 = off (default).
+  uint8_t  flow_show;
 
   // Single source of truth for the live-share option tables (shared by the Map
   // UI labels and the auto-send engine in UITask).

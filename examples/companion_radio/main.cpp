@@ -699,6 +699,23 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_open_route(int type) {
 }
 #endif
 
+// Puts the first contact of `type` (ADV_TYPE_*) at a position, as if its
+// advert had carried one (the map's packet flow needs nodes on the map).
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_place_contact(int type, double lat, double lon) {
+  if (!g_sim_ready) return 0;
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo ci;
+    if (!the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, ci) || ci.type != type) continue;
+    ContactInfo* c = the_mesh.lookupContactByPubKey(ci.id.pub_key, PUB_KEY_SIZE);
+    if (!c) return 0;
+    c->gps_lat = (int32_t)lround(lat * 1e6);
+    c->gps_lon = (int32_t)lround(lon * 1e6);
+    return 1;
+  }
+  return 0;
+}
+
 // A hashtag channel into the first free slot ("#name": the name is the
 // passphrase, as chanctl::addHashtag does). The slot, or -1.
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_add_channel(const char* name) {
@@ -717,6 +734,11 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_add_channel(const char* name) {
 }
 
 #ifdef DISPLAY_CLASS
+// The nodes map (ui-new: Nodes > Map; ui-lvgl: the map from Nodes).
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_open_nodes_map() {
+  return g_sim_ready && ui_task.openNodesMap() ? 1 : 0;
+}
+
 // The messages list (ui-lvgl: Messages; ui-new: the Messages screen).
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_open_messages() {
   if (!g_sim_ready) return 0;

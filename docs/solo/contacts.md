@@ -26,11 +26,20 @@ for what you can do with it:
 | Discover scan | Asks the repeaters, rooms and sensors in direct range to answer, with their signal |
 
 **Map** shows the nodes of the current filter that have a position, with you
-and the target, fitted to the screen, north up, with a scale. Nodes are dots
+and the target, fitted to the screen, north up, with a scale. **Flow** in its
+options draws what the radio hears: each packet as a line from the node that
+sent it, through the repeaters it passed, to you, for a minute; a packet you
+send is a ring around you. Only nodes with a position can be placed, so a
+line may skip a hop. Nodes are dots
 (a diamond for a live share); the selected one is boxed, and the line under
 the map gives its name and distance, with **+n** when others sit on the same
 spot. **Left / Right** selects the next node, **Up / Down** zooms in on it and
 back out, **Enter** opens its details and **Hold Enter** its options.
+
+> [!NOTE]
+> **Wio Tracker L2:** **Packet flow** is in the map's options (On the map).
+> Each packet runs along its line as a dot and fades, coloured by kind:
+> adverts blue, direct messages green, channels amber, the rest violet.
 
 > [!NOTE]
 > **Wio Tracker L2:** the **Nodes** app. Filter chips at the top, the sort in

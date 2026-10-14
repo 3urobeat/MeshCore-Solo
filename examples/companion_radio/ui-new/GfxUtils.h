@@ -25,6 +25,22 @@ static inline void drawLine(DisplayDriver& d, int x0, int y0, int x1, int y1) {
   }
 }
 
+// The part of a line inside a box (x, y, w, h), Liang-Barsky; nothing when
+// it misses the box. For lines whose ends may lie far off the screen.
+static inline void drawLineClipped(DisplayDriver& d, int x0, int y0, int x1, int y1, int bx, int by, int bw, int bh) {
+  float t0 = 0, t1 = 1;
+  const float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+  const float p[4] = { -dx, dx, -dy, dy };
+  const float q[4] = { (float)(x0 - bx), (float)(bx + bw - 1 - x0), (float)(y0 - by), (float)(by + bh - 1 - y0) };
+  for (int i = 0; i < 4; i++) {
+    if (p[i] == 0) { if (q[i] < 0) return; continue; }
+    float r = q[i] / p[i];
+    if (p[i] < 0) { if (r > t1) return; if (r > t0) t0 = r; }
+    else          { if (r < t0) return; if (r < t1) t1 = r; }
+  }
+  drawLine(d, x0 + (int)(t0 * dx), y0 + (int)(t0 * dy), x0 + (int)(t1 * dx), y0 + (int)(t1 * dy));
+}
+
 // Midpoint-circle outline.
 static inline void drawCircle(DisplayDriver& d, int cx, int cy, int r) {
   int x = r, y = 0, err = 1 - r;

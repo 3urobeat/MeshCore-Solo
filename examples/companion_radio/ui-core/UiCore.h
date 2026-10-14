@@ -21,6 +21,7 @@
 #include "PingEngine.h"
 #include "PathEditor.h"
 #include "CourseEngine.h"
+#include "PacketFlow.h"
 #include "LiveShareEngine.h"
 #include "LocatorEngine.h"
 #include "TrailEngine.h"
@@ -40,6 +41,7 @@ public:
     ping.begin(prefs);
     route.begin(prefs, &ping);
     course.begin(sensors);
+    flow.begin(prefs, &course, sensors);
     live_share.begin(prefs, &course, &events);
     locator.begin(prefs, &course, &live_share, &events);
     trail.begin(prefs, &course);
@@ -68,6 +70,7 @@ public:
   PingEngine  ping;         // single in-flight ping / trace + last result
   PathEditor  route;        // route to a node: edit, trace out and back, save
   CourseEngine course;      // GPS position + course-over-ground ring
+  PacketFlow  flow;         // packets heard, as lines between nodes for the map
   LiveShareEngine live_share; // [LOC] auto-share session + peers' shared positions
   LocatorEngine locator;    // active target, geofence crossings, proximity beeper
   TrailEngine  trail;       // GPS trail store, sampling, auto-pause, shutdown save
@@ -198,6 +201,8 @@ public:
 
   void onACKRecv(uint32_t ack_crc) override { history.markDmDelivered(ack_crc); }
   void onAdvertHeard(bool was_flood) override { events.push(UiEventType::AdvertHeard, nullptr, was_flood); }
+  void onPacketHeard(const mesh::Packet* pkt) override { flow.onHeard(pkt); }
+  void onPacketSent(const mesh::Packet* pkt) override { flow.onSent(pkt); }
   bool requestShutdown(bool restart) override { _host->shutdown(restart); return true; }
 
   void onMessageRecv(mesh::Packet *pkt, const ContactInfo &from, uint8_t txt_type, uint32_t sender_timestamp,

@@ -25,7 +25,7 @@ namespace settings {
 // PG_ADVERT sits in Nearby's advert popup; the rest are Settings pages.
 // PG_PRIVACY and PG_RADIO (Radio's advanced options) are Settings pages too.
 enum Page : uint8_t { PG_NAV, PG_ADVERT, PG_DEVICE, PG_MESSAGES, PG_SOUND, PG_PRIVACY, PG_RADIO, PG_COUNT };
-enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_ADVERT,
+enum Section : uint8_t { SEC_TRAIL, SEC_LIVE_SHARE, SEC_LOCATOR, SEC_MAP_VIEW, SEC_ADVERT,
                          SEC_DISPLAY, SEC_POWER, SEC_TIME, SEC_UNITS,
                          SEC_MESSAGES, SEC_CONTACTS, SEC_AUTO_ADD,
                          SEC_SOUND, SEC_SOUND_FOR, SEC_QUIET,
@@ -37,7 +37,7 @@ static const char* pageTitle(uint8_t p) {
   return p < PG_COUNT ? T[p] : "";
 }
 static const char* sectionTitle(uint8_t s) {
-  static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "AUTOMATIC",
+  static const char* T[SEC_COUNT] = { "TRAIL", "LIVE SHARE", "ARRIVAL ALERT", "ON THE MAP", "AUTOMATIC",
                                       "DISPLAY", "POWER", "TIME", "UNITS",
                                       "MESSAGES", "CONTACTS", "ADDING CONTACTS",
                                       "SOUND", "PLAYS FOR", "QUIET HOURS",
@@ -45,7 +45,7 @@ static const char* sectionTitle(uint8_t s) {
   return s < SEC_COUNT ? T[s] : "";
 }
 static uint8_t sectionPage(uint8_t s) {
-  static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_ADVERT,
+  static const uint8_t P[SEC_COUNT] = { PG_NAV, PG_NAV, PG_NAV, PG_NAV, PG_ADVERT,
                                         PG_DEVICE, PG_DEVICE, PG_DEVICE, PG_DEVICE,
                                         PG_MESSAGES, PG_MESSAGES, PG_MESSAGES,
                                         PG_SOUND, PG_SOUND, PG_SOUND,
@@ -249,6 +249,8 @@ static const Setting ALL[] = {
   IDX("Alert on", nullptr, SEC_LOCATOR, locator_mode,
       NodePrefs::LOCATOR_MODE_COUNT, optLocMode, rearmLocator),
   SW("Proximity beeper", "Ticks faster when closer", SEC_LOCATOR, locator_beeper, nullptr),
+
+  SW("Packet flow", "What the radio hears, as lines between nodes", SEC_MAP_VIEW, flow_show, nullptr),
 
   MAP("Auto-advert", "Your advert, on a timer", SEC_ADVERT, advert_auto_interval_sec, AUTO_ADVERT,
       optAutoAdvert, nullptr),
