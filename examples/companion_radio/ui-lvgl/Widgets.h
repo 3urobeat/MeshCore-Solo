@@ -972,7 +972,7 @@ static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, i
   lv_obj_set_style_bg_color(m, lv_color_hex(item), LV_PART_ITEMS);
   lv_obj_set_style_bg_color(m, lv_color_hex(theme::ACCENT), LV_PART_ITEMS | LV_STATE_CHECKED);
   lv_obj_set_style_text_color(m, lv_color_hex(theme::TEXT), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(m, lv_color_hex(theme::BG), LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(m, lv_color_hex(theme::ON_ACCENT), LV_PART_ITEMS | LV_STATE_CHECKED);
   lv_obj_set_style_text_font(m, THEME_FONT_SMALL, LV_PART_ITEMS);
   lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
   lv_obj_set_style_radius(m, theme::RADIUS, LV_PART_ITEMS);
@@ -1016,16 +1016,16 @@ static void onByteCapInsert(lv_event_t* e) {
   if (ins && strlen(lv_textarea_get_text(ta)) + strlen(ins) > cap) lv_textarea_set_insert_replace(ta, "");
 }
 
-// The primary action of a screen or popup: full amber, dark text (Theme.h);
+// The primary action of a screen or popup: full accent, ON_ACCENT text (Theme.h);
 // call after its label is made.
 static void stylePrimary(lv_obj_t* b) {
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT), 0);
   for (uint32_t i = 0; i < lv_obj_get_child_count(b); i++)
-    lv_obj_set_style_text_color(lv_obj_get_child(b, i), lv_color_hex(theme::BG), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(b, i), lv_color_hex(theme::ON_ACCENT), 0);
 }
 
-// Something selected / on (a tab, a chip, a row): the accent with dark text,
-// or back to the surface with light text. Every label under it follows.
+// Something selected / on (a tab, a chip, a row): the accent with ON_ACCENT
+// text, or back to the surface with TEXT. Every label under it follows.
 static void textUnder(lv_obj_t* o, uint32_t col) {
   for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) {
     lv_obj_t* c = lv_obj_get_child(o, i);
@@ -1036,7 +1036,7 @@ static void textUnder(lv_obj_t* o, uint32_t col) {
 static void styleSelected(lv_obj_t* b, bool on) {
   lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::ACCENT : theme::SURFACE), 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::mix(theme::ACCENT, theme::BG, 75) : theme::SURFACE_2), LV_STATE_PRESSED);
-  textUnder(b, on ? theme::BG : theme::TEXT);
+  textUnder(b, on ? theme::ON_ACCENT : theme::TEXT);
 }
 
 // A row of equal buttons at the foot of a popup or screen: buttonBar(), then
@@ -1137,7 +1137,7 @@ static void badge(lv_obj_t* parent, int n, bool overflow) {
   lv_obj_set_style_pad_hor(b, 7, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
   lv_obj_align(b, LV_ALIGN_RIGHT_MID, -theme::PAD, 0);
-  lv_obj_t* l = label(b, "", THEME_FONT_SMALL, theme::BG);
+  lv_obj_t* l = label(b, "", THEME_FONT_SMALL, theme::ON_ACCENT);
   lv_label_set_text_fmt(l, "%d%s", n, overflow ? "+" : "");
   lv_obj_center(l);
 }

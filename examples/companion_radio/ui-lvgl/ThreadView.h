@@ -289,9 +289,9 @@ static void msgLocButton(lv_obj_t* parent, const char* text, bool save, bool acc
   lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   // on our own amber bubble the main one goes dark instead
-  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? (own ? theme::BG : theme::ACCENT) : theme::SURFACE_2), 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(accent ? (own ? theme::ON_ACCENT : theme::ACCENT) : theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onMsgLoc, LV_EVENT_CLICKED, (void*)(uintptr_t)(save ? 1 : 0));
-  lv_obj_center(label(b, text, THEME_FONT_SMALL, accent ? (own ? theme::ACCENT : theme::BG) : theme::TEXT));
+  lv_obj_center(label(b, text, THEME_FONT_SMALL, accent ? (own ? theme::ACCENT : theme::ON_ACCENT) : theme::TEXT));
 }
 
 // A message's text, wrapped at `max_w` and shrunk to fit. "@[nick]" mentions
@@ -300,7 +300,7 @@ static void msgLocButton(lv_obj_t* parent, const char* text, bool save, bool acc
 // ours (*mentions_me set). Plain text stays a label.
 static lv_obj_t* msgText(lv_obj_t* parent, const char* text, bool own, int max_w, bool* mentions_me) {
   *mentions_me = false;
-  const uint32_t col = own ? theme::BG : theme::TEXT;
+  const uint32_t col = own ? theme::ON_ACCENT : theme::TEXT;
   if (!strstr(text, "@[")) {
     lv_obj_t* t = label(parent, text, THEME_FONT_BODY, col);
     lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
@@ -337,7 +337,7 @@ static lv_obj_t* msgText(lv_obj_t* parent, const char* text, bool own, int max_w
     lv_span_t* sp = lv_spangroup_new_span(sg);
     lv_span_set_text(sp, part);
     lv_style_t* st = lv_span_get_style(sp);
-    lv_style_set_text_color(st, lv_color_hex(own ? theme::BG : theme::ACCENT));
+    lv_style_set_text_color(st, lv_color_hex(own ? theme::ON_ACCENT : theme::ACCENT));
     if (mine) { lv_style_set_text_decor(st, LV_TEXT_DECOR_UNDERLINE); *mentions_me = true; }
     p = close + 1;
   }
@@ -377,7 +377,7 @@ static lv_obj_t* bubble(lv_obj_t* list, const char* from, const char* text, bool
   lv_obj_set_size(b, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_max_width(b, 250, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(own ? theme::ACCENT : theme::SURFACE), 0);
-  const uint32_t muted = own ? theme::mix(theme::BG, theme::ACCENT, 60) : theme::TEXT_MUTED;
+  const uint32_t muted = own ? theme::mix(theme::ON_ACCENT, theme::ACCENT, 60) : theme::TEXT_MUTED;
   lv_obj_set_style_border_width(b, 0, 0);
   lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_pad_all(b, 6, 0);
@@ -394,7 +394,7 @@ static lv_obj_t* bubble(lv_obj_t* list, const char* from, const char* text, bool
   if (from && from[0]) {
     lv_obj_t* hdr = flexBox(b, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(hdr, 8, 0);
-    label(hdr, from, THEME_FONT_SMALL, own ? theme::BG : theme::ACCENT);   // names are <= 31 chars: fits the bubble
+    label(hdr, from, THEME_FONT_SMALL, own ? theme::ON_ACCENT : theme::ACCENT);   // names are <= 31 chars: fits the bubble
     if (meta_in_header) *age_out = label(hdr, meta, THEME_FONT_SMALL, muted);
   }
   bool mentions_me;
@@ -427,11 +427,11 @@ static lv_obj_t* bubble(lv_obj_t* list, const char* from, const char* text, bool
       lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
       lv_obj_set_style_bg_color(c, lv_color_hex(theme::OK), 0);
       lv_obj_set_style_radius(c, LV_RADIUS_CIRCLE, 0);
-      lv_obj_t* n = label(c, "", THEME_FONT_SMALL, theme::BG);
+      lv_obj_t* n = label(c, "", THEME_FONT_SMALL, theme::ON_ACCENT);
       lv_label_set_text_fmt(n, "%d", relays);
       lv_obj_center(n);
     } else if (status && status[0]) {
-      label(line, status, THEME_FONT_SMALL, own ? theme::BG : status_col);
+      label(line, status, THEME_FONT_SMALL, own ? theme::ON_ACCENT : status_col);
     }
   }
   return row;

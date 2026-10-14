@@ -68,14 +68,14 @@ static void onCalendarDraw(lv_event_t* e) {
     }
     snprintf(buf, sizeof(buf), "%d", day);
     td.text = buf;
-    td.color = lv_color_hex(today ? theme::BG : k % 7 >= 5 ? theme::TEXT_MUTED : theme::TEXT);
+    td.color = lv_color_hex(today ? theme::ON_ACCENT : k % 7 >= 5 ? theme::TEXT_MUTED : theme::TEXT);
     lv_area_t la = { cx, cy + (ch - fh) / 2, cx + cw - 1, cy + (ch + fh) / 2 };
     lv_draw_label(layer, &td, &la);
     if (s_cal_marks & (1UL << (day - 1))) {   // under the number
       lv_draw_rect_dsc_t md;
       lv_draw_rect_dsc_init(&md);
       md.radius = 1;
-      md.bg_color = lv_color_hex(today ? theme::BG : theme::ACCENT);
+      md.bg_color = lv_color_hex(today ? theme::ON_ACCENT : theme::ACCENT);
       lv_area_t ma = { cx + cw / 2 - 6, cy + ch - 2, cx + cw / 2 + 6, cy + ch - 1 };
       lv_draw_rect(layer, &md, &ma);
     }

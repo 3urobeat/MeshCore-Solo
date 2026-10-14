@@ -127,6 +127,14 @@ void UITask::setBrightnessPct(uint8_t pct, bool save) {
   if (save) prefsSave();
 }
 
+// Every screen is built in the theme's colours: a new one starts afresh.
+static void onThemeChoice(lv_event_t* e) {
+  const bool light = choiceSelected((lv_obj_t*)lv_event_get_target(e)) == 1;
+  if (light == theme::s_light) return;
+  lvport::saveLight(light);
+  restartScreen(light ? "Starting in the light theme." : "Starting in the dark theme.");
+}
+
 static void onTapWake(lv_event_t* e) {
   s_ui->setTapWake(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
 }
@@ -158,7 +166,9 @@ void UITask::buildSchemaSettings() {
       g = group(body, "LOCK");
       schemaRow(g, SETTING(auto_lock));
       listRow(g, "Screen PIN", pinSet() ? "On  -  asked when the screen wakes" : "Off", onPinSetup, NULL);
-      accentRow(group(body, "LOOK"));   // DeviceScreen.h
+      g = group(body, "LOOK");
+      choiceRow(g, "Theme", "Changing it restarts the device", "Dark\nLight", theme::s_light ? 1 : 0, onThemeChoice);
+      accentRow(g);   // DeviceScreen.h
       return;
     }
     case PG_POWER: {

@@ -39,8 +39,8 @@ static void styleCell(int i, bool sel) {
   const bool hl = i == s_hl;
   lv_obj_set_style_bg_color(s_cells[i], lv_color_hex(hl ? theme::ACCENT : theme::SURFACE), 0);
   lv_obj_set_style_border_width(s_cells[i], sel ? 2 : 0, 0);
-  setTextColor(lv_obj_get_child(s_cells[i], 0), hl ? theme::BG : theme::TEXT);
-  setTextColor(lv_obj_get_child(s_cells[i], 1), hl ? theme::BG : theme::TEXT_MUTED);
+  setTextColor(lv_obj_get_child(s_cells[i], 0), hl ? theme::ON_ACCENT : theme::TEXT);
+  setTextColor(lv_obj_get_child(s_cells[i], 1), hl ? theme::ON_ACCENT : theme::TEXT_MUTED);
 }
 
 // Moves the "sounding" light to note `idx` (-1: none).

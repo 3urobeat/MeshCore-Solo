@@ -404,12 +404,12 @@ void UITask::accentRow(lv_obj_t* body) {   // a row of a group: the label over t
     lv_obj_t* sw = lv_button_create(row);
     lv_obj_set_size(sw, 32, 32);
     lv_obj_set_style_radius(sw, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(sw, lv_color_hex(theme::ACCENTS[i].col), 0);
+    lv_obj_set_style_bg_color(sw, lv_color_hex(theme::s_light ? theme::ACCENTS[i].light : theme::ACCENTS[i].col), 0);
     bool cur = i == theme::s_accent;
     lv_obj_set_style_border_width(sw, cur ? 3 : 0, 0);
     lv_obj_set_style_border_color(sw, lv_color_hex(theme::TEXT), 0);
     lv_obj_add_event_cb(sw, onAccent, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
-    if (cur) lv_obj_center(label(sw, LV_SYMBOL_OK, THEME_FONT_SMALL, theme::BG));
+    if (cur) lv_obj_center(label(sw, LV_SYMBOL_OK, THEME_FONT_SMALL, theme::ON_ACCENT));
   }
 }
 

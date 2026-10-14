@@ -372,7 +372,7 @@ static void editTile(lv_obj_t* box, int pos) {
   lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(on ? theme::SURFACE_2 : theme::ACCENT), 0);
   lv_obj_align(b, LV_ALIGN_TOP_RIGHT, 2, -2);
-  lv_obj_center(label(b, on ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS, THEME_FONT_SMALL, on ? theme::TEXT : theme::BG));
+  lv_obj_center(label(b, on ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS, THEME_FONT_SMALL, on ? theme::TEXT : theme::ON_ACCENT));
 }
 }  // namespace home
 
@@ -479,7 +479,7 @@ void UITask::buildHome() {
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT), 0);
     lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, 0, 24);
     lv_obj_add_event_cb(b, home::onEditDone, LV_EVENT_CLICKED, NULL);
-    lv_obj_center(label(b, "Done", THEME_FONT_SMALL, theme::BG));
+    lv_obj_center(label(b, "Done", THEME_FONT_SMALL, theme::ON_ACCENT));
   }
   setHomePage(home::s_page);
 }
@@ -635,7 +635,7 @@ void UITask::buildHomeMap(lv_obj_t* box) {
   using namespace home::mini;
   lv_obj_set_layout(box, LV_LAYOUT_NONE);
   s_area = lv_obj_create(box);
-  styleSurface(s_area, 0x1A1A1E);   // unloaded / missing tiles
+  styleSurface(s_area, theme::SURFACE);   // unloaded / missing tiles
   lv_obj_set_size(s_area, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_radius(s_area, theme::RADIUS, 0);
   lv_obj_set_style_clip_corner(s_area, true, 0);

@@ -4,25 +4,31 @@
 //
 // The accent (amber by default; Settings > Display > Accent colour)
 // on near-black, soft corners. The accent means one of three things:
-//  - ACCENT fill, dark text: the primary action of a screen or popup
+//  - ACCENT fill, ON_ACCENT text: the primary action of a screen or popup
 //    (Download, Install, Save, Go) -- stylePrimary() in UITask.cpp -- and
 //    something selected / on (a tab, a chip, a segment, a mode that is
 //    running, own bubbles) -- styleSelected();
 //  - ACCENT text or icon: a name, a count, a background mode, a value.
 // No accent mixed toward black for "selected": it came out brown.
 // Everything else is BG / SURFACE / SURFACE_2 with TEXT or TEXT_MUTED.
+//
+// Two themes, dark (the default) and light (Settings > Display > Theme). The
+// colours are set once, before anything is built (setLight()), so changing
+// the theme restarts the device.
 #include <src/themes/lv_theme_private.h>   // lv_theme_t's fields, to layer a theme
 
 namespace theme {
-  // Colours (0xRRGGBB)
-  static const uint32_t BG        = 0x0B0B0D;   // screen background
-  static const uint32_t SURFACE   = 0x1A1A1F;   // cards, rows, bubbles (incoming)
-  static const uint32_t SURFACE_2 = 0x27272E;   // pressed / raised
-  static uint32_t ACCENT          = 0xFFB000;   // primary actions, names, badges, modes (setAccent)
-  static const uint32_t TEXT      = 0xF2EEE6;
-  static const uint32_t TEXT_MUTED= 0x9A958C;
-  static const uint32_t OK        = 0x6FCF6F;   // delivered / relayed
-  static const uint32_t FAIL      = 0xE5534B;   // not delivered
+  // Colours (0xRRGGBB), the dark theme's; setLight() sets the light one's.
+  static uint32_t BG        = 0x0B0B0D;   // screen background
+  static uint32_t SURFACE   = 0x1A1A1F;   // cards, rows, bubbles (incoming)
+  static uint32_t SURFACE_2 = 0x27272E;   // pressed / raised
+  static uint32_t ACCENT    = 0xFFB000;   // primary actions, names, badges, modes (setAccent)
+  static uint32_t ON_ACCENT = 0x0B0B0D;   // text and icons on an ACCENT fill
+  static uint32_t TEXT      = 0xF2EEE6;
+  static uint32_t TEXT_MUTED= 0x9A958C;
+  static uint32_t OK        = 0x6FCF6F;   // delivered / relayed
+  static uint32_t FAIL      = 0xE5534B;   // not delivered
+  static bool s_light = false;
 
   // Spacing (px)
   static const int PAD     = 8;
@@ -67,11 +73,12 @@ namespace theme {
   #define UI_SYMBOL_SUN     "\xEF\x86\x85"   // U+F185, quick panel: brightness
   #define UI_SYMBOL_BULB    "\xEF\x83\xAB"   // U+F0EB, Flashlight
 
-  // Accent choices; the fill is the colour at 42% over the background.
-  struct Accent { const char* name; uint32_t col; };
+  // Accent choices: on the dark theme, and deeper on the light one, to read
+  // as text on white and take white text on it.
+  struct Accent { const char* name; uint32_t col, light; };
   static const Accent ACCENTS[] = {
-    { "Amber", 0xFFB000 }, { "Orange", 0xFF7A2E }, { "Coral", 0xFF6B7A },
-    { "Violet", 0xB18CFF }, { "Cyan", 0x3CC8E8 }, { "Lime", 0xB5E04A },
+    { "Amber", 0xFFB000, 0xC77800 }, { "Orange", 0xFF7A2E, 0xD9561A }, { "Coral", 0xFF6B7A, 0xD9455A },
+    { "Violet", 0xB18CFF, 0x7A55E0 }, { "Cyan", 0x3CC8E8, 0x0E8AA8 }, { "Lime", 0xB5E04A, 0x5E8A12 },
   };
   static const int ACCENT_COUNT = sizeof(ACCENTS) / sizeof(ACCENTS[0]);
   static int s_accent = 0;
@@ -88,11 +95,21 @@ namespace theme {
   static void setAccent(int idx) {
     if (idx < 0 || idx >= ACCENT_COUNT) idx = 0;
     s_accent = idx;
-    ACCENT = ACCENTS[idx].col;
+    ACCENT = s_light ? ACCENTS[idx].light : ACCENTS[idx].col;
+  }
+  // Before anything is built (the colours are copied into what is).
+  static void setLight(bool on) {
+    s_light = on;
+    if (on) {
+      BG = 0xF2F0EC; SURFACE = 0xFFFFFF; SURFACE_2 = 0xE2DFD9;
+      ON_ACCENT = 0xFFFFFF; TEXT = 0x1C1B19; TEXT_MUTED = 0x6E6A62;
+      OK = 0x2E9A3E; FAIL = 0xD23A32;
+    }
+    setAccent(s_accent);
   }
 
   // Over LVGL's default theme, for every widget: a checked button is
-  // "selected" (the accent, dark text), buttons
+  // "selected" (the accent, ON_ACCENT text), buttons
   // have the card radius and give a little under the finger (the default
   // theme's transitions animate it both ways). Scrollbars are thin and hug
   // the edge, inside the padding every panel and list has, instead of the
@@ -120,7 +137,7 @@ namespace theme {
       lv_style_set_transform_width(&s_press, -2);
       lv_style_set_transform_height(&s_press, -2);
       lv_style_init(&s_checked);
-      lv_style_set_text_color(&s_checked, lv_color_hex(BG));
+      lv_style_set_text_color(&s_checked, lv_color_hex(ON_ACCENT));
       lv_style_init(&s_sbar);
       lv_style_set_width(&s_sbar, 3);
       lv_style_set_pad_right(&s_sbar, 2);    // vertical bar: 2 px off the edge
@@ -129,7 +146,7 @@ namespace theme {
       lv_style_set_pad_left(&s_sbar, RADIUS / 2);
     }
     lv_style_set_bg_color(&s_checked, lv_color_hex(ACCENT));
-    lv_theme_t* base = lv_theme_default_init(disp, lv_color_hex(ACCENT), lv_color_hex(ACCENT), true, THEME_FONT_BODY);
+    lv_theme_t* base = lv_theme_default_init(disp, lv_color_hex(ACCENT), lv_color_hex(ACCENT), !s_light, THEME_FONT_BODY);
     s_theme = *base;
     lv_theme_set_parent(&s_theme, base);
     lv_theme_set_apply_cb(&s_theme, applyTheme);

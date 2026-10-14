@@ -102,7 +102,7 @@ static void onPagesScrolled(lv_event_t* e) {
 // A tile's look: on in the accent with dark text, off on the surface;
 // `dim`: nothing to switch on this device.
 static void tileSet(int t, const char* icon, const char* cap, bool on, bool dim = false) {
-  const uint32_t fg = on ? theme::BG : dim ? theme::TEXT_MUTED : theme::TEXT;
+  const uint32_t fg = on ? theme::ON_ACCENT : dim ? theme::TEXT_MUTED : theme::TEXT;
   const uint8_t look = 1 | (on ? 2 : 0);
   if (s_look[t] != look) {   // LVGL restyles, and redraws, on every set (the refresh is each second)
     s_look[t] = look;

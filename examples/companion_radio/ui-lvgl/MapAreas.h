@@ -119,7 +119,7 @@ static void drawLayer(lv_event_t* e) {
     lv_draw_rect_dsc_init(&d);
     d.bg_opa = LV_OPA_TRANSP;
     d.border_width = i == s_show ? 2 : 1;
-    d.border_color = lv_color_hex(i == s_show ? theme::ACCENT : 0x9A958C);
+    d.border_color = lv_color_hex(i == s_show ? theme::ACCENT : theme::TEXT_MUTED);
     d.border_opa = LV_OPA_COVER;
     lv_draw_rect(layer, &d, &r);
   }

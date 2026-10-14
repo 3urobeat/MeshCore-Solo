@@ -1010,6 +1010,9 @@ static void setVectorOn(bool on) { nvs::putBool("mc_ui", "vector", on); }
 // Accent colour (Settings > Display): an index into theme::ACCENTS.
 static int loadAccent() { return nvs::getU8("mc_ui", "accent", 0); }
 static void saveAccent(int idx) { nvs::putU8("mc_ui", "accent", idx); }
+// Settings > Display > Theme: light (else dark), applied at start.
+static bool loadLight() { return nvs::getU8("mc_ui", "light", 0) != 0; }
+static void saveLight(bool on) { nvs::putU8("mc_ui", "light", on ? 1 : 0); }
 // Settings > Storage > Kept per conversation (an index into histstore::KEEP).
 static int loadHistKeep() { return nvs::getI8("mc_ui", "hkeep", -1); }
 static void saveHistKeep(int idx) { nvs::putI8("mc_ui", "hkeep", idx); }

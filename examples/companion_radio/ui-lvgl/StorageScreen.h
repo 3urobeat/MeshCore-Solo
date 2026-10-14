@@ -462,7 +462,7 @@ static void usbPanel(const char* title, const char* text, bool buttons) {
     lv_obj_set_style_radius(b, theme::RADIUS, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(i ? theme::ACCENT : theme::SURFACE_2), 0);
     lv_obj_add_event_cb(b, onUsbTap, LV_EVENT_CLICKED, i ? (void*)1 : nullptr);
-    lv_obj_center(label(b, i ? "USB drive" : "Keep card", THEME_FONT_BODY, i ? theme::BG : theme::TEXT));
+    lv_obj_center(label(b, i ? "USB drive" : "Keep card", THEME_FONT_BODY, i ? theme::ON_ACCENT : theme::TEXT));
   }
 }
 

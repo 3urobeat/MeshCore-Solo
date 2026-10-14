@@ -126,7 +126,7 @@ static void drawGrid(lv_event_t* e) {
   lv_obj_get_coords(o, &a);
   lv_draw_line_dsc_t d;
   lv_draw_line_dsc_init(&d);
-  d.color = lv_color_hex(0x3C3C46);
+  d.color = lv_color_hex(theme::SURFACE_2);
   d.width = 1;
   lv_layer_t* layer = lv_event_get_layer(e);
   int w = lv_area_get_width(&a), h = lv_area_get_height(&a);
@@ -555,7 +555,7 @@ static void drawMarks(lv_event_t* e) {
   lv_draw_label_dsc_t bl;
   lv_draw_label_dsc_init(&bl);
   bl.font = THEME_FONT_SMALL;
-  bl.color = lv_color_hex(theme::BG);
+  bl.color = lv_color_hex(theme::ON_ACCENT);
   bl.align = LV_TEXT_ALIGN_CENTER;
   for (int k = 0; k < s_mark_count; k++) {
     const Mark& m = s_marks[k];
@@ -759,7 +759,7 @@ void UITask::buildMap() {
   lv_obj_set_layout(body, LV_LAYOUT_NONE);
   lv_obj_set_style_pad_all(body, 0, 0);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(body, lv_color_hex(0x1A1A1E), 0);   // unloaded / missing tiles
+  lv_obj_set_style_bg_color(body, lv_color_hex(theme::SURFACE), 0);   // unloaded / missing tiles
   lv_obj_set_style_bg_opa(body, LV_OPA_COVER, 0);
   lv_obj_add_event_cb(body, mapview::drawGrid, LV_EVENT_DRAW_MAIN_END, &mapview::s_grid);
   lv_obj_add_event_cb(body, mapview::tiledCovers, LV_EVENT_COVER_CHECK, &mapview::s_grid);

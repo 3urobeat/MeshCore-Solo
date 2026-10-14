@@ -177,6 +177,7 @@ void UITask::begin(DisplayDriver* display_drv, SensorManager* sensors, NodePrefs
     return;
   }
   theme::setAccent(lvport::loadAccent());
+  theme::setLight(lvport::loadLight());
   theme::install(lv_display_get_default());
   lv_display_add_event_cb(lv_display_get_default(), [](lv_event_t*) { rowsFitPending(); }, LV_EVENT_REFR_START, NULL);
 
