@@ -27,7 +27,7 @@ static lv_obj_t* s_tile[T_COUNT];
 static lv_obj_t* s_icon[T_COUNT];
 static lv_obj_t* s_cap[T_COUNT];
 static lv_obj_t* s_slider = nullptr;
-static int32_t s_h = 1;               // how far it moves: its height and the status bar's
+static int32_t s_h = 1;               // how far it moves: up to its bottom edge
 static bool s_open = false;           // down, or on its way down
 static bool s_drag = false;           // following a finger from the status bar
 static int32_t s_y0 = 0;
@@ -151,13 +151,15 @@ void UITask::quickPanelBuild() {
   styleOpaque(s_panel, theme::BG);
   lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(s_panel, w, LV_SIZE_CONTENT);
-  lv_obj_set_pos(s_panel, 0, theme::STATUS_H);
-  lv_obj_set_style_radius(s_panel, theme::RADIUS, 0);   // the top corners are under the status bar
+  // Its top a radius up under the status bar: the rounded top corners are
+  // hidden there, not cut out of the panel with the screen showing through.
+  lv_obj_set_pos(s_panel, 0, theme::STATUS_H - theme::RADIUS);
+  lv_obj_set_style_radius(s_panel, theme::RADIUS, 0);
   lv_obj_set_style_border_side(s_panel, LV_BORDER_SIDE_BOTTOM, 0);
   lv_obj_set_style_border_width(s_panel, 1, 0);
   lv_obj_set_style_border_color(s_panel, lv_color_hex(theme::SURFACE_2), 0);
   lv_obj_set_style_pad_hor(s_panel, theme::PAD, 0);
-  lv_obj_set_style_pad_top(s_panel, theme::GAP, 0);
+  lv_obj_set_style_pad_top(s_panel, theme::RADIUS + theme::GAP, 0);
   lv_obj_set_style_pad_bottom(s_panel, 4, 0);
   lv_obj_set_style_pad_row(s_panel, theme::GAP, 0);
   lv_obj_set_flex_flow(s_panel, LV_FLEX_FLOW_COLUMN);
@@ -263,7 +265,7 @@ bool UITask::quickPanelBegin() {
   lv_obj_scroll_to_x(s_pages, 0, LV_ANIM_OFF);   // the first page each time
   dotsSet(0);
   layoutNow(s_panel);
-  s_h = lv_obj_get_height(s_panel) + theme::STATUS_H;
+  s_h = lv_obj_get_y(s_panel) + lv_obj_get_height(s_panel);   // its bottom at the top of the screen
   place(-s_h);
   return true;
 }
