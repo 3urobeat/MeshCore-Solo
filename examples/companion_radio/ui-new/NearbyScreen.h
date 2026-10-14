@@ -7,10 +7,11 @@
 
 // ── Path (Nodes > a contact > Path) ───────────────────────────────────────────
 // The repeaters between this node and a contact as a list: edit it, trace it
-// out and back (the SNR of every hop), save it as the contact's route. The
-// list, the trace and the save are the UI Core's PathEditor (`core().route`);
-// ui-lvgl's Route screen is a view over the same. Picking a repeater to add
-// hands the Nodes list over for a moment (NearbyScreen: `_route_pick`).
+// out and back (each link's signal both ways), find where a route stops,
+// save it as the contact's route. The list, the trace and the save are the UI
+// Core's PathEditor (`core().route`); ui-lvgl's Route screen is a view over
+// the same. Picking a repeater to add hands the Nodes list over for a moment
+// (NearbyScreen: `_route_pick`).
 class RouteView {
   UITask* _task = nullptr;
   bool _active = false;
@@ -18,11 +19,28 @@ class RouteView {
   int  _sel = 0, _scroll = 0;
   PopupMenu _menu;          // one hop: up / down / remove
   int  _menu_hop = 0;
+  uint8_t _seen_state = PathEditor::IDLE;   // a result's alert, once
+  uint8_t _sel_kind = 0xFF;                 // the action row under the cursor, kept as rows come and go
+
+  enum Row : uint8_t { R_HOP, R_NODE, R_ADD, R_TRACE, R_PROBE, R_TO_NODE, R_SAVE, R_KEEP };
 
   PathEditor& R() { return _task->core().route; }
-  // Rows: the hops, Add, Trace, Save, Keep.
-  int rows() { return R().count() + 4; }
-  int addRow() { return R().count(); }
+  // The rows: the hops, the node, then the actions (Find break only after a
+  // trace with no reply).
+  int rows(Row* out) {
+    PathEditor& r = R();
+    int k = 0;
+    for (int i = 0; i < r.count(); i++) out[k++] = R_HOP;
+    out[k++] = R_NODE;
+    out[k++] = R_ADD;
+    out[k++] = R_TRACE;
+    if (r.canProbe()) out[k++] = R_PROBE;
+    if (r.count() > 0) out[k++] = R_TO_NODE;   // with no repeaters the trace is to the node
+    out[k++] = R_SAVE;
+    out[k++] = R_KEEP;
+    return k;
+  }
+  static const int ROWS_MAX = PathEditor::MAX_HOPS + 7;
 
   void openHopMenu(int i) {
     _menu_hop = i;
@@ -30,6 +48,42 @@ class RouteView {
     _menu.addItem("Move up");
     _menu.addItem("Move down");
     _menu.addItem("Remove");
+  }
+
+  // A link's signal, the weaker way rounded: "6/4" (out/back dB).
+  static void linkText(char* out, size_t n, int16_t o, int16_t b) {
+    snprintf(out, n, "%d/%d", (int)lroundf(o / 4.0f), (int)lroundf(b / 4.0f));
+  }
+
+  // What a result means, said once when it comes.
+  void announce() {
+    PathEditor& r = R();
+    if (r.state() == _seen_state) return;
+    _seen_state = r.state();
+    char t[48];
+    switch (r.state()) {
+      case PathEditor::DONE: {
+        int16_t w = 0;
+        if (r.worstX4(w)) snprintf(t, sizeof(t), "Weakest %d dB", (int)lroundf(w / 4.0f));
+        else return;
+        break;
+      }
+      case PathEditor::TIMEOUT:
+        snprintf(t, sizeof(t), "%s", r.count() ? "No reply: Find break" : "No reply");
+        break;
+      case PathEditor::PROBED:
+        if (r.reached() < r.count()) snprintf(t, sizeof(t), "Stops at %.14s", r.nodeName(r.reached() + 1));
+        else if (r.toNode()) snprintf(t, sizeof(t), "Node not repeating?");
+        else snprintf(t, sizeof(t), "All answered");
+        break;
+      case PathEditor::FAILED:
+        snprintf(t, sizeof(t), "%s", r.failure() == PathEditor::FAIL_NO_KEY ? "Repeater key unknown"
+                                   : r.failure() == PathEditor::FAIL_BUSY ? "Busy, try again"
+                                   : r.failure() == PathEditor::FAIL_EMPTY ? "Nothing to trace" : "Send failed");
+        break;
+      default: return;
+    }
+    _task->showAlert(t, 1500);
   }
 
 public:
@@ -43,9 +97,16 @@ public:
     _pick = false;
     _sel = _scroll = 0;
     _menu.active = false;
+    _seen_state = PathEditor::IDLE;
+    _sel_kind = 0xFF;
     return true;
   }
-  void show() { _active = true; }   // back from picking a repeater: the list as it was
+  // Back from picking a repeater: the cursor on Add, for the next one.
+  void show() {
+    _active = true;
+    _sel = R().count() + 1;
+    _sel_kind = R_ADD;
+  }
   void close() {
     if (_task) R().cancelTrace();
     _active = false;
@@ -55,31 +116,48 @@ public:
   int render(DisplayDriver& display) {
     PathEditor& r = R();
     r.poll();
+    announce();
     const int n = r.count();
     char title[32];
     switch (r.state()) {
-      case PathEditor::RUNNING: snprintf(title, sizeof(title), "Tracing..."); break;
-      case PathEditor::DONE:    snprintf(title, sizeof(title), "Path %lums", (unsigned long)r.rttMs()); break;
-      case PathEditor::TIMEOUT: snprintf(title, sizeof(title), "Path: no reply"); break;
-      case PathEditor::FAILED:  snprintf(title, sizeof(title), "Path: no key"); break;
-      default:                  snprintf(title, sizeof(title), "Path: %s", r.targetName());
+      case PathEditor::RUNNING:
+        if (r.probing()) snprintf(title, sizeof(title), "Probe %d/%d", r.links() + 1, n);
+        else snprintf(title, sizeof(title), "Tracing...");
+        break;
+      case PathEditor::DONE:    snprintf(title, sizeof(title), "OK %lums", (unsigned long)r.rttMs()); break;
+      case PathEditor::TIMEOUT: snprintf(title, sizeof(title), "No reply"); break;
+      case PathEditor::PROBED:  snprintf(title, sizeof(title), "Reached %d/%d", r.reached(), n); break;
+      case PathEditor::FAILED:  snprintf(title, sizeof(title), "Can't trace"); break;
+      default:                  snprintf(title, sizeof(title), "%s%s", r.edited() ? "*" : "", r.targetName());
     }
     drawScreenHeader(display, title, -1, 0, true, false);
-    const bool done = r.state() == PathEditor::DONE;
-    drawList(display, rows(), _sel, _scroll, [&](int idx, int y, bool sel, int reserve) {
+    Row kind[ROWS_MAX];
+    const int nrows = rows(kind);
+    followSelection(kind, nrows);
+    const int stop = r.state() == PathEditor::PROBED ? r.reached() + 1 : 0;   // the node that didn't answer
+    drawList(display, nrows, _sel, _scroll, [&](int idx, int y, bool sel, int reserve) {
       drawRowSelection(display, y, sel, reserve);
       char left[40], right[16] = "";
-      if (idx < n) {
-        snprintf(left, sizeof(left), "%d %s", idx + 1, r.hop(idx).name);
-        int16_t o, b;
-        if (done && r.hopSnrX4(idx, o) && r.hopSnrX4(2 * n - idx, b)) snprintf(right, sizeof(right), "%d/%d", (int)lroundf(o / 4.0f), (int)lroundf(b / 4.0f));
-        else if (r.hop(idx).known < 4) snprintf(right, sizeof(right), "?");
-      } else {
-        const int a = idx - n;   // 0 Add, 1 Trace, 2 Save
-        if (a == 0) snprintf(left, sizeof(left), "+ Add repeater");
-        else if (a == 1) snprintf(left, sizeof(left), "%s", r.state() == PathEditor::RUNNING ? "Stop trace" : "Trace");
-        else if (a == 2) snprintf(left, sizeof(left), "Save path");
-        else snprintf(left, sizeof(left), "Keep path: %s", r.pinned() ? "ON" : "OFF");
+      int16_t o, b;
+      switch (kind[idx]) {
+        case R_HOP:
+          snprintf(left, sizeof(left), "%d %s", idx + 1, r.hop(idx).name);
+          if (r.linkSnrX4(idx + 1, o, b)) linkText(right, sizeof(right), o, b);
+          else if (idx + 1 == stop) snprintf(right, sizeof(right), "x");
+          else if (r.hop(idx).known < 4) snprintf(right, sizeof(right), "?");
+          break;
+        case R_NODE:
+          snprintf(left, sizeof(left), "> %s", r.targetName());
+          if (!r.toNode()) snprintf(right, sizeof(right), "-");
+          else if (r.linkSnrX4(n + 1, o, b)) linkText(right, sizeof(right), o, b);
+          else if (stop == n + 1) snprintf(right, sizeof(right), "x");
+          break;
+        case R_ADD:     snprintf(left, sizeof(left), "+ Add repeater"); break;
+        case R_TRACE:   snprintf(left, sizeof(left), "%s", r.state() == PathEditor::RUNNING ? "Stop" : "Trace"); break;
+        case R_PROBE:   snprintf(left, sizeof(left), "Find break"); break;
+        case R_TO_NODE: snprintf(left, sizeof(left), "To node"); snprintf(right, sizeof(right), "%s", r.toNode() ? "ON" : "OFF"); break;
+        case R_SAVE:    snprintf(left, sizeof(left), "%s", n ? "Save path" : "Save direct"); break;
+        case R_KEEP:    snprintf(left, sizeof(left), "Keep path"); snprintf(right, sizeof(right), "%s", r.pinned() ? "ON" : "OFF"); break;
       }
       const int rw = right[0] ? display.getTextWidth(right) + display.getCharWidth() : 0;
       display.drawTextEllipsized(2, y, display.width() - reserve - 4 - rw, left, sel);
@@ -99,43 +177,72 @@ public:
       auto res = _menu.handleInput(c);
       if (res == PopupMenu::SELECTED) {
         int i = _menu.selectedIndex();
-        if (i == 0) { r.move(_menu_hop, -1); if (_sel > 0) _sel--; }
-        else if (i == 1) { r.move(_menu_hop, +1); if (_sel < r.count() - 1) _sel++; }
+        if (i == 0) { if (r.move(_menu_hop, -1)) _sel = _menu_hop - 1; }
+        else if (i == 1) { if (r.move(_menu_hop, +1)) _sel = _menu_hop + 1; }
         else r.remove(_menu_hop);
-        if (_sel >= rows()) _sel = rows() - 1;
         _menu.active = false;
       }
       return true;
     }
+    Row kind[ROWS_MAX];
+    const int nrows = rows(kind);
     if (c == KEY_CANCEL) { close(); return true; }
-    if (c == KEY_UP)   { _sel = _sel > 0 ? _sel - 1 : rows() - 1; return true; }
-    if (c == KEY_DOWN) { _sel = _sel < rows() - 1 ? _sel + 1 : 0; return true; }
-    const int n = r.count();
-    if (_sel < n && (keyIsPrev(c) || keyIsNext(c))) {   // reorder in place
-      int dir = keyIsNext(c) ? 1 : -1;
-      int to = _sel + dir;
-      if (to >= 0 && to < n) { r.move(_sel, dir); _sel = to; }
+    if (c == KEY_UP)   { _sel = _sel > 0 ? _sel - 1 : nrows - 1; _sel_kind = kind[_sel]; return true; }
+    if (c == KEY_DOWN) { _sel = _sel < nrows - 1 ? _sel + 1 : 0; _sel_kind = kind[_sel]; return true; }
+    if (_sel >= nrows) _sel = nrows - 1;
+    const Row k = kind[_sel];
+    if (keyIsPrev(c) || keyIsNext(c)) {
+      const int dir = keyIsNext(c) ? 1 : -1;
+      if (k == R_HOP) { if (r.move(_sel, dir)) _sel += dir; }   // reorder in place
+      else if (k == R_TO_NODE) r.setToNode(!r.toNode());
+      else if (k == R_KEEP) toggleKeep();
       return true;
     }
     if (c != KEY_ENTER && c != KEY_CONTEXT_MENU) return true;
-    if (_sel < n) { openHopMenu(_sel); return true; }
-    switch (_sel - n) {
-      case 0:
+    switch (k) {
+      case R_HOP: openHopMenu(_sel); break;
+      case R_NODE: break;
+      case R_ADD:
         if (r.full()) _task->showAlert("Path is full", 1000);
         else { r.cancelTrace(); _pick = true; _active = false; }
         break;
-      case 1:
+      case R_TRACE:
         if (r.state() == PathEditor::RUNNING) r.cancelTrace();
-        else if (!r.trace() && r.state() != PathEditor::FAILED) _task->showAlert("Busy", 800);
+        else { _seen_state = PathEditor::RUNNING; r.trace(); }
         break;
-      case 2:
-        if (r.count() == 0) _task->showAlert("Add a repeater", 1000);
-        else _task->showAlert(r.save() ? "Path saved" : "Can't save", 1000);
+      case R_PROBE:
+        _seen_state = PathEditor::RUNNING;
+        r.probe();
         break;
-      default:   // Keep: not replaced by a path heard, nor dropped after a failed send
-        r.setPinned(!r.pinned());
+      case R_TO_NODE: r.setToNode(!r.toNode()); break;
+      case R_SAVE:
+        if (!r.save()) _task->showAlert("Can't save", 1000);
+        else _task->showAlert(r.count() ? "Path saved" : "Saved: direct", 1000);
+        break;
+      case R_KEEP: toggleKeep(); break;
     }
     return true;
+  }
+
+private:
+  // The cursor stays on the action it was on when a row before it comes or
+  // goes (Find break after a trace with no reply); from Find break, once
+  // it's gone, to Trace.
+  void followSelection(const Row* kind, int nrows) {
+    if (_sel >= nrows) _sel = nrows - 1;
+    if (_sel_kind != 0xFF && _sel_kind > R_NODE && kind[_sel] != _sel_kind) {
+      int at = -1;
+      for (int i = 0; i < nrows && at < 0; i++) if (kind[i] == _sel_kind) at = i;
+      for (int i = 0; i < nrows && at < 0; i++) if (_sel_kind == R_PROBE && kind[i] == R_TRACE) at = i;
+      if (at >= 0) _sel = at;
+    }
+    _sel_kind = kind[_sel];
+  }
+
+  void toggleKeep() {
+    PathEditor& r = R();
+    bool now = r.setPinned(!r.pinned());
+    if (r.pinned() && !now) _task->showAlert("Kept once saved", 1000);
   }
 };
 
@@ -1111,6 +1218,16 @@ public:
     if (_source == SRC_SCAN) ret = _scanning ? 200 : 2000;
     else ret = _count == 0 ? 3000 : 2000;
     return (mq_delay > 0 && mq_delay < ret) ? mq_delay : ret;
+  }
+
+  // Path / trace for a contact, from outside the list (the sim harness).
+  bool openRoute(const uint8_t* pub_key) {
+    int i = findContact(pub_key);
+    if (i < 0 || !_route.open(_task, pub_key)) return false;
+    _sel = i;
+    _detail = true;
+    memcpy(_route_key, pub_key, PUB_KEY_SIZE);
+    return true;
   }
 
   bool handleInput(char c) override {

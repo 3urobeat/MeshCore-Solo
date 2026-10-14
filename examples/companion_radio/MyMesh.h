@@ -263,7 +263,7 @@ public:
   // only reaches us if the last hop's retransmission is heard, so a route to
   // a far node goes out and back (A B dest B A). Returns the tag, 0 on failure.
   uint32_t sendTrace(const uint8_t* path, uint8_t hops, uint8_t hash_width, uint32_t* est_timeout = nullptr);
-  // Writes a route into a stored contact (hash_size 1..3 bytes, `hops` of them).
+  // Writes a route into a stored contact (hash_size 1..3 bytes, `hops` of them; 0: direct).
   // `pin` keeps it (CONTACT_FLAG_ROUTE_PINNED): not replaced by a heard path or a failed send.
   bool setContactPinned(const uint8_t* pub_key, bool pin);   // keep / release the stored route
   bool setContactPath(const uint8_t* pub_key, const uint8_t* path, uint8_t hash_size, uint8_t hops, bool pin = false);
@@ -693,6 +693,7 @@ private:
   unsigned long _last_input_ms = 0;
   unsigned long _last_rtc_save_ms = 0;
   bool _path_same = false;                // onContactPathRecv(): the path heard is the one held
+  bool _path_kept = false;                // onContactPathRecv(): a kept route, the path heard is dropped
   unsigned long _bot_last_ch_reply_ms;
   unsigned long _bot_last_room_reply_ms;
   unsigned long _next_auto_advert_ms;

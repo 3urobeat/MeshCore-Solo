@@ -682,6 +682,49 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_open_admin_with_first_repeater() {
 }
 #endif
 
+#ifdef DISPLAY_CLASS
+// Opens Path / trace (ui-new) or Route (ui-lvgl) for the first contact of
+// `type` (ADV_TYPE_*), as the node menu does. 1 if found, 0 if not yet.
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_open_route(int type) {
+  if (!g_sim_ready) return 0;
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo ci;
+    if (the_mesh.getContactByIdx(MAX_ANON_CONTACTS + i, ci) && ci.type == type) {
+      ui_task.openRouteFor(ci.id.pub_key);
+      return 1;
+    }
+  }
+  return 0;
+}
+#endif
+
+// A hashtag channel into the first free slot ("#name": the name is the
+// passphrase, as chanctl::addHashtag does). The slot, or -1.
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_add_channel(const char* name) {
+  if (!g_sim_ready || !name || !name[0]) return -1;
+  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    ChannelDetails ch;
+    if (the_mesh.getChannel(i, ch) && ch.name[0]) continue;
+    memset(&ch, 0, sizeof(ch));
+    strncpy(ch.name, name, sizeof(ch.name) - 1);
+    uint8_t digest[32];
+    mesh::Utils::sha256(digest, sizeof(digest), (const uint8_t*)name, (int)strlen(name));
+    memcpy(ch.channel.secret, digest, 16);
+    return the_mesh.setChannelLocal((uint8_t)i, ch) ? i : -1;
+  }
+  return -1;
+}
+
+#ifdef DISPLAY_CLASS
+// The messages list (ui-lvgl: Messages; ui-new: the Messages screen).
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_test_open_messages() {
+  if (!g_sim_ready) return 0;
+  ui_task.openMessagesList();
+  return 1;
+}
+#endif
+
 // Submits a login against the first known repeater/room contact via
 // MyMesh::sendRoomLogin() -- the exact same function AdminScreen's own
 // submit button calls (examples/companion_radio/ui-new/AdminScreen.h) --

@@ -449,6 +449,7 @@ int MyMesh::getRecentlyHeard(AdvertPath dest[], int max_num) {
 }
 
 void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
+  if (_path_kept) return;   // a kept route: the path heard isn't taken (onContactPathRecv)
   out_frame[0] = PUSH_CODE_PATH_UPDATED;
   memcpy(&out_frame[1], contact.id.pub_key, PUB_KEY_SIZE);
   _serial->writeFrame(out_frame, 1 + PUB_KEY_SIZE); // NOTE: app may not be connected
@@ -1055,19 +1056,21 @@ bool MyMesh::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t i
   _path_same = contact.out_path_len == out_path_len && path_bytes <= MAX_PATH_SIZE
             && memcmp(contact.out_path, out_path, path_bytes) == 0;
   // A route kept by hand stays: the base class takes the path and handles the
-  // ACK / response riding on it, then the held route goes back (nothing is
-  // written for it: _path_same).
+  // ACK / response riding on it, then the held route goes back -- with its
+  // lastmod, and neither written nor announced to the app (_path_kept).
   const bool pinned = (contact.flags & CONTACT_FLAG_ROUTE_PINNED) != 0 && contact.out_path_len != OUT_PATH_UNKNOWN;
   uint8_t held_len = contact.out_path_len;
+  uint32_t held_mod = contact.lastmod;
   uint8_t held[MAX_PATH_SIZE];
   if (pinned) {
     memcpy(held, contact.out_path, sizeof(held));
-    _path_same = true;
+    _path_same = _path_kept = true;
   }
   bool r = BaseChatMesh::onContactPathRecv(contact, in_path, in_path_len, out_path, out_path_len, extra_type, extra, extra_len);
-  _path_same = false;
+  _path_same = _path_kept = false;
   if (pinned) {
     contact.out_path_len = held_len;
+    contact.lastmod = held_mod;
     memcpy(contact.out_path, held, sizeof(held));
   }
   // A flood DM's ACK comes back folded into the return path, which the base
@@ -1849,8 +1852,20 @@ void MyMesh::handleCmdFrame(size_t len) {
     uint32_t last_mod = getRTCClock()->getCurrentTime();  // fallback value if not present in cmd_frame
     if (recipient) {
       uint8_t saved_type = recipient->type; // type is authoritative from advert, not app
+      // A route kept on the device (CONTACT_FLAG_ROUTE_PINNED) is the device's
+      // own: the app's copy of the flags may predate it. Kept while the app
+      // leaves the route as it is; a route the app sets ends it.
+      const bool kept = (recipient->flags & CONTACT_FLAG_ROUTE_PINNED) != 0;
+      uint8_t held_len = recipient->out_path_len;
+      uint8_t held[MAX_PATH_SIZE];
+      memcpy(held, recipient->out_path, sizeof(held));
       updateContactFromFrame(*recipient, last_mod, cmd_frame, len);
       if (saved_type != ADV_TYPE_NONE) recipient->type = saved_type;
+      int held_bytes = held_len == OUT_PATH_UNKNOWN ? 0 : (held_len & 63) * ((held_len >> 6) + 1);
+      const bool same_route = recipient->out_path_len == held_len && held_bytes <= MAX_PATH_SIZE &&
+                              memcmp(recipient->out_path, held, held_bytes) == 0;
+      if (kept && same_route) recipient->flags |= CONTACT_FLAG_ROUTE_PINNED;
+      else recipient->flags &= ~CONTACT_FLAG_ROUTE_PINNED;
       recipient->lastmod = last_mod;
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();

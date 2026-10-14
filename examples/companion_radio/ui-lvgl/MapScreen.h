@@ -874,9 +874,9 @@ void UITask::layoutMapMarks(double left, double top, int w, int h) {
   const int half = MARK_D / 2;
   const int lh = lv_font_get_line_height(THEME_FONT_SMALL) + 2;
   struct Box { int16_t x1, y1, x2, y2; };
-  static Box used[MAX_MARKS + 8];
+  static Box used[6 + MAX_MARKS + MARK_LABELS_MAX];   // the map's controls, the dots, the names
   int nu = 0;
-  const int bottom = _map_nav ? navmap::BAR_H : 0;
+  const int bottom = _map_nav || _route_pick ? navmap::BAR_H : 0;   // the nav bar, or the route's
   const int16_t W = (int16_t)w, H = (int16_t)(h - bottom);
   used[nu++] = { 0, 0, 50, 144 };                                      // button columns
   used[nu++] = { (int16_t)(W - 50), 0, W, 144 };

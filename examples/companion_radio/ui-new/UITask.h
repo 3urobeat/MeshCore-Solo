@@ -329,6 +329,8 @@ public:
   void gotoBotScreen();
   void pickAdminTarget();                  // Admin is remote-only: open Nodes to pick a repeater/room
   void openAdminFor(const ContactInfo& ci, bool from_picker); // canonical Admin entry for a specific target (Nodes' Hold-Enter menu or the picker above)
+  void openRouteFor(const uint8_t* pub_key);   // Nodes > a contact > Path / trace (sim harness)
+  void openMessagesList() { gotoMessagesScreen(); }   // sim harness
   void gotoNearbyScreen();
   void gotoDashboardConfig();
   void gotoAutoAdvertScreen();

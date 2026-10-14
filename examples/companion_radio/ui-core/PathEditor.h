@@ -1,17 +1,26 @@
 #pragma once
 // Path editor: the route to one node as a list of repeaters, traced and saved.
-// Shared by both frontends (ui-new's Path screen, ui-lvgl's path editor and its
-// "pick on the map" mode); the view only draws `hop()` rows and calls the
-// actions below.
+// Shared by both frontends (ui-new's Path screen, ui-lvgl's Route screen and
+// its "pick on the map" mode); the view only draws rows and calls the actions
+// below.
 //
-//   begin(contact)    -- loads the contact's stored route (out_path), if any
+//   open(contact)     -- loads the contact's stored route (out_path), if any
 //   addRepeater(key)  -- appends a repeater (a contact of type repeater)
 //   remove / move     -- edit the list
-//   trace()           -- a TRACE out and back over the list (A B dest B A):
-//                        a reply needs the last retransmission to be heard,
-//                        so a far node is traced on its way there and back
+//   trace()           -- a TRACE out and back over the list
+//   probe()           -- after a trace with no reply: traces to the 1st, 2nd,
+//                        ... repeater, to find the link where it stops
 //   poll()            -- advance a running trace (call every UI pass)
 //   save()            -- the list becomes the contact's out_path
+//
+// A TRACE is answered only by the node that hears the last retransmission, so
+// a route is traced there and back (A B dest B A): every node of it has to
+// retransmit. Repeaters do; the node at the end only when it is a repeater
+// too, or a companion with repeat on -- toNode() off traces just the
+// repeaters (A B A), which also tells whether the way to the node is good.
+//
+// Results are per link, between node k-1 and node k of the chain (node 0 is
+// this device): how well k heard k-1 (out) and k-1 heard k (back).
 //
 // A hop keeps up to 4 bytes of the repeater's key, so the route can be traced
 // with 1, 2 or 4 byte hashes and stored with 1, 2 or 3; a hop loaded from a
@@ -22,9 +31,13 @@
 class PathEditor {
 public:
   static const int MAX_HOPS = 7;   // repeaters; out and back is 2n+1 <= TRACE_SNR_MAX entries
+  static const int MAX_NODES = MAX_HOPS + 1;
   static const int NAME_LEN = 24;
 
-  enum State : uint8_t { IDLE, RUNNING, DONE, TIMEOUT, FAILED };
+  // RUNNING covers a probe's every step (probing()); PROBED: the probe is
+  // over, reached() nodes answered.
+  enum State : uint8_t { IDLE, RUNNING, DONE, TIMEOUT, FAILED, PROBED };
+  enum Fail : uint8_t { FAIL_NONE, FAIL_NO_KEY, FAIL_BUSY, FAIL_SEND, FAIL_EMPTY };
 
   struct Hop {
     uint8_t key[4];
@@ -38,10 +51,15 @@ public:
   bool open(const uint8_t* pub_key) {
     ContactInfo* c = the_mesh.lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (!c) return false;
+    cancelTrace();
     memcpy(_target_key, c->id.pub_key, PUB_KEY_SIZE);
     snprintf(_target_name, sizeof(_target_name), "%s", c->name);
+    _target_repeats = c->type == ADV_TYPE_REPEATER;
+    _to_node = _target_repeats;
     _n = 0;
     _state = IDLE;
+    _fail = FAIL_NONE;
+    _links = 0;
     _stored = c->out_path_len != OUT_PATH_UNKNOWN;
     _pinned = _stored && (c->flags & CONTACT_FLAG_ROUTE_PINNED) != 0;
     if (_stored) {
@@ -49,19 +67,24 @@ public:
       uint8_t cnt = c->out_path_len & 63;
       for (uint8_t i = 0; i < cnt && _n < MAX_HOPS; i++) loadHash(&c->out_path[i * size], size);
     }
+    _edited = false;
     return true;
   }
 
   const uint8_t* targetKey() const { return _target_key; }
   const char* targetName() const { return _target_name; }
   bool hasStoredPath() const { return _stored; }
+  // The list differs from the stored route (or there is none and hops were added).
+  bool edited() const { return _edited; }
   // A kept route isn't replaced by a path heard from the node or dropped after a
   // failed send (CONTACT_FLAG_ROUTE_PINNED); written with save(), or at once
-  // when the route is already stored.
+  // when the route is already stored. True when it took effect now.
   bool pinned() const { return _pinned; }
-  void setPinned(bool on) {
+  bool setPinned(bool on) {
     _pinned = on;
-    if (_stored) the_mesh.setContactPinned(_target_key, on);
+    if (!_stored) return false;
+    the_mesh.setContactPinned(_target_key, on);
+    return true;
   }
 
   // ── the list ────────────────────────────────────────────────────────────────
@@ -76,11 +99,12 @@ public:
     ContactInfo* c = the_mesh.lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (!c || c->type != ADV_TYPE_REPEATER) return false;
     if (_n > 0 && _hops[_n - 1].known >= 1 && memcmp(_hops[_n - 1].key, c->id.pub_key, _hops[_n - 1].known) == 0) return false;
+    if (memcmp(c->id.pub_key, _target_key, 4) == 0) return false;   // the node itself
     Hop& h = _hops[_n++];
     memcpy(h.key, c->id.pub_key, 4);
     h.known = 4;
     snprintf(h.name, sizeof(h.name), "%s", c->name);
-    invalidate();
+    changed();
     return true;
   }
 
@@ -88,24 +112,25 @@ public:
     if (i < 0 || i >= _n) return;
     for (int k = i; k + 1 < _n; k++) _hops[k] = _hops[k + 1];
     _n--;
-    invalidate();
+    changed();
   }
 
   void removeLast() { remove(_n - 1); }
 
-  // Moves hop i one place (dir -1 up, +1 down).
-  void move(int i, int dir) {
+  // Moves hop i one place (dir -1 up, +1 down); false at either end.
+  bool move(int i, int dir) {
     int j = i + dir;
-    if (i < 0 || i >= _n || j < 0 || j >= _n) return;
+    if (i < 0 || i >= _n || j < 0 || j >= _n) return false;
     Hop t = _hops[i];
     _hops[i] = _hops[j];
     _hops[j] = t;
-    invalidate();
+    changed();
+    return true;
   }
 
   void clear() {
     _n = 0;
-    invalidate();
+    changed();
   }
 
   // Is this repeater (by key) already in the list? (map picking marks it)
@@ -117,7 +142,19 @@ public:
 
   // ── trace ───────────────────────────────────────────────────────────────────
   State state() const { return _state; }
+  Fail failure() const { return _fail; }
+  bool probing() const { return _state == RUNNING && _probe; }
   uint32_t timeoutMs() const { return _ping ? _ping->timeoutMs() : 3000; }
+
+  // Whether the trace goes on to the node (else it turns at the last repeater).
+  // On by default for a repeater: other nodes retransmit only with repeat on.
+  bool toNode() const { return _to_node || _n == 0; }
+  void setToNode(bool on) {
+    if (_to_node == on) return;
+    _to_node = on;
+    invalidate();
+  }
+  bool targetRepeats() const { return _target_repeats; }
 
   // The hash width a trace uses: the node's path hash mode, narrowed to what
   // every hop has bytes for. 0 if a hop has nothing usable.
@@ -129,98 +166,97 @@ public:
     return known >= 1 ? want : 0;
   }
 
-  // Path entries of a round trip: the repeaters, the node, the repeaters back.
-  int traceEntries() const { return 2 * _n + 1; }
+  // Nodes of the chain a trace() goes to (not counting this device).
+  int chainNodes() const { return toNode() ? _n + 1 : _n; }
 
   bool trace() {
-    if (!_ping || _state == RUNNING) return false;
-    uint8_t w = traceWidth();
-    if (w == 0) { _state = FAILED; return false; }
-    uint8_t path[TRACE_SNR_MAX * 4];
-    int e = 0;
-    auto put = [&](const uint8_t* key) { memcpy(&path[e * w], key, w); e++; };
-    for (int i = 0; i < _n; i++) put(_hops[i].key);
-    put(_target_key);
-    for (int i = _n - 1; i >= 0; i--) put(_hops[i].key);
-    if (_ping->startTrace(path, (uint8_t)e, w) != PingEngine::STARTED) { _state = FAILED; return false; }
-    _state = RUNNING;
-    _started_ms = millis();
-    _entries = e;
-    return true;
+    if (_state == RUNNING) return false;
+    _probe = false;
+    _links = 0;
+    if (chainNodes() == 0) return fail(FAIL_EMPTY);
+    return send(chainNodes());
   }
+
+  // After a trace with no reply: the repeaters one by one (to the 1st, then
+  // to the 2nd, ...), until one doesn't answer. reached() is then how many
+  // nodes of the chain did; all repeaters answering with toNode() on puts the
+  // break at the node itself.
+  bool canProbe() const { return _state == TIMEOUT && _n > 0; }
+  bool probe() {
+    if (_state == RUNNING || _n == 0) return false;
+    _probe = true;
+    _reached = 0;
+    _links = 0;
+    return send(1);
+  }
+  int reached() const { return _reached; }
 
   // Call every UI pass while a trace may be running.
   void poll() {
     if (_state != RUNNING || !_ping) return;
-    if (!_ping->isActive()) {   // the reply came (the engine released its slot)
-      _state = _ping->hopCount() > 0 ? DONE : TIMEOUT;
+    if (!_ping->isActive()) {   // the reply came (the engine released its slot), or it was dropped
+      if (_ping->hopCount() > 0) {
+        capture();
+        if (!_probe) { _state = DONE; return; }
+        _reached = _sent_nodes;
+        if (_sent_nodes < _n && send(_sent_nodes + 1)) return;
+        _probe = false;
+        _state = PROBED;
+      } else {
+        stepTimedOut();
+      }
     } else if (millis() - _started_ms > _ping->timeoutMs()) {
       _ping->clear();
-      _state = TIMEOUT;
+      stepTimedOut();
     }
   }
 
   void cancelTrace() {
     if (_state == RUNNING && _ping) _ping->clear();
     if (_state == RUNNING) _state = IDLE;
+    _probe = false;
   }
 
-  // Result of the last trace: SNR x4 at path entry i (0..traceEntries()-1),
-  // false where it wasn't heard. Entry n is the node, entries after it the
-  // way back; snrBackX4() is us hearing the last retransmission.
-  bool hopSnrX4(int entry, int16_t& snr_x4) const {
-    if (_state != DONE || !_ping || entry < 0 || entry >= _ping->hopCount()) return false;
-    snr_x4 = _ping->hopSnrX4(entry);
+  // ── results ─────────────────────────────────────────────────────────────────
+  // Links with a result: after a trace, chainNodes(); after a probe, reached().
+  int links() const { return _links; }
+  // Link k (1..links()): node k heard node k-1 at `out`, node k-1 heard node k at `back` (SNR x4).
+  bool linkSnrX4(int k, int16_t& out, int16_t& back) const {
+    if (k < 1 || k > _links) return false;
+    out = _out_x4[k - 1];
+    back = _back_x4[k - 1];
     return true;
   }
-  bool snrBackX4(int16_t& snr_x4) const {
-    if (_state != DONE || !_ping) return false;
-    int16_t o, b; uint32_t r;
-    _ping->getResult(o, b, r);
-    snr_x4 = b;
-    return true;
+  // Name of node k of the chain (0: this device -> "").
+  const char* nodeName(int k) const {
+    if (k >= 1 && k <= _n) return _hops[k - 1].name;
+    if (k == _n + 1) return _target_name;
+    return "";
   }
-  uint32_t rttMs() const {
-    int16_t o, b; uint32_t r = 0;
-    if (_ping) _ping->getResult(o, b, r);
-    return r;
-  }
-
-  // The weakest SNR of the way there (repeaters and the node) in x4, for a
-  // one-line verdict; false without a result.
-  bool worstOutX4(int16_t& v) const {
-    bool any = false;
-    for (int i = 0; i <= _n; i++) {
-      int16_t s;
-      if (!hopSnrX4(i, s)) continue;
-      if (!any || s < v) v = s;
-      any = true;
+  uint32_t rttMs() const { return _rtt_ms; }
+  // The weakest SNR of any link either way, x4; false without a result.
+  bool worstX4(int16_t& v) const {
+    for (int k = 0; k < _links; k++) {
+      int16_t m = _out_x4[k] < _back_x4[k] ? _out_x4[k] : _back_x4[k];
+      if (k == 0 || m < v) v = m;
     }
-    return any;
+    return _links > 0;
   }
 
   // ── save ────────────────────────────────────────────────────────────────────
-  // The list as the contact's stored route. False with an empty list (that is
-  // Reset path / flood) or when the hops share no usable width.
-  bool canSave() const { return _n > 0 && saveWidth() > 0; }
+  // The list as the contact's stored route; an empty list stores "direct"
+  // (no repeaters, sent straight to the node). False when the hops share no
+  // usable width.
+  bool canSave() const { return saveWidth() > 0; }
   bool save() {
     uint8_t w = saveWidth();
-    if (_n == 0 || w == 0) return false;
+    if (w == 0) return false;
     uint8_t path[MAX_HOPS * 3];
     for (int i = 0; i < _n; i++) memcpy(&path[i * w], _hops[i].key, w);
     if (!the_mesh.setContactPath(_target_key, path, w, (uint8_t)_n, _pinned)) return false;
     _stored = true;
+    _edited = false;
     return true;
-  }
-
-  // Text of path entry i of a round trip for a result row: "A", "A >", etc. is
-  // the view's job; this gives the name of the entry (a repeater, the node,
-  // a repeater on the way back).
-  const char* entryName(int i) const {
-    if (i < _n) return _hops[i].name;
-    if (i == _n) return _target_name;
-    int back = 2 * _n - i;   // n+1 -> n-1 ... 2n -> 0
-    return back >= 0 && back < _n ? _hops[back].name : "";
   }
 
 private:
@@ -233,9 +269,71 @@ private:
     return want < known ? want : known;
   }
 
+  void changed() {
+    _edited = true;
+    invalidate();
+  }
+
   void invalidate() {
     if (_state == RUNNING && _ping) _ping->clear();
     _state = IDLE;
+    _probe = false;
+    _links = 0;
+  }
+
+  bool fail(Fail f) {
+    _fail = f;
+    _state = FAILED;
+    _probe = false;
+    return false;
+  }
+
+  // A trace to node `nodes` of the chain and back: nodes 1..nodes out, then
+  // nodes-1..1. The chain's last node is the target when it reaches past the
+  // repeaters.
+  bool send(int nodes) {
+    if (!_ping) return fail(FAIL_BUSY);
+    uint8_t w = traceWidth();
+    if (w == 0) return fail(FAIL_NO_KEY);
+    uint8_t path[TRACE_SNR_MAX * 4];
+    int e = 0;
+    auto key = [&](int k) -> const uint8_t* { return k <= _n ? _hops[k - 1].key : _target_key; };
+    for (int k = 1; k <= nodes; k++) memcpy(&path[w * e++], key(k), w);
+    for (int k = nodes - 1; k >= 1; k--) memcpy(&path[w * e++], key(k), w);
+    PingEngine::StartResult r = _ping->startTrace(path, (uint8_t)e, w);
+    if (r != PingEngine::STARTED) return fail(r == PingEngine::BUSY ? FAIL_BUSY : FAIL_SEND);
+    _fail = FAIL_NONE;
+    _state = RUNNING;
+    _started_ms = millis();
+    _sent_nodes = nodes;
+    return true;
+  }
+
+  void stepTimedOut() {
+    if (_probe) {
+      _probe = false;
+      _state = PROBED;   // _reached nodes answered, the next one didn't
+    } else {
+      _state = TIMEOUT;
+    }
+  }
+
+  // The reply's per-entry SNRs as links. Over M nodes the path has 2M-1
+  // entries: entry k-1 is node k hearing k-1 on the way out; node k-1 hearing
+  // node k on the way back is entry 2M-k (k >= 2), and for k = 1 it is this
+  // device hearing the reply.
+  void capture() {
+    const int M = _sent_nodes;
+    int16_t o, back_us; uint32_t rtt;
+    _ping->getResult(o, back_us, rtt);
+    _rtt_ms = rtt;
+    _links = 0;
+    if (_ping->hopCount() < 2 * M - 1) return;
+    for (int k = 1; k <= M; k++) {
+      _out_x4[k - 1] = _ping->hopSnrX4(k - 1);
+      _back_x4[k - 1] = k == 1 ? back_us : _ping->hopSnrX4(2 * M - k);
+    }
+    _links = M;
   }
 
   // A hash of a stored path: the contact it belongs to by key prefix, else the bytes.
@@ -264,11 +362,21 @@ private:
   PingEngine* _ping = nullptr;
   uint8_t  _target_key[PUB_KEY_SIZE];
   char     _target_name[32];
+  bool     _target_repeats = false;
+  bool     _to_node = false;
   Hop      _hops[MAX_HOPS];
   int      _n = 0;
   State    _state = IDLE;
+  Fail     _fail = FAIL_NONE;
   bool     _stored = false;
   bool     _pinned = false;
-  int      _entries = 0;
+  bool     _edited = false;
+  bool     _probe = false;
+  int      _reached = 0;
+  int      _sent_nodes = 0;
   uint32_t _started_ms = 0;
+  uint32_t _rtt_ms = 0;
+  int      _links = 0;
+  int16_t  _out_x4[MAX_NODES];
+  int16_t  _back_x4[MAX_NODES];
 };

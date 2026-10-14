@@ -5,7 +5,8 @@
 // which is a plain function pointer -- routed here via a single static instance.
 //
 // The view gives up after timeoutMs() (from the airtime, so it scales with
-// the spreading factor) and calls clear().
+// the spreading factor) and calls clear(). A view that went away without it
+// doesn't hold the engine: a start well past the timeout takes the slot over.
 
 class PingEngine {
 public:
@@ -14,7 +15,7 @@ public:
   void begin(NodePrefs* prefs) { _prefs = prefs; s_instance = this; }
 
   StartResult start(const uint8_t* pub_key) {
-    if (_active || !pub_key) return BUSY;
+    if (!pub_key || !takeSlot()) return BUSY;
 
     _active = true;
     _tag = 0;
@@ -41,7 +42,7 @@ public:
   // `width` (1, 2 or 4) bytes. The reply carries the SNR at every hop, kept
   // after the slot is released (hopCount() / hopSnrX4()).
   StartResult startTrace(const uint8_t* path, uint8_t hops, uint8_t width) {
-    if (_active || !path) return BUSY;
+    if (!path || !takeSlot()) return BUSY;
     _active = true;
     _tag = 0;
     _snr_out_x4 = _snr_back_x4 = 0;
@@ -76,6 +77,15 @@ public:
   }
 
 private:
+  // Free, or held by a ping / trace long past its timeout (its view left
+  // without clear()): released and taken.
+  bool takeSlot() {
+    if (_active && millis() - _started_ms < _timeout_ms + 2000) return false;
+    if (_active) clear();
+    _started_ms = millis();
+    return true;
+  }
+
   void handleResult(uint32_t tag, int16_t snr_out_x4, int16_t snr_back_x4, uint32_t rtt_ms) {
     if (_active && _tag == tag) {
       _snr_out_x4 = snr_out_x4;
@@ -103,6 +113,7 @@ private:
   int16_t  _snr_back_x4 = 0;
   uint32_t _rtt_ms = 0;
   uint32_t _timeout_ms = 3000;
+  uint32_t _started_ms = 0;
   uint8_t  _n_hops = 0;
   int16_t  _hop_snr_x4[TRACE_SNR_MAX];
 };

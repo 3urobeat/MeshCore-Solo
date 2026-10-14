@@ -117,9 +117,11 @@ public:
   void buildRoute();
   void routeRebuild();
   void routeStatus();
+  uint32_t routeSig();
   void routePoll();
   void routeAct(uint8_t act);
   void routeOp(int code);
+  void routeKeep();
   void showRoutePick();
   void buildRoutePick();
   void routePick(int row);
@@ -362,6 +364,8 @@ public:
   // Kept for main.cpp's sim hooks (ui-new API).
   void openContactDM(const ContactInfo& ci) { openDM(ci.id.pub_key); }
   void openAdminFor(const ContactInfo& ci, bool from_picker) { (void)from_picker; openAdmin(ci.id.pub_key); }
+  void openRouteFor(const uint8_t* pub_key) { showRoute(pub_key); }
+  void openMessagesList() { showChats(); }   // sim harness
 
 private:
   enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE, SCR_GPS, SCR_BATT, SCR_ROUTE, SCR_ROUTE_PICK };
@@ -631,8 +635,11 @@ private:
   lv_obj_t* _route_status = nullptr;     // Route screen (RouteScreen.h)
   lv_obj_t* _route_list = nullptr;
   lv_obj_t* _route_trace_btn = nullptr;
-  lv_obj_t* _route_pin_btn = nullptr;
-  uint8_t   _route_shown_state = 255;
+  lv_obj_t* _route_save_btn = nullptr;
+  lv_obj_t* _route_probe_row = nullptr;   // "Find where it stops", after a trace with no reply
+  lv_obj_t* _route_note = nullptr;
+  lv_obj_t* _route_keep_btn = nullptr;    // header: Keep (accent while kept)
+  uint32_t  _route_shown = 0xFFFFFFFF;     // what routeRebuild() drew (routeSig())
   uint32_t  _next_route_ms = 0;
   bool      _route_pick = false;         // the nodes map taps repeaters into the route
   lv_obj_t* _route_bar = nullptr;

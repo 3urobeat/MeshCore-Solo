@@ -13,7 +13,7 @@ board supports are shown.
 | **Radio** | TX power, preset, frequency, SF / BW / CR, saved presets, Auto pwr, the scope list, then the advanced options (below) |
 | **System** | Device name, low-battery shutdown, GPS power saving, units, the battery curve, reboot, factory reset |
 | **Keyboard** | ABC or T9 layout, the two scripts, CardKB mode |
-| **Contacts** | Show all or favourites only (DMs, channels, rooms), favourites on top, contact expiry and prune, which heard nodes are added |
+| **Contacts** | Show all or favourites only (DMs, channels, rooms), favourites on top, the order of the channel list, contact expiry and prune, which heard nodes are added |
 | **Privacy** | Whether your adverts carry your position and which position, who may ask for your status, location and sensor readings, the Bluetooth PIN |
 | **Messages** | Automatic resend of direct messages, the ten quick messages |
 

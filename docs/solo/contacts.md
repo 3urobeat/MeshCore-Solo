@@ -19,6 +19,7 @@ for what you can do with it:
 | Save waypoint, Set as target | Its position as a waypoint, or as the [Locator](./navigation.md#locator) target |
 | Fav, Pin to dial | Favourite, or a place on the Favourites page |
 | Telem | What this contact may ask for: None, Status, Stat+loc, Stat+sens, All. Shown when a [Privacy](./settings.md#privacy) setting is **Allowed** |
+| Path / trace | The route to the node: edit it, trace it, save it (below) |
 | Reset path | Forgets the learned route; the next message floods and finds a new one. Shown when there is a route |
 | Share nearby | Sends the contact's last advert to the nodes in direct range, so they can add it |
 | Admin | Remote admin, for a repeater or room (below) |
@@ -37,6 +38,36 @@ back out, **Enter** opens its details and **Hold Enter** its options.
 > node's card has buttons for the same actions, plus **Add** for a node that
 > isn't a contact yet and **Delete**. The telemetry permissions are three
 > switches under **Can ask for**.
+
+## Path and trace
+
+**Path / trace** in a contact's options shows the repeaters its messages go
+through, in order, and the node at the end. **+ Add repeater** picks one from
+the Nodes list, **Enter** on a hop moves or removes it, and **Left / Right**
+moves it up or down.
+
+**Trace** sends a trace along the route and back the same way. Each node
+answers with how well it heard the one before it, so every hop shows two
+numbers in dB: the way out and the way back. Only a node that repeats can
+answer: repeaters do, companions only with repeat on. **To node** off traces
+just the repeaters, which still tells you whether the way to the node is good.
+
+With no reply, **Find break** traces to the first repeater, then the second,
+and so on, and shows where it stops. If every repeater answers, the node
+itself didn't.
+
+**Save path** makes the list the contact's route; saved empty, messages go
+straight to the node. The route a node sends back usually replaces it again;
+**Keep path** stops that, and keeps the route after failed sends too.
+**Reset path** forgets it, keep included.
+
+> [!NOTE]
+> **Wio Tracker L2:** **Route** in a node's card. Each repeater and the node
+> take one line, with the link's out / back dB on the right: green when good,
+> amber when fair, red when weak. Tap a repeater to move or remove it, tap
+> the node to trace to it or stop at the last repeater. **Keep** is in the
+> header, **Find where** appears next to a "No reply". The repeaters can also
+> be tapped on the map, in order (**Map**); **Undo** takes the last one out.
 
 ## Your own contact
 

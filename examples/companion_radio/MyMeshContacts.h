@@ -86,11 +86,11 @@ bool MyMesh::setContactPinned(const uint8_t* pub_key, bool pin) {
 }
 
 // A route typed on the device (ui-core/PathEditor.h): `hops` hashes of
-// `hash_size` bytes into the contact's out_path, the packed length byte as
+// `hash_size` bytes into the contact's out_path (0 hops: direct), the packed length byte as
 // the mesh stores a learned path (top 2 bits: size - 1). lastmod bumped, as
 // for resetContactPath(), so the app's copy follows.
 bool MyMesh::setContactPath(const uint8_t* pub_key, const uint8_t* path, uint8_t hash_size, uint8_t hops, bool pin) {
-  if (hash_size < 1 || hash_size > 3 || hops == 0 || hops * hash_size > MAX_PATH_SIZE) return false;
+  if (hash_size < 1 || hash_size > 3 || hops > 63 || hops * hash_size > MAX_PATH_SIZE) return false;
   ContactInfo* c = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
   if (!c) return false;
   memcpy(c->out_path, path, hops * hash_size);

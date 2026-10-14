@@ -839,6 +839,16 @@ class MessagesScreen : public UIScreen {
     _num_channels = chanctl::order(p, _history, _channel_indices, p && p->ch_fav_only);
   }
 
+  // Into the channel list, sorted afresh (a "Newest" order follows the last
+  // message), the cursor on channel `keep_ch` (a slot) wherever it now is.
+  void enterChannelList(int keep_ch) {
+    buildChannelList();
+    for (int i = 0; i < _num_channels; i++)
+      if (_channel_indices[i] == keep_ch) { _channel_sel = i; break; }
+    if (_channel_sel > _num_channels) _channel_sel = _num_channels;   // the Add row at most
+    _phase = CHANNEL_PICK;
+  }
+
   // Advance one of the contact menu's value rows. dir is +1 for RIGHT and for
   // Enter (which PopupMenu reports as VALUE_NEXT on a value row), -1 for LEFT.
   void cycleContactCtxValue(int sel, int dir) {
@@ -1953,7 +1963,7 @@ public:
       }
       if (c == KEY_ENTER) {
         if (_mode_sel == 1) {
-          _phase = CHANNEL_PICK;
+          enterChannelList(_channel_sel < _num_channels ? _channel_indices[_channel_sel] : -1);
         } else {
           _room_mode = (_mode_sel == 2);
           if (_room_mode) _task->clearRoomUnread();
@@ -2448,7 +2458,7 @@ public:
       }
       if (c == KEY_CANCEL) {
         if (_direct_entry) { _direct_entry = false; _task->gotoHomeScreen(); }
-        else               { _phase = CHANNEL_PICK; }
+        else               { enterChannelList(_sel_channel_idx); }
         return true;
       }
       // Newest (index 0) now renders at the bottom, oldest at the top (see the

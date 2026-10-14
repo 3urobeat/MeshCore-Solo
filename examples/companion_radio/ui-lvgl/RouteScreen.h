@@ -1,17 +1,18 @@
 #pragma once
 // Route: the repeaters between this node and one contact, edited, traced and
-// saved (node detail > Route). The list, the out-and-back trace and the save
-// are the UI Core's PathEditor (`_core->route`); ui-new's Path screen is a
-// view over the same. This draws the rows, a picker of repeaters by distance,
-// and -- from the map -- picking the hops by tapping them (MapScreen.h,
+// saved (node detail > Route). The list, the out-and-back trace, the search
+// for where a route stops and the save are the UI Core's PathEditor
+// (`_core->route`); ui-new's Path screen is a view over the same. This draws
+// the chain with each link's signal, a picker of repeaters by distance, and
+// -- from the map -- picking the hops by tapping them (MapScreen.h,
 // `_route_pick`).
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after AdminScreen.h.
 
 namespace routeview {
 
-enum : uint8_t { RT_ADD, RT_MAP, RT_TRACE, RT_SAVE, RT_PIN };
-enum : uint8_t { OP_UP, OP_DOWN, OP_DEL };
+enum : uint8_t { RT_ADD, RT_MAP, RT_TRACE, RT_SAVE, RT_PIN, RT_PROBE };
+enum : uint8_t { OP_UP, OP_DOWN, OP_DEL, OP_SEL };
 
 static const int PICK_MAX = 96;
 struct Pick { uint16_t idx; float km; };   // raw contact index, distance (<0: no position)
@@ -24,8 +25,19 @@ static int cmpPick(const void* a, const void* b) {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
-// A hop's text from an SNR x4.
-static void snrText(char* out, size_t n, int16_t snr_x4) { snprintf(out, n, "%.1f", snr_x4 / 4.0f); }
+// A link's colour from its weaker direction (SNR x4): good, fair, weak.
+static uint32_t linkColour(int16_t out_x4, int16_t back_x4) {
+  int16_t m = out_x4 < back_x4 ? out_x4 : back_x4;
+  return m >= 0 ? theme::OK : m >= -7 * 4 ? theme::ACCENT : theme::FAIL;
+}
+
+// "6.5 / 4.0": how the node heard the one before it, and back (dB).
+static void linkText(char* out, size_t n, int16_t out_x4, int16_t back_x4) {
+  snprintf(out, n, "%.1f / %.1f", out_x4 / 4.0f, back_x4 / 4.0f);
+}
+
+static int s_sel = -1;            // the hop showing its move / remove buttons
+static const int ROW_TARGET = 0xFE;   // a row's tap code: the node (trace to it or not)
 
 }  // namespace routeview
 
@@ -33,12 +45,15 @@ static void onRouteAct(lv_event_t* e)     { s_ui->routeAct((uint8_t)(uintptr_t)l
 static void onRouteOp(lv_event_t* e)      { s_ui->routeOp((int)(uintptr_t)lv_event_get_user_data(e)); }
 static void onRoutePickRow(lv_event_t* e) { s_ui->routePick((int)vlist::arg(e)); }
 
-// A small square button on a hop's card: user data = op << 8 | hop index.
-static lv_obj_t* routeSquare(lv_obj_t* card, const char* sym, int code) {
-  lv_obj_t* b = lv_button_create(card);
-  lv_obj_set_size(b, 30, 30);
+static void onRouteRow(lv_event_t* e)     { s_ui->routeOp(routeview::OP_SEL << 8 | (int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onRouteKeep(lv_event_t* e)    { (void)e; s_ui->routeAct(routeview::RT_PIN); }
+
+// A small square button on a hop's row: user data = op << 8 | hop index.
+static lv_obj_t* routeSquare(lv_obj_t* row, const char* sym, int code) {
+  lv_obj_t* b = lv_button_create(row);
+  lv_obj_set_size(b, 30, 26);
   lv_obj_set_style_pad_all(b, 0, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS_SM, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onRouteOp, LV_EVENT_CLICKED, (void*)(uintptr_t)code);
@@ -46,34 +61,44 @@ static lv_obj_t* routeSquare(lv_obj_t* card, const char* sym, int code) {
   return b;
 }
 
-// One row of the route: a number, the name and what the trace heard.
-static lv_obj_t* routeCard(lv_obj_t* list, const char* num, const char* name, const char* sub, uint32_t col) {
-  lv_obj_t* c = lv_obj_create(list);
-  styleSurface(c, theme::SURFACE);
-  lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(c, LV_PCT(100), 44);
-  lv_obj_set_style_radius(c, theme::RADIUS, 0);
-  lv_obj_set_style_pad_hor(c, 8, 0);
-  lv_obj_set_style_pad_ver(c, 0, 0);
-  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(c, 6, 0);
-  lv_obj_t* n = label(c, num, THEME_FONT_BODY, theme::ACCENT);
-  lv_obj_set_width(n, 18);
-  lv_obj_t* box = lv_obj_create(c);
-  lv_obj_remove_style_all(box);
-  lv_obj_set_height(box, LV_SIZE_CONTENT);
-  lv_obj_set_flex_grow(box, 1);
-  lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
-  lv_obj_t* nm = label(box, name, THEME_FONT_BODY, col);
-  lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(nm, LV_PCT(100));
-  if (sub && sub[0]) {
-    lv_obj_t* s = label(box, sub, THEME_FONT_SMALL, theme::TEXT_MUTED);
-    lv_label_set_long_mode(s, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s, LV_PCT(100));
+// One node of the chain on one line: a number, the name, and on the right
+// the link that reaches it (or why there is none). `tap` >= 0: the row is
+// tappable with that code (a hop's index, or ROW_TARGET).
+static lv_obj_t* routeRow(lv_obj_t* list, int h, const char* num, const char* name, uint32_t name_col,
+                          const char* right, uint32_t right_col, int tap) {
+  lv_obj_t* r = lv_obj_create(list);
+  styleSurface(r, theme::SURFACE);
+  lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(r, LV_PCT(100), h);
+  lv_obj_set_style_radius(r, theme::RADIUS_SM, 0);
+  lv_obj_set_style_pad_hor(r, 8, 0);
+  lv_obj_set_style_pad_ver(r, 0, 0);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(r, 6, 0);
+  if (tap >= 0) {
+    lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(r, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
+    lv_obj_add_event_cb(r, onRouteRow, LV_EVENT_CLICKED, (void*)(uintptr_t)tap);
   }
-  return c;
+  lv_obj_t* n = label(r, num, THEME_FONT_BODY, theme::ACCENT);
+  lv_obj_set_width(n, 14);
+  lv_obj_t* nm = label(r, name, THEME_FONT_BODY, name_col);
+  lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(nm, 1);
+  lv_obj_set_flex_grow(nm, 1);
+  if (right && right[0]) label(r, right, THEME_FONT_SMALL, right_col);
+  return r;
+}
+
+// Keep (the header's button, a toggle): restyled, the status line follows.
+void UITask::routeKeep() {
+  PathEditor& R = _core->route;
+  bool on = !R.pinned();
+  bool now = R.setPinned(on);
+  showToast(!on ? "The route is learned again" : now ? "Route kept" : "Kept once you save it");
+  if (_route_keep_btn) styleSelected(_route_keep_btn, R.pinned());
+  routeRebuild();
 }
 
 // Node detail > Route.
@@ -84,97 +109,162 @@ void UITask::showRoute(const uint8_t* pub_key) {
   buildRoute();
 }
 
+// Keep in the header, the status line, the chain (rebuilt as the trace
+// goes), the actions at the foot.
 void UITask::buildRoute() {
+  PathEditor& R = _core->route;
   lv_obj_t* body = newScreen("Route", true);
-  _route_status = noteLabel(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  _route_list = scrollList(body);
+  _route_keep_btn = _header ? headerButton(_header, UI_SYMBOL_TACK " Keep", onRouteKeep, 4, NULL) : nullptr;
+  if (_route_keep_btn) styleSelected(_route_keep_btn, R.pinned());
+  routeview::s_sel = -1;
+  // The status line, with "Find where it stops" beside it after a trace with no reply.
+  lv_obj_t* top = flexBox(body, LV_FLEX_FLOW_ROW);
+  lv_obj_set_width(top, LV_PCT(100));
+  lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(top, 6, 0);
+  _route_status = noteLabel(top, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_obj_set_width(_route_status, 1);
+  lv_obj_set_flex_grow(_route_status, 1);
+  _route_probe_row = pillButton(top, LV_SYMBOL_GPS " Find where", theme::ACCENT, onRouteAct, routeview::RT_PROBE);
+  styleSelected(_route_probe_row, true);
+  lv_obj_t* scroll = scrollList(body);
+  lv_obj_set_style_pad_row(scroll, 4, 0);
+  _route_list = flexBox(scroll, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_width(_route_list, LV_PCT(100));
+  lv_obj_set_style_pad_row(_route_list, 4, 0);
+
+  _route_note = noteLabel(scroll, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+
   lv_obj_t* bar = buttonBar(body);
   barButton(bar, LV_SYMBOL_PLUS " Add", onRouteAct, routeview::RT_ADD);
   barButton(bar, UI_SYMBOL_MAP " Map", onRouteAct, routeview::RT_MAP);
   _route_trace_btn = barButton(bar, LV_SYMBOL_LOOP " Trace", onRouteAct, routeview::RT_TRACE, true);
-  barButton(bar, LV_SYMBOL_OK " Save", onRouteAct, routeview::RT_SAVE);
-  _route_pin_btn = barButton(bar, UI_SYMBOL_TACK " Keep", onRouteAct, routeview::RT_PIN, _core->route.pinned());
-  _route_shown_state = 255;
+  _route_save_btn = barButton(bar, LV_SYMBOL_SAVE " Save", onRouteAct, routeview::RT_SAVE);
   routeRebuild();
 }
 
-// The rows and the line above them, from the editor's state.
+// What the chain shows: the state, the links with a result, a probe's step.
+uint32_t UITask::routeSig() {
+  PathEditor& R = _core->route;
+  return (uint32_t)R.state() | (uint32_t)R.links() << 4 | (uint32_t)R.reached() << 8 | (uint32_t)R.probing() << 12 |
+         (uint32_t)R.edited() << 13 | (uint32_t)R.toNode() << 14 | (uint32_t)R.count() << 16;
+}
+
+// The chain, from the editor's state: the repeaters and the node (this
+// device before them goes without saying), one line each with the link that
+// reaches it ("out / back" dB, coloured by
+// its weaker way). A tapped hop shows its move / remove buttons instead; a
+// tap on the node traces to it or not.
 void UITask::routeRebuild() {
   if (!_route_list || !_route_status) return;
+  using namespace routeview;
   PathEditor& R = _core->route;
   lv_obj_clean(_route_list);
   const int n = R.count();
-  const bool done = R.state() == PathEditor::DONE;
-  char sub[48], a[12], b[12];
-
-  int16_t back = 0;
-  sub[0] = '\0';
-  if (done && R.snrBackX4(back)) { routeview::snrText(a, sizeof(a), back); snprintf(sub, sizeof(sub), "" LV_SYMBOL_LEFT " %s dB", a); }
-  routeCard(_route_list, "", "This device", sub, theme::TEXT_MUTED);
+  if (s_sel >= n) s_sel = -1;
+  const bool probed = R.state() == PathEditor::PROBED;
+  const int stop = probed ? R.reached() + 1 : 0;   // the node that didn't answer the probe
+  char right[40];
+  uint32_t col;
+  auto link = [&](int k) {   // the link to node k, or why there's none
+    int16_t o, b;
+    right[0] = '\0';
+    col = theme::TEXT_MUTED;
+    if (R.linkSnrX4(k, o, b)) { linkText(right, sizeof(right), o, b); col = linkColour(o, b); }
+    else if (k == stop) { snprintf(right, sizeof(right), "no answer"); col = theme::FAIL; }
+  };
 
   for (int i = 0; i < n; i++) {
-    int16_t out = 0, ret = 0;
-    sub[0] = '\0';
-    if (done && R.hopSnrX4(i, out)) {
-      routeview::snrText(a, sizeof(a), out);
-      if (R.hopSnrX4(2 * n - i, ret)) {
-        routeview::snrText(b, sizeof(b), ret);
-        snprintf(sub, sizeof(sub), "" LV_SYMBOL_RIGHT " %s   " LV_SYMBOL_LEFT " %s dB", a, b);
-      } else {
-        snprintf(sub, sizeof(sub), "" LV_SYMBOL_RIGHT " %s dB", a);
-      }
-    } else if (R.hop(i).known < 4) {
-      snprintf(sub, sizeof(sub), "not a known contact");
-    }
     char num[4];
     snprintf(num, sizeof(num), "%d", i + 1);
-    lv_obj_t* c = routeCard(_route_list, num, R.hop(i).name, sub, theme::TEXT);
-    if (i > 0) routeSquare(c, LV_SYMBOL_UP, routeview::OP_UP << 8 | i);
-    if (i < n - 1) routeSquare(c, LV_SYMBOL_DOWN, routeview::OP_DOWN << 8 | i);
-    routeSquare(c, LV_SYMBOL_CLOSE, routeview::OP_DEL << 8 | i);
+    link(i + 1);
+    if (!right[0] && R.hop(i).known < 4) snprintf(right, sizeof(right), "hash only");
+    const bool sel = i == s_sel;
+    lv_obj_t* r = routeRow(_route_list, 34, num, R.hop(i).name, theme::TEXT, sel ? NULL : right, col, i);
+    if (sel) {
+      if (i > 0) routeSquare(r, LV_SYMBOL_UP, OP_UP << 8 | i);
+      if (i < n - 1) routeSquare(r, LV_SYMBOL_DOWN, OP_DOWN << 8 | i);
+      routeSquare(r, LV_SYMBOL_CLOSE, OP_DEL << 8 | i);
+    }
   }
+  if (R.toNode()) {
+    link(n + 1);
+    if (probed && R.reached() == n && !right[0]) { snprintf(right, sizeof(right), "no answer"); col = theme::FAIL; }
+  } else {
+    snprintf(right, sizeof(right), "not traced");
+    col = theme::TEXT_MUTED;
+  }
+  routeRow(_route_list, 34, "", R.targetName()[0] ? R.targetName() : "(unnamed)", theme::ACCENT, right, col,
+           n > 0 ? ROW_TARGET : -1);
 
-  int16_t out = 0;
-  sub[0] = '\0';
-  if (done && R.hopSnrX4(n, out)) { routeview::snrText(a, sizeof(a), out); snprintf(sub, sizeof(sub), "" LV_SYMBOL_RIGHT " %s dB", a); }
-  routeCard(_route_list, "", R.targetName()[0] ? R.targetName() : "(unnamed)", sub, theme::ACCENT);
-
+  const char* note = "";
   if (n == 0)
-    noteLabel(_route_list, R.hasStoredPath()
-                  ? "Direct: no repeaters between. Save with repeaters to route through them."
-                  : "No route stored, so messages are flooded. Add the repeaters the node should be reached through.",
-              THEME_FONT_SMALL, theme::TEXT_MUTED);
-
+    note = R.hasStoredPath() && !R.edited()
+               ? "Direct: sent straight to the node. Add the repeaters to route through them."
+               : "Add the repeaters the node is reached through, in order (Add, or tap them on the Map). "
+                 "Saved empty, messages go straight to the node.";
+  else if (R.state() == PathEditor::IDLE && R.links() == 0)
+    note = R.toNode() ? "Tap a hop to move or remove it. The trace goes to the node and back: tap it to stop at the last repeater."
+                      : "Tap a hop to move or remove it. The node is left out: only one that repeats can answer. Tap it to include it.";
+  else if (R.links() > 0)
+    note = "Out / back dB: how each one heard the one before it (this device first), and the other way.";
+  setText(_route_note, note);
+  lv_obj_set_flag(_route_note, LV_OBJ_FLAG_HIDDEN, !note[0]);
+  lv_obj_set_flag(_route_probe_row, LV_OBJ_FLAG_HIDDEN, !R.canProbe());
   routeStatus();
 }
 
 void UITask::routeStatus() {
   PathEditor& R = _core->route;
-  char t[96];
+  const int n = R.count();
+  char t[112];
   switch (R.state()) {
-    case PathEditor::RUNNING: snprintf(t, sizeof(t), "Tracing %d hops, out and back...", R.traceEntries()); break;
+    case PathEditor::RUNNING:
+      if (R.probing()) snprintf(t, sizeof(t), "Finding where it stops: to %s...", R.nodeName(R.links() + 1));
+      else snprintf(t, sizeof(t), "Tracing %d node%s out and back...", R.chainNodes(), R.chainNodes() == 1 ? "" : "s");
+      break;
     case PathEditor::DONE: {
       int16_t worst = 0;
-      if (R.worstOutX4(worst)) snprintf(t, sizeof(t), "Heard back in %lu ms  -  weakest hop %.1f dB", (unsigned long)R.rttMs(), worst / 4.0f);
+      if (R.worstX4(worst)) snprintf(t, sizeof(t), "Heard back in %lu ms, weakest link %.1f dB", (unsigned long)R.rttMs(), worst / 4.0f);
       else snprintf(t, sizeof(t), "Heard back in %lu ms", (unsigned long)R.rttMs());
       break;
     }
-    case PathEditor::TIMEOUT: snprintf(t, sizeof(t), "No reply: a hop didn't answer, or its answer wasn't heard here"); break;
-    case PathEditor::FAILED: snprintf(t, sizeof(t), "Can't trace: a repeater has no key known (add it from contacts)"); break;
+    case PathEditor::TIMEOUT:
+      if (n > 0) snprintf(t, sizeof(t), "No reply: one of them didn't answer");
+      else snprintf(t, sizeof(t), "No reply. %s answers only if it repeats and hears this device", R.targetName());
+      break;
+    case PathEditor::PROBED:
+      if (R.reached() < n)
+        snprintf(t, sizeof(t), "Stops after %s: %s didn't answer", R.reached() ? R.nodeName(R.reached()) : "this device",
+                 R.nodeName(R.reached() + 1));
+      else if (R.toNode())
+        snprintf(t, sizeof(t), "Every repeater answered: %s didn't (it may not repeat)", R.targetName());
+      else
+        snprintf(t, sizeof(t), "Every repeater answered this time");
+      break;
+    case PathEditor::FAILED:
+      switch (R.failure()) {
+        case PathEditor::FAIL_NO_KEY: snprintf(t, sizeof(t), "Can't trace: a repeater has no key known (add it from contacts)"); break;
+        case PathEditor::FAIL_BUSY:   snprintf(t, sizeof(t), "A ping is on its way: try again in a moment"); break;
+        case PathEditor::FAIL_EMPTY:  snprintf(t, sizeof(t), "Nothing to trace: add a repeater, or trace to the node"); break;
+        default:                      snprintf(t, sizeof(t), "The trace couldn't be sent"); break;
+      }
+      break;
     default:
-      snprintf(t, sizeof(t), "Route to %s: %d repeater%s%s", R.targetName(), R.count(), R.count() == 1 ? "" : "s",
-               R.pinned() ? " (kept)" : "");
+      if (R.edited()) snprintf(t, sizeof(t), "%d repeater%s, not saved yet", n, n == 1 ? "" : "s");
+      else if (!R.hasStoredPath()) snprintf(t, sizeof(t), "No route stored: messages are flooded");
+      else snprintf(t, sizeof(t), "Stored route: %d repeater%s%s", n, n == 1 ? "" : "s", R.pinned() ? ", kept" : "");
   }
   setText(_route_status, t);
   if (_route_trace_btn) setText(lv_obj_get_child(_route_trace_btn, 0), R.state() == PathEditor::RUNNING ? LV_SYMBOL_CLOSE " Stop" : LV_SYMBOL_LOOP " Trace");
-  _route_shown_state = R.state();
+  if (_route_save_btn) barButtonOn(_route_save_btn, R.edited());
+  _route_shown = routeSig();
 }
 
-// From loop() on SCR_ROUTE: a running trace's reply or timeout.
+// From loop() on SCR_ROUTE: a running trace's reply or timeout, a probe's steps.
 void UITask::routePoll() {
-  PathEditor& R = _core->route;
-  R.poll();
-  if (R.state() != _route_shown_state) routeRebuild();
+  _core->route.poll();
+  if (routeSig() != _route_shown) routeRebuild();
 }
 
 void UITask::routeAct(uint8_t act) {
@@ -182,6 +272,7 @@ void UITask::routeAct(uint8_t act) {
   switch (act) {
     case routeview::RT_ADD:
       R.cancelTrace();
+      if (R.full()) { showToast("The route is full"); break; }
       showRoutePick();
       break;
     case routeview::RT_MAP:
@@ -191,24 +282,20 @@ void UITask::routeAct(uint8_t act) {
       routeMapFrame();
       break;
     case routeview::RT_TRACE:
-      if (R.state() == PathEditor::RUNNING) { R.cancelTrace(); routeRebuild(); break; }
-      if (R.trace()) {
-        _next_route_ms = millis() + 200;
-        routeRebuild();
-      } else if (R.state() == PathEditor::FAILED) {
-        routeRebuild();
-      } else {
-        showToast("Busy, try again");
-      }
+      if (R.state() == PathEditor::RUNNING) R.cancelTrace();
+      else if (R.trace()) _next_route_ms = millis() + 200;
+      routeRebuild();
       break;
-    case routeview::RT_PIN:   // kept: not replaced by a path heard, nor dropped after a failed send
-      R.setPinned(!R.pinned());
-      barButtonOn(_route_pin_btn, R.pinned());
-      showToast(R.pinned() ? (R.hasStoredPath() ? "Route kept" : "Kept once you save it") : "Route is learned again");
+    case routeview::RT_PROBE:
+      if (R.probe()) _next_route_ms = millis() + 200;
+      routeRebuild();
+      break;
+    case routeview::RT_PIN:
+      routeKeep();
       break;
     case routeview::RT_SAVE:
-      if (R.count() == 0) { showToast("Add a repeater first (Reset path floods)"); break; }
-      showToast(R.save() ? "Route saved" : "Can't save this route");
+      if (!R.save()) { showToast("Can't save this route"); break; }
+      showToast(R.count() ? (R.pinned() ? "Route saved and kept" : "Route saved") : "Saved: direct to the node");
       routeRebuild();
       break;
   }
@@ -217,9 +304,14 @@ void UITask::routeAct(uint8_t act) {
 void UITask::routeOp(int code) {
   PathEditor& R = _core->route;
   int i = code & 0xFF, op = code >> 8;
-  if (op == routeview::OP_UP) R.move(i, -1);
-  else if (op == routeview::OP_DOWN) R.move(i, +1);
-  else if (op == routeview::OP_DEL) R.remove(i);
+  int& sel = routeview::s_sel;
+  if (op == routeview::OP_SEL) {
+    if (i == routeview::ROW_TARGET) R.setToNode(!R.toNode());
+    else sel = sel == i ? -1 : i;
+  }
+  else if (op == routeview::OP_UP) { if (R.move(i, -1)) sel = i - 1; }
+  else if (op == routeview::OP_DOWN) { if (R.move(i, +1)) sel = i + 1; }
+  else if (op == routeview::OP_DEL) { R.remove(i); sel = -1; }
   routeRebuild();
 }
 
@@ -272,7 +364,7 @@ void UITask::routePick(int row) {
   if (!the_mesh.getContactByIdx(routeview::s_pick[row].idx, c)) return;
   PathEditor& R = _core->route;
   if (R.full()) { showToast("The route is full"); return; }
-  if (!R.addRepeater(c.id.pub_key)) { showToast("That repeater is already the last hop"); return; }
+  if (!R.addRepeater(c.id.pub_key)) { showToast("Already the last hop, or the node itself"); return; }
   _screen = SCR_ROUTE;
   _nav_back = true;
   buildRoute();
@@ -289,7 +381,7 @@ void UITask::routeMapTap(const uint8_t* pub_key, uint8_t type) {
   int at = R.indexOf(pub_key);
   if (at >= 0) R.remove(at);
   else if (R.full()) { showToast("The route is full"); return; }
-  else if (!R.addRepeater(pub_key)) { showToast("That repeater is already the last hop"); return; }
+  else if (!R.addRepeater(pub_key)) { showToast("Already the last hop, or the node itself"); return; }
   routeMapRefresh();
 }
 

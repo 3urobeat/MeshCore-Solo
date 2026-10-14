@@ -124,6 +124,10 @@ correctly whatever the keyboard is set to.
 | Pin to dial | Puts it on the Favourites page |
 | Edit, Delete | Renames it or changes its secret; removes it |
 
+The order of the list is in Settings › Contacts › **Channel order**: as the
+channels were added (Slots), the one with the newest message first (Newest),
+or by name. Favourites stay on top while **Favourites first** is on.
+
 **+ Add channel** at the end of the list adds:
 
 - **Public**: the default public channel, if you deleted it.
