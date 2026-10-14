@@ -493,7 +493,11 @@ static int hitMark(int px, int py) {
 }  // namespace mapview
 
 namespace navmap {   // shared with NavMap.h (included after this file)
-static const int BAR_H = 44;   // target bar along the bottom of the Navigation map
+static const int BAR_H = 44;   // target bar along the bottom of the Navigation map, while there is a target
+static lv_obj_t* s_scale_pill = nullptr;   // the bottom-left pill (credit, scale, zoom): moves up over a bar
+static bool s_ready = false;               // the map is built: a bar coming or going lays it out again
+static lv_obj_t* s_tools_list = nullptr;   // Map tools' list while it's up
+static int32_t s_tools_y = 0;              // where it was scrolled, leaving for a page of options
 // Navigation targets as one int (event user data): type << 8 | index.
 enum : uint8_t { T_CLEAR, T_WAYPOINT, T_TRAILSTART, T_LIVE };
 static int code(uint8_t type, int idx) { return (type << 8) | (idx & 0xFF); }
@@ -577,7 +581,21 @@ static lv_obj_t* mapPill(lv_obj_t* parent, const char* text) {
 // Centring on a point puts it mid-way down the visible map: above the nav bar
 // on the Navigation map (the bias is in tiles, added to the view centre).
 double UITask::mapCenterBias() const {
-  return _map_nav ? navmap::BAR_H / 2.0 / mapview::TILE_PX : 0.0;
+  return mapBottomH() / 2.0 / mapview::TILE_PX;
+}
+
+// The bar along the map's bottom edge: the target's (Navigation map, while
+// there is one) or the route pick's.
+int UITask::mapBottomH() const {
+  if (_route_pick) return navmap::BAR_H;
+  return _map_nav && _nav_bar && !lv_obj_has_flag(_nav_bar, LV_OBJ_FLAG_HIDDEN) ? navmap::BAR_H : 0;
+}
+
+// The controls along the bottom edge, clear of that bar.
+void UITask::mapPlaceBottom() {
+  const int bottom = mapBottomH();
+  if (_map_center_btn) lv_obj_align(_map_center_btn, LV_ALIGN_BOTTOM_RIGHT, -6, -6 - bottom);
+  if (navmap::s_scale_pill) lv_obj_align(navmap::s_scale_pill, LV_ALIGN_BOTTOM_LEFT, 6, -6 - bottom);
 }
 
 #ifdef UI_PERF_TEST
@@ -615,7 +633,7 @@ void UITask::openMap(bool nav) {
   showMap();
 }
 
-void UITask::showMap() {
+void UITask::showMap(bool frame) {
   _screen = SCR_MAP;
   mapview::s_trails_on = lvport::trailsOn();
   mapview::s_provider = lvport::vectorOn() ? (mapview::TileProvider*)&mapview::s_vector : &mapview::s_raster;
@@ -634,7 +652,7 @@ void UITask::showMap() {
     _map_cy = mapview::latToTileY(la, z);
   }
   buildMap();
-  if (_map_nav && _prefs && _prefs->locator_has_target) navFrameTarget();   // show where we're going
+  if (frame && _map_nav && _prefs && _prefs->locator_has_target) navFrameTarget();   // show where we're going
 }
 
 void UITask::buildMap() {
@@ -713,9 +731,8 @@ void UITask::buildMap() {
   // left column (back, pin, tools) -- the right one has no room above the bar.
   if (_map_nav) lv_obj_align(mapButton(body, LV_SYMBOL_BARS, onNavTools), LV_ALIGN_TOP_LEFT, 6, 98);
   else lv_obj_align(mapButton(body, LV_SYMBOL_DOWNLOAD, onMapDownload), LV_ALIGN_TOP_RIGHT, -6, 98);
-  int bottom = _map_nav ? navmap::BAR_H : 0;   // the nav bar takes the bottom edge
-  _map_center_btn = mapButton(body, LV_SYMBOL_GPS, onMapCenter);
-  lv_obj_align(_map_center_btn, LV_ALIGN_BOTTOM_RIGHT, -6, -6 - bottom);
+  navmap::s_ready = false;
+  _map_center_btn = mapButton(body, LV_SYMBOL_GPS, onMapCenter);   // bottom right (mapPlaceBottom)
   // Top centre: what's going on, one pill under another -- the trail /
   // live share (NavMap.h), the download. Empty most of the time.
   mapview::s_going = lv_obj_create(body);
@@ -761,7 +778,7 @@ void UITask::buildMap() {
   lv_obj_set_style_border_side(mapview::s_scale_bar, (lv_border_side_t)(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
   mapview::s_scale_lbl = label(sc, "", THEME_FONT_SMALL, theme::TEXT);
   _map_zoom_lbl = label(sc, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
-  lv_obj_align(sc, LV_ALIGN_BOTTOM_LEFT, 6, -6 - bottom);
+  navmap::s_scale_pill = sc;   // bottom left (mapPlaceBottom)
   _map_hint = mapPill(body, "");
   lv_label_set_long_mode(_map_hint, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(_map_hint, 200);
@@ -772,11 +789,13 @@ void UITask::buildMap() {
   if (_map_nav) buildNavControls(body);
   _route_bar = _route_lbl = nullptr;
   if (_route_pick) buildRouteBar(body);
+  mapPlaceBottom();
 
   layoutNow(body);
   mapview::s_mark_count = 0;   // the previous markers went with the previous screen
   rebuildMapMarkers();
   layoutMap();
+  navmap::s_ready = true;
 }
 
 // Places tiles and markers for the current centre / zoom; queues tiles that
@@ -847,7 +866,7 @@ void UITask::layoutMap() {
   mapview::showTiled(_map_area, mapview::s_grid, tiled);
 
   mapview::labels::layout(left, top, w, h, _map_z, have_provider && mapview::s_provider == &mapview::s_vector && mapview::s_vector.hasData(),
-                          _map_nav ? navmap::BAR_H : 0);
+                          mapBottomH());
 
   // Own position
   int32_t lat, lon;
@@ -1019,7 +1038,7 @@ void UITask::layoutMapMarks(double left, double top, int w, int h) {
   struct Box { int16_t x1, y1, x2, y2; };
   static Box used[6 + MAX_MARKS + MARK_LABELS_MAX];   // the map's controls, the dots, the names
   int nu = 0;
-  const int bottom = _map_nav || _route_pick ? navmap::BAR_H : 0;   // the nav bar, or the route's
+  const int bottom = mapBottomH();   // the target's bar, or the route's
   const int16_t W = (int16_t)w, H = (int16_t)(h - bottom);
   used[nu++] = { 0, 0, 50, 144 };                                      // button columns
   used[nu++] = { (int16_t)(W - 50), 0, W, 144 };

@@ -14,17 +14,22 @@ static lv_obj_t *s_nd_type, *s_nd_status, *s_nd_dist, *s_nd_pos, *s_nd_heard, *s
 enum : uint8_t { NODE_MSG, NODE_PING, NODE_FAV, NODE_ADD, NODE_DELETE, NODE_NAV, NODE_ADMIN, NODE_WAYPOINT, NODE_PIN,
                  NODE_RESET_PATH, NODE_SHARE, NODE_ROUTE };
 
-static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
-static void onNearbySort(lv_event_t* e) { (void)e; s_ui->toggleNearbySort(); }
+static void onNearbyChip(lv_event_t* e) { s_ui->setNearbyFilter((uint8_t)choiceSelected((lv_obj_t*)lv_event_get_target(e))); }
+static void onNearbySort(lv_event_t* e) { s_ui->setNearbySort(choiceSelected((lv_obj_t*)lv_event_get_target(e)) == 1); }
 static void onNearbyScan(lv_event_t* e) { (void)e; s_ui->startNearbyScan(); }
 static void onNearbyRow(lv_event_t* e)  { s_ui->openNode((int)vlist::arg(e)); }
 static void onScanRow(lv_event_t* e)    { s_ui->openScanNode((int)vlist::arg(e)); }
 static void onScanClose(lv_event_t* e)  { (void)e; s_ui->closeScanPopup(); }
 static void onNodeAction(lv_event_t* e) { s_ui->nodeAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 
+// A button in a title bar -- an icon, or an icon and a word -- in the row
+// after the title, in the order made (`right` is ignored there); in a popup's
+// own header, `right` px in from its right edge.
 static lv_obj_t* headerButton(lv_obj_t* hdr, const char* text, lv_event_cb_t cb, int right, lv_obj_t** label_out) {
+  const bool bar = lv_obj_get_style_height(hdr, LV_PART_MAIN) == theme::APPBAR_H;
   lv_obj_t* b = lv_button_create(hdr);
-  lv_obj_set_size(b, LV_SIZE_CONTENT, 28);
+  lv_obj_set_size(b, LV_SIZE_CONTENT, bar ? theme::BAR_BTN_H : 28);
+  lv_obj_set_style_min_width(b, 40, 0);   // an icon alone: still a finger's width
   lv_obj_set_style_pad_hor(b, 10, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
@@ -47,33 +52,18 @@ void UITask::showNearby() {
 void UITask::buildNearby() {
   lv_obj_t* body = newScreen("Nodes", true);
   lv_obj_set_style_pad_row(body, 4, 0);
-  if (_header) {
-    headerButton(_header, LV_SYMBOL_REFRESH, onNearbyScan, 4, NULL);   // scan
-    lv_obj_set_width(headerButton(_header, "", onNearbySort, 46, &_nearby_sort_lbl), 62);   // fits "Recent" / "Dist"
-    headerButton(_header, UI_SYMBOL_MAP, onOpenNodesMap, 114, NULL);   // the Nodes map (the advert: the quick panel)
+  if (_header) {   // where they are, then who answers now (the advert: the quick panel)
+    headerButton(_header, UI_SYMBOL_MAP, onOpenNodesMap, 0, NULL);
+    headerButton(_header, LV_SYMBOL_REFRESH " Scan", onNearbyScan, 0, NULL);
   }
 
-  // Type filter chips
-  _nearby_chips = lv_obj_create(body);
-  styleSurface(_nearby_chips, theme::BG);
-  lv_obj_remove_flag(_nearby_chips, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(_nearby_chips, LV_PCT(100), 26);
-  lv_obj_set_flex_flow(_nearby_chips, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(_nearby_chips, 4, 0);
-  for (uint8_t f = 0; f < NearbyModel::F_COUNT; f++) {
-    lv_obj_t* c = lv_button_create(_nearby_chips);
-    lv_obj_set_height(c, 26);
-    lv_obj_set_flex_grow(c, 1);
-    lv_obj_set_style_pad_all(c, 0, 0);
-    lv_obj_set_style_radius(c, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_shadow_width(c, 0, 0);
-    bool on = f == _nearby->filter();
-    lv_obj_add_event_cb(c, onNearbyChip, LV_EVENT_CLICKED, (void*)(uintptr_t)f);
-    lv_obj_center(label(c, NearbyModel::filterLabel(f), THEME_FONT_SMALL, theme::TEXT));
-    styleSelected(c, on);   // (Theme.h)
-  }
-
-  _nearby_status = label(body, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  // One line over the list: how many, then which and in what order.
+  _nearby_status = toolbarRow(body);
+  lv_obj_t* bar = lv_obj_get_parent(_nearby_status);
+  lv_obj_add_event_cb(toolbarChoice(bar, "All\nFavourites\nCompanions\nRepeaters\nRooms\nSensors", _nearby->filter(), "Show"),
+                      onNearbyChip, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_add_event_cb(toolbarChoice(bar, "Nearest\nLast heard", _nearby->sortMode() == NearbyModel::SORT_TIME ? 1 : 0, "Order"),
+                      onNearbySort, LV_EVENT_VALUE_CHANGED, NULL);
 
   _nearby_list = scrollList(body);
   vlist::attach(_nearby_list);
@@ -87,9 +77,8 @@ void UITask::setNearbyFilter(uint8_t f) {
   buildNearby();
 }
 
-void UITask::toggleNearbySort() {
-  _nearby->setSortMode(_nearby->sortMode() == NearbyModel::SORT_DIST ? NearbyModel::SORT_TIME
-                                                                     : NearbyModel::SORT_DIST);
+void UITask::setNearbySort(bool last_heard) {
+  _nearby->setSortMode(last_heard ? NearbyModel::SORT_TIME : NearbyModel::SORT_DIST);
   _nearby_sig = 0;
   refreshNearbyList();
 }
@@ -244,12 +233,9 @@ void UITask::refreshNearbyList() {
   uint32_t sig = nearbySignature();
   int n = _nearby->count();
 
-  if (_nearby_sort_lbl)
-    setText(_nearby_sort_lbl, _nearby->sortMode() == NearbyModel::SORT_TIME ? "Recent" : "Dist");
   int32_t lat, lon;
   bool gps = _nearby->ownPosition(lat, lon);
-  setTextFmt(_nearby_status, "%d node%s%s", n, n == 1 ? "" : "s",
-                        gps ? "" : "  -  no GPS fix, distances unknown");
+  setTextFmt(_nearby_status, "%d node%s%s", n, n == 1 ? "" : "s", gps ? "" : ", no GPS");
   if (sig == _nearby_sig || vlist::pressed(_nearby_list)) return;   // held: once it's let go
   _nearby_sig = sig;
 
@@ -324,9 +310,25 @@ void UITask::buildNode() {
   const NearbyModel::Entry& e = s_node;
   lv_obj_t* body = newScreen(e.name[0] ? e.name : "(unknown)", true);
 
-  lv_obj_t* info = scrollList(body);   // the info, scrolling above the actions at the bottom
+  lv_obj_t* info = scrollList(body);   // the actions, then the info: the whole screen scrolls
   s_nd_fav = nullptr;
   _node_path_lbl = nullptr;
+
+  // The bar: what the node is for -- a message, its admin, adding it -- a
+  // ping and the way there. The rest, less often, in a group under the info.
+  lv_obj_t* acts = buttonBar(info);
+  bool contact = e.contact_idx >= 0;
+  bool admin = contact && (e.type == ADV_TYPE_REPEATER || e.type == ADV_TYPE_ROOM);
+  bool pos = e.lat_e6 != 0 || e.lon_e6 != 0;
+  if (contact && e.type == ADV_TYPE_CHAT) barButton(acts, LV_SYMBOL_ENVELOPE " Message", onNodeAction, NODE_MSG, true);
+  if (admin) barButton(acts, LV_SYMBOL_SETTINGS " Admin", onNodeAction, NODE_ADMIN, true);
+  if (!contact && e.has_key && !e.is_known) barButton(acts, LV_SYMBOL_PLUS " Add", onNodeAction, NODE_ADD, true);
+  if (e.has_key) barButton(acts, LV_SYMBOL_LOOP " Ping", onNodeAction, NODE_PING);
+  if (pos) barButton(acts, UI_SYMBOL_COMPASS " Navigate", onNodeAction, NODE_NAV);
+  if (!lv_obj_get_child_count(acts)) lv_obj_delete(acts);
+  _node_ping = label(info, "", THEME_FONT_BODY, theme::ACCENT);   // under the buttons, once there's a ping
+  lv_obj_add_flag(_node_ping, LV_OBJ_FLAG_HIDDEN);
+
   nodeVizBuild(info);
   nodeviz::s_bearing = nodeviz::s_hops = -2;   // nothing drawn yet: the first set fills both
   _node_info = infoCard(info);
@@ -337,19 +339,6 @@ void UITask::buildNode() {
   s_nd_heard = infoRow(_node_info, "Heard", "");
   s_nd_signal = infoRow(_node_info, "Signal", "");
   s_nd_id = infoRow(_node_info, "ID", "");
-  _node_ping = label(info, "", THEME_FONT_BODY, theme::ACCENT);
-
-  // The bar: what the node is for -- a message, its admin, adding it -- a
-  // ping and the way there. The rest, less often, in a group under the info.
-  lv_obj_t* acts = buttonBar(body);
-  bool contact = e.contact_idx >= 0;
-  bool admin = contact && (e.type == ADV_TYPE_REPEATER || e.type == ADV_TYPE_ROOM);
-  bool pos = e.lat_e6 != 0 || e.lon_e6 != 0;
-  if (contact && e.type == ADV_TYPE_CHAT) barButton(acts, LV_SYMBOL_ENVELOPE " Message", onNodeAction, NODE_MSG, true);
-  if (admin) barButton(acts, LV_SYMBOL_SETTINGS " Admin", onNodeAction, NODE_ADMIN, true);
-  if (!contact && e.has_key && !e.is_known) barButton(acts, LV_SYMBOL_PLUS " Add", onNodeAction, NODE_ADD, true);
-  if (e.has_key) barButton(acts, LV_SYMBOL_LOOP " Ping", onNodeAction, NODE_PING);
-  if (pos) barButton(acts, UI_SYMBOL_COMPASS " Navigate", onNodeAction, NODE_NAV);
 
   if (pos || contact) {
     lv_obj_t* g = group(info, "More");
@@ -449,10 +438,12 @@ void UITask::refreshNode() {
     if (!_core->ping.isActive() && (out || back || rtt)) {
       setTextFmt(_node_ping, "Ping %lu ms  -  SNR out %.1f  back %.1f", (unsigned long)rtt,
                             out / 4.0f, back / 4.0f);
+      lv_obj_remove_flag(_node_ping, LV_OBJ_FLAG_HIDDEN);
       _pinging = false;
     } else if (millis() - _ping_started_ms > _core->ping.timeoutMs()) {
       _core->ping.clear();
       setText(_node_ping, "Ping: no reply");
+      lv_obj_remove_flag(_node_ping, LV_OBJ_FLAG_HIDDEN);
       _pinging = false;
     }
   }
@@ -467,6 +458,7 @@ void UITask::nodeAction(uint8_t action) {
     case NODE_PING: {
       if (_pinging) break;
       PingEngine::StartResult r = _core->ping.start(e.pub_key);
+      lv_obj_remove_flag(_node_ping, LV_OBJ_FLAG_HIDDEN);
       if (r == PingEngine::STARTED) {
         _pinging = true;
         _ping_started_ms = millis();

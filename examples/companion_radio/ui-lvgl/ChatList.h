@@ -111,14 +111,21 @@ static lv_obj_t* sectionTitle(lv_obj_t* parent, const char* text) {
 }
 
 // Messages section title: a chevron and the title fold the section (tap),
-// an "All" / "★ Fav" pill on the right (filter >= 0) flips its
-// favourites-only filter. Folded, the title carries the unread count.
+// an All / Favourites choice on the right (filter >= 0), as the Nodes list's
+// toolbar has. Folded, the title carries the unread count.
 enum : uint8_t { FOLD_CHANNELS, FOLD_DIRECT, FOLD_ROOMS };
 static int s_chat_fold = -1;   // bit per FOLD_*; -1: not read from NVS yet
 static void onChatFold(lv_event_t* e) { s_ui->chatFold((int)(uintptr_t)lv_event_get_user_data(e)); }
 static bool chatFolded(int which) {
   if (s_chat_fold < 0) s_chat_fold = lvport::loadChatFold();
   return s_chat_fold & (1 << which);
+}
+
+// A section's favourites-only filter: user data = which | what it was << 8.
+static void chatFilterChoice(lv_obj_t* row, int which, bool fav_only) {
+  lv_obj_t* c = toolbarChoice(row, "All\nFavourites", fav_only ? 1 : 0, "Show");
+  lv_obj_align(c, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_obj_add_event_cb(c, onChatFilter, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)(which | (fav_only ? 0x100 : 0)));
 }
 
 static void chatSection(lv_obj_t* parent, const char* text, int fold, int unread, int filter, bool fav_only) {
@@ -140,18 +147,17 @@ static void chatSection(lv_obj_t* parent, const char* text, int fold, int unread
     lv_obj_align_to(n, t, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
   }
   if (filter < 0 || folded) return;
-  styleSelected(pillButton(row, fav_only ? UI_SYMBOL_STAR " Fav" : "All", theme::SURFACE, onChatFilter, filter), fav_only);
+  chatFilterChoice(row, filter, fav_only);
 }
 
-// Section title with an "All" / "★ Fav" pill on the right that flips the
-// section's favourites-only filter.
+// Section title with the All / Favourites choice on the right.
 static void sectionWithFilter(lv_obj_t* parent, const char* text, bool fav_only, uint8_t which) {
   lv_obj_t* row = lv_obj_create(parent);
   styleSurface(row, theme::BG);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), 26);
-  lv_obj_align(label(row, text, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_BOTTOM_LEFT, 0, -2);
-  styleSelected(pillButton(row, fav_only ? UI_SYMBOL_STAR " Fav" : "All", theme::SURFACE, onChatFilter, which), fav_only);
+  lv_obj_set_size(row, LV_PCT(100), 30);
+  lv_obj_align(label(row, text, THEME_FONT_SMALL, theme::TEXT_MUTED), LV_ALIGN_LEFT_MID, 0, 0);
+  chatFilterChoice(row, which, fav_only);
 }
 
 void UITask::showChats() {
@@ -165,14 +171,9 @@ static lv_obj_t* headerButton(lv_obj_t* hdr, const char* text, lv_event_cb_t cb,
 void UITask::buildChats() {
   lv_obj_t* body = newScreen("Messages", true);
   s_chats_read_all = unreadTotal() > 0;
-  if (_header) {   // a new message first, whatever the lists below hold
-    lv_obj_t* nb = headerButton(_header, LV_SYMBOL_EDIT " New", onNewChat, 4, NULL);
-    stylePrimary(nb);
-    if (s_chats_read_all) {
-      lv_obj_t* rb = headerButton(_header, LV_SYMBOL_OK " Read all", onMarkAllRead, 0, NULL);
-      layoutNow(_header);
-      lv_obj_align_to(rb, nb, LV_ALIGN_OUT_LEFT_MID, -6, 0);
-    }
+  if (_header) {   // a new message last, at the edge, whatever the lists below hold
+    if (s_chats_read_all) headerButton(_header, LV_SYMBOL_OK " Read all", onMarkAllRead, 0, NULL);
+    stylePrimary(headerButton(_header, LV_SYMBOL_EDIT, onNewChat, 0, NULL));   // the pencil alone: the title fits
   }
   vlist::attach(body);
   fillChats();
@@ -281,7 +282,7 @@ void UITask::fillChats() {
     vlist::add(body, &DM, rows);
     rows++;
   }
-  if (rows == 0 && !chatFolded(FOLD_DIRECT)) { label(body, "No conversations yet - New, top right", THEME_FONT_SMALL, theme::TEXT_MUTED); own(); }
+  if (rows == 0 && !chatFolded(FOLD_DIRECT)) { label(body, "No conversations yet - the pencil, top right", THEME_FONT_SMALL, theme::TEXT_MUTED); own(); }
 
   // Room servers: tap logs in (saved password or ask) and opens; hold: options
   static const vlist::Kind ROOM = {

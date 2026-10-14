@@ -560,6 +560,7 @@ static void bannerShow(const char* icon, const char* title, const char* text) {
   lv_anim_delete(s_banner, NULL);
   lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
   if (!shown) {   // a new one while it's up just changes the text
+    lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, belowTopBar() + 2);
     layoutNow(s_banner);
     anim::run(s_banner, anim::setTy, -(lv_obj_get_height(s_banner) + theme::STATUS_H), 0, anim::SCREEN_MS);
   } else {
@@ -715,8 +716,20 @@ void UITask::refreshStatusBar() {
     default: break;
   }
   setTextFmt(_status_batt, "%s%s", batt, level);
+  const bool chg = _board->isExternalPowered();
+  if (_hdr_clock) {   // the title bar's: the time over the battery, green on the charger
+    setText(_hdr_time, lv_label_get_text(_status_time));
+    setTextFmt(_hdr_batt, "%s%s", batt, level);
+    setTextColor(_hdr_batt, chg ? theme::OK : theme::TEXT_MUTED);
+    layoutNow(_hdr_clock);
+    const int32_t w = lv_obj_get_width(_hdr_clock);   // the row stops short of it
+    if (lv_obj_get_style_pad_right(_header, LV_PART_MAIN) != w) {
+      lv_obj_set_style_pad_right(_header, w, 0);
+      lv_obj_align(_hdr_clock, LV_ALIGN_RIGHT_MID, w, 0);   // aligned inside the padding: out into it
+    }
+  }
   lv_obj_t* left_of = _status_batt;   // the icons pack up to this
-  if (_board->isExternalPowered()) {
+  if (chg) {
     lv_obj_remove_flag(_status_chg, LV_OBJ_FLAG_HIDDEN);
     placeLeftOf(_status_chg, _status_batt, -2);
     left_of = _status_chg;
@@ -758,6 +771,16 @@ void UITask::refreshStatusBar() {
       label(_status_icons, icons[i].sym, THEME_FONT_ICONS, icons[i].col);
   }
   placeLeftOf(_status_icons, left_of, -5);
+}
+
+// The status bar is up over a screen without a title bar (Home, the map, a
+// conversation typing), and over the quick panel and the lock whatever the
+// screen; a title bar carries the time and battery itself.
+void UITask::statusBarSync() {
+  if (!s_status_bar) return;
+  const bool titled = _header && !lv_obj_has_flag(_header, LV_OBJ_FLAG_HIDDEN);
+  const bool hide = titled && !s_sb_panel && !s_sb_lock;
+  if (hide != lv_obj_has_flag(s_status_bar, LV_OBJ_FLAG_HIDDEN)) lv_obj_set_flag(s_status_bar, LV_OBJ_FLAG_HIDDEN, hide);
 }
 
 void UITask::setGps(bool on) {
@@ -895,8 +918,8 @@ void UITask::showToast(const char* text, uint32_t ms) {
   bool shown = !lv_obj_has_flag(_toast, LV_OBJ_FLAG_HIDDEN);
   lv_anim_delete(_toast, NULL);   // on its way out
   lv_obj_remove_flag(_toast, LV_OBJ_FLAG_HIDDEN);
-  // Under the message banner while that's up, else right under the status bar.
-  int32_t y = theme::STATUS_H + 4;
+  // Under the message banner while that's up, else right under the top bar.
+  int32_t y = belowTopBar() + 4;
   if (s_banner && !lv_obj_has_flag(s_banner, LV_OBJ_FLAG_HIDDEN)) y = lv_obj_get_y(s_banner) + lv_obj_get_height(s_banner) + 4;
   lv_obj_align(_toast, LV_ALIGN_TOP_MID, 0, y);
   layoutNow(_toast);
@@ -990,7 +1013,7 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   if (_shown_screen == SCR_SETTINGS && _body) s_settings_y = lv_obj_get_scroll_y(_body);
   pickerClose();
   _header = _body = nullptr;
-  _nearby_list = _nearby_status = _nearby_sort_lbl = _nearby_chips = nullptr;
+  _nearby_list = _nearby_status = nullptr;
   _node_info = _node_ping = _node_delete_lbl = nullptr;
   nodeviz::s_card = nullptr;
   _scan_overlay = _scan_list = _scan_status = nullptr;   // the popup went with the old screen
@@ -1012,18 +1035,30 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
   styleOpaque(scr, theme::BG);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
+  // The title bar, at the very top in place of the status bar: back, the
+  // title, the screen's actions (headerButton(), after the title in a row),
+  // and at the right end the time and battery. A drag down on it brings the
+  // quick panel, as on the status bar.
   int top = theme::STATUS_H;
+  _hdr_clock = _hdr_time = _hdr_batt = nullptr;
   if (title) {
     lv_obj_t* hdr = lv_obj_create(scr);
     styleSurface(hdr, theme::BG);
     lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(hdr, LV_PCT(100), 38);
-    lv_obj_set_pos(hdr, 0, top);
+    lv_obj_set_size(hdr, LV_PCT(100), theme::APPBAR_H);
+    lv_obj_set_pos(hdr, 0, 0);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(hdr, with_back ? 4 : theme::PAD, 0);
+    lv_obj_set_style_pad_column(hdr, theme::GAP, 0);
+    lv_obj_add_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(hdr, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(hdr, onStatusBarTouch, LV_EVENT_ALL, (void*)1);   // a drag only: a tap on the title is nothing
     _header = hdr;
     if (with_back) {
       lv_obj_t* b = lv_button_create(hdr);
-      lv_obj_set_size(b, 40, 28);
-      lv_obj_align(b, LV_ALIGN_LEFT_MID, 4, 0);
+      lv_obj_set_size(b, 40, theme::BAR_BTN_H);
       lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
       lv_obj_set_style_shadow_width(b, 0, 0);
       lv_obj_add_event_cb(b, onBack, LV_EVENT_CLICKED, NULL);
@@ -1031,9 +1066,38 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
     }
     lv_obj_t* t = label(hdr, title, THEME_FONT_TITLE, theme::TEXT);
     lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(t, 230);
-    lv_obj_align(t, LV_ALIGN_LEFT_MID, with_back ? 52 : theme::PAD, 0);
-    top += 38;
+    lv_obj_set_width(t, 1);
+    lv_obj_set_flex_grow(t, 1);   // what the actions leave
+    // The time and battery on a pill as the bar's buttons are, out of the
+    // row: the row stops short of it (the bar's right padding, refreshStatusBar()).
+    lv_obj_t* c = lv_obj_create(hdr);
+    lv_obj_remove_style_all(c);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(c, onStatusBarTouch, LV_EVENT_ALL, NULL);   // a tap opens the panel, as the status bar's
+    lv_obj_set_size(c, LV_SIZE_CONTENT, LV_PCT(100));
+    lv_obj_set_style_pad_left(c, theme::GAP, 0);
+    lv_obj_set_style_pad_right(c, 4, 0);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(c, LV_ALIGN_RIGHT_MID, 0, 0);
+    _hdr_clock = c;
+    lv_obj_t* p = lv_obj_create(c);
+    lv_obj_remove_style_all(p);
+    lv_obj_remove_flag(p, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(p, LV_SIZE_CONTENT, theme::BAR_BTN_H);
+    lv_obj_set_flex_flow(p, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(p, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(p, 6, 0);
+    lv_obj_set_style_bg_color(p, lv_color_hex(theme::SURFACE), 0);
+    lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(p, theme::RADIUS, 0);
+    lv_obj_set_style_pad_hor(p, 8, 0);
+    _hdr_time = label(p, "", THEME_FONT_BODY, theme::TEXT);
+    _hdr_batt = label(p, "", THEME_FONT_ICONS, theme::TEXT_MUTED);
+    top = theme::APPBAR_H;
   }
 
   lv_obj_t* body = lv_obj_create(scr);
@@ -1063,6 +1127,8 @@ lv_obj_t* UITask::newScreen(const char* title, bool with_back) {
     if (prev && !same && !_asleep) anim::screenIn(body, backward);
   }
   _fade_next = false;
+  statusBarSync();
+  refreshStatusBar();   // the title bar's time and battery
   return body;
 }
 
@@ -1103,8 +1169,12 @@ void UITask::back() {
     case SCR_SETTINGS: if (_nav_overlay) navClosePopup(); else showHome(); break;
     case SCR_SETTINGS_NAV:   // the map's options go back to the map
       if (_settings_page == settings::PG_NAV && s_opts_from_map) {
-        openMap(true);
-        if (s_nav_section >= 0) navToolsPopup();   // one section's options: back into Map tools
+        // The map as it was left -- its mode and view, Map tools over it,
+        // scrolled where it was -- dissolving in over the page.
+        const bool tools = s_nav_section >= 0;
+        _fade_next = true;
+        showMap(false);
+        if (tools) navToolsPopup(true);
       } else if (_settings_page == settings::PG_RADIO) {
         showRadio();
       } else {
@@ -1145,7 +1215,7 @@ void UITask::back() {
       else showHome();
       break;
     case SCR_NODE:     // back to where the node was picked: map, the list, or the scan popup over it
-      if (_node_from_map) { openMap(false); break; }
+      if (_node_from_map) { _map_nodes = true; showMap(false); break; }   // the nodes map as it was left
       _screen = SCR_NEARBY;
       buildNearby();
       if (_node_from_scan) showScanPopup();
@@ -1353,5 +1423,38 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_scroll(int dy) {
   int left = lv_obj_get_scroll_bottom(o);
   lv_obj_scroll_by(o, 0, -(dy < left ? dy : left), LV_ANIM_OFF);
   return left;
+}
+#endif
+
+#if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
+// The simulator page opens a screen by name (screenshots of the layout):
+// home, chats, contacts, settings, settings:<page>, nearby, map, navmap, places, clock, radio,
+// gps, diag, compass, storage, repeater, wifi, bot, quick, node, channel.
+extern "C" EMSCRIPTEN_KEEPALIVE int sim_ui_show(const char* name) {
+  if (!s_ui || !name) return 0;
+  UITask& u = *s_ui;
+  if (!strcmp(name, "home")) u.showHome();
+  else if (!strcmp(name, "chats")) u.showChats();
+  else if (!strcmp(name, "contacts")) u.showContacts();
+  else if (!strcmp(name, "settings")) u.showSettings();
+  else if (!strncmp(name, "settings:", 9)) u.showSchemaSettings(atoi(name + 9));
+  else if (!strcmp(name, "nearby")) u.showNearby();
+  else if (!strcmp(name, "map")) u.openMap(false);
+  else if (!strcmp(name, "navmap")) u.openMap(true);
+  else if (!strcmp(name, "places")) { u.openMap(true); u.navTargetsPopup(); }
+  else if (!strcmp(name, "clock")) u.showClock();
+  else if (!strcmp(name, "radio")) u.showRadio();
+  else if (!strcmp(name, "gps")) u.showGps(false);
+  else if (!strcmp(name, "diag")) u.showDiag();
+  else if (!strcmp(name, "compass")) u.showCompass();
+  else if (!strcmp(name, "storage")) u.showStorage();
+  else if (!strcmp(name, "repeater")) u.showRepeater();
+  else if (!strcmp(name, "wifi")) u.showWifi();
+  else if (!strcmp(name, "bot")) u.showBot();
+  else if (!strcmp(name, "quick")) u.showQuickMsgs();
+  else if (!strcmp(name, "node")) { u.showNearby(); u.openNode(0); }
+  else if (!strcmp(name, "channel")) u.openChannel(0);
+  else return 0;
+  return 1;
 }
 #endif

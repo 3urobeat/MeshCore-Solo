@@ -336,7 +336,7 @@ void UITask::buildDiag() {
   if (s_tab == TAB_LIVE && _header) headerButton(_header, LV_SYMBOL_REFRESH " Reset", onDiagReset, 4, NULL);
 
   static const char* TABS[] = { "Live", "History", "System", "Font", "Noise", "" };
-  lv_obj_t* tabs = segmented(body, TABS, s_tab, lv_pct(100), 34);
+  lv_obj_t* tabs = segmented(body, TABS, s_tab, lv_pct(100), theme::TAB_H);
   lv_obj_set_style_bg_color(tabs, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
   lv_obj_add_event_cb(tabs, onDiagTab, LV_EVENT_VALUE_CHANGED, NULL);
 

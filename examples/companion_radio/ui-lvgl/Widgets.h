@@ -164,6 +164,20 @@ static lv_obj_t* s_status_bar = nullptr;   // on the top layer, opaque
 static int32_t belowStatusBar() {
   return s_status_bar && !lv_obj_has_flag(s_status_bar, LV_OBJ_FLAG_HIDDEN) ? lv_obj_get_y2(s_status_bar) + 1 : 0;
 }
+// Where what drops in from the top (a toast, the message banner) goes: under
+// the status bar, or under a screen's title bar, which takes its place.
+static int32_t belowTopBar() {
+  return s_status_bar && lv_obj_has_flag(s_status_bar, LV_OBJ_FLAG_HIDDEN) ? theme::APPBAR_H : theme::STATUS_H;
+}
+// Home's tiles: `rows` of them fill the page between the status bar and the
+// page dots, less `reserve` px left under them (a hint line).
+static const int HOME_DOTS_H = 26;
+static int homeTileH(int rows, int reserve = 0) {
+  const int page = lv_display_get_vertical_resolution(NULL) - theme::STATUS_H - theme::PAD - HOME_DOTS_H;
+  return (page - reserve - (rows - 1) * theme::GAP) / rows;
+}
+// What keeps the status bar up over a title bar (UITask::statusBarSync).
+static bool s_sb_panel = false, s_sb_lock = false;
 
 // The screen under an open popup, frozen: once the dim is up, the screen is
 // drawn once into an image, darkened as the dim layer darkens it, and shown
@@ -245,7 +259,7 @@ namespace freeze {
   }
   static void dimmed(lv_obj_t* overlay, bool top) {   // the image holds the dim now
     lv_obj_set_style_bg_opa(overlay, LV_OPA_TRANSP, 0);
-    if (top) {   // the status bar, on the top layer too, stays dimmed
+    if (top && belowStatusBar()) {   // the status bar, on the top layer too, stays dimmed
       s_strip = lv_obj_create(overlay);
       lv_obj_remove_style_all(s_strip);
       lv_obj_remove_flag(s_strip, LV_OBJ_FLAG_CLICKABLE);
@@ -306,6 +320,9 @@ namespace freeze {
 // POP_BOTTOM: as tall as its content, at the bottom, nothing dimmed -- for
 // what's shown on the screen above it (a map area's preview).
 enum PopFit : uint8_t { POP_FIT, POP_FULL, POP_TOP, POP_BOTTOM };
+// The next popup is already up: back to it from a page it led to, it is
+// there at once -- dimmed in full, no rise -- not opening again.
+static bool s_pop_still = false;
 static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int32_t inset = 8) {
   overlay = dimOverlay(parent);
   s_fit_pending = true;   // rowsFit()
@@ -335,12 +352,15 @@ static lv_obj_t* popupOpen(lv_obj_t* parent, PopFit fit, lv_obj_t*& overlay, int
   lv_obj_set_style_pad_all(panel, theme::PAD, 0);
   lv_obj_set_style_pad_row(panel, 4, 0);
   lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  const bool still = s_pop_still;
+  s_pop_still = false;
   if (fit == POP_BOTTOM) {   // over a live screen, nothing dimmed
     lv_obj_set_style_bg_opa(overlay, LV_OPA_TRANSP, 0);
     anim::rise(panel);
   } else {
     lv_obj_add_event_cb(overlay, freeze::ownerDeleted, LV_EVENT_DELETE, NULL);
-    if (freeze::early(overlay, LV_OPA_60)) anim::rise(panel);
+    if (still) { lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0); freeze::take(overlay); }   // frozen as it looks
+    else if (freeze::early(overlay, LV_OPA_60)) anim::rise(panel);
     else anim::popup(overlay, LV_OPA_60, freeze::onDimUp);
   }
   return panel;
@@ -470,7 +490,7 @@ static lv_obj_t* pillButton(lv_obj_t* row, const char* text, uint32_t bg, lv_eve
   lv_obj_set_size(b, LV_SIZE_CONTENT, 24);
   lv_obj_set_style_pad_hor(b, 10, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
-  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(bg), 0);
   lv_obj_align(b, LV_ALIGN_RIGHT_MID, -2, 0);
@@ -617,14 +637,15 @@ static void rowFit(lv_obj_t* row) {
   }
 }
 
-// ... and every label given a width in pixels, which labelFit() then measures
+// ... and every label given a width in pixels (not one that grows), which labelFit() then measures
 // at it (the screen titles, a list row's cut-off name ...).
 static void rowsFit(lv_obj_t* root) {
   lv_obj_tree_walk(root, [](lv_obj_t* o, void*) {
     if (lv_obj_has_flag(o, LV_OBJ_FLAG_USER_2)) {
       lv_obj_remove_flag(o, LV_OBJ_FLAG_USER_2);
       rowFit(o);
-    } else if (lv_obj_check_type(o, &lv_label_class)) {
+    } else if (lv_obj_check_type(o, &lv_label_class) && !lv_obj_get_style_flex_grow(o, LV_PART_MAIN)) {
+      // (a growing one's px width is a stand-in: the flex's, or its row's rowFit())
       int32_t w = lv_obj_get_style_width(o, LV_PART_MAIN);
       if (LV_COORD_IS_PX(w) && w > 0 && lv_obj_get_width(o) != w) labelFit(o, w);
     }
@@ -827,7 +848,7 @@ static lv_obj_t* choiceCreate(lv_obj_t* parent, const char* opts, int sel, const
   if (!isGroup(lv_obj_get_parent(parent))) {
     lv_obj_set_style_bg_color(c, lv_color_hex(theme::SURFACE_2), 0);
     lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(c, theme::RADIUS_SM, 0);
+    lv_obj_set_style_radius(c, theme::RADIUS, 0);
     lv_obj_set_style_pad_hor(c, 10, 0);
     lv_obj_set_style_pad_ver(c, 8, 0);
   }
@@ -853,6 +874,29 @@ static lv_obj_t* choiceCreate(lv_obj_t* parent, const char* opts, int sel, const
   return c;
 }
 
+// A list's toolbar: one line over it, a muted text on the left (how many,
+// what's missing) and its choices on the right (toolbarChoice). Returns the
+// text, to update; its parent is the row.
+static lv_obj_t* toolbarRow(lv_obj_t* parent) {
+  lv_obj_t* row = flexBox(parent, LV_FLEX_FLOW_ROW);
+  lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(row, theme::GAP, 0);
+  lv_obj_t* t = label(row, "", THEME_FONT_SMALL, theme::TEXT_MUTED);
+  lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(t, 1);
+  lv_obj_set_flex_grow(t, 1);
+  return t;
+}
+// A choice in a toolbarRow(): the value and a chevron on a small surface,
+// the options over the screen as any choice's.
+static lv_obj_t* toolbarChoice(lv_obj_t* row, const char* opts, int sel, const char* title) {
+  lv_obj_t* c = choiceCreate(row, opts, sel, title);
+  lv_obj_set_style_pad_ver(c, 6, 0);
+  lv_obj_set_style_pad_hor(c, 8, 0);
+  lv_obj_set_style_text_font(choiceOf(c)->value, THEME_FONT_SMALL, 0);
+  return c;
+}
 
 // One settings row: label left, a choice right.
 static lv_obj_t* choiceRow(lv_obj_t* parent, const char* text, const char* hint, const char* options, int sel,
@@ -931,7 +975,7 @@ static lv_obj_t* segmented(lv_obj_t* parent, const char** map, int sel, int w, i
   lv_obj_set_style_text_color(m, lv_color_hex(theme::BG), LV_PART_ITEMS | LV_STATE_CHECKED);
   lv_obj_set_style_text_font(m, THEME_FONT_SMALL, LV_PART_ITEMS);
   lv_obj_set_style_shadow_width(m, 0, LV_PART_ITEMS);
-  lv_obj_set_style_radius(m, theme::RADIUS_SM, LV_PART_ITEMS);
+  lv_obj_set_style_radius(m, theme::RADIUS, LV_PART_ITEMS);
   return m;
 }
 

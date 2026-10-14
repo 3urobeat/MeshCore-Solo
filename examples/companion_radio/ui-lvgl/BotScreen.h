@@ -44,7 +44,7 @@ static void botChip(const char* ph, void* parent) {
   lv_obj_set_height(b, 26);
   lv_obj_set_style_pad_hor(b, 7, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
-  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onBotPlaceholder, LV_EVENT_CLICKED, NULL);
@@ -86,7 +86,7 @@ void UITask::buildBot() {
   static const char* TABS[botcfg::TAB_COUNT + 1];
   for (int i = 0; i < botcfg::TAB_COUNT; i++) TABS[i] = botcfg::TAB_LABELS[i];
   TABS[botcfg::TAB_COUNT] = "";
-  lv_obj_t* tabs = segmented(body, TABS, s_tab, lv_pct(100), 34);
+  lv_obj_t* tabs = segmented(body, TABS, s_tab, lv_pct(100), theme::TAB_H);
   lv_obj_set_style_bg_color(tabs, lv_color_hex(theme::SURFACE), LV_PART_ITEMS);
   lv_obj_add_event_cb(tabs, onBotTab, LV_EVENT_VALUE_CHANGED, NULL);
 

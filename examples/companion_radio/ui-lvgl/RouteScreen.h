@@ -53,7 +53,7 @@ static lv_obj_t* routeSquare(lv_obj_t* row, const char* sym, int code) {
   lv_obj_t* b = lv_button_create(row);
   lv_obj_set_size(b, 30, 26);
   lv_obj_set_style_pad_all(b, 0, 0);
-  lv_obj_set_style_radius(b, theme::RADIUS_SM, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
   lv_obj_add_event_cb(b, onRouteOp, LV_EVENT_CLICKED, (void*)(uintptr_t)code);
@@ -70,7 +70,7 @@ static lv_obj_t* routeRow(lv_obj_t* list, int h, const char* num, const char* na
   styleSurface(r, theme::SURFACE);
   lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(r, LV_PCT(100), h);
-  lv_obj_set_style_radius(r, theme::RADIUS_SM, 0);
+  lv_obj_set_style_radius(r, theme::RADIUS, 0);
   lv_obj_set_style_pad_hor(r, 8, 0);
   lv_obj_set_style_pad_ver(r, 0, 0);
   lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);

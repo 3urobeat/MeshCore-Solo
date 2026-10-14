@@ -257,10 +257,9 @@ void UITask::buildGps() {
   s_cn0 = s_best = s_nmea = s_rx = s_d_fix = s_d_ttff = s_d_search = s_d_utc = nullptr;
   for (lv_obj_t*& p : s_sys_pill) p = nullptr;
   lv_obj_set_style_pad_row(body, 6, 0);
-  if (_header) {
+  {   // the tabs first under the title bar, as on every screen with tabs
     static const char* TABS[] = { "Sky", "Signal", "Details", "" };
-    lv_obj_t* tabs = segmented(_header, TABS, s_tab, 186, 28, theme::SURFACE);
-    lv_obj_align(tabs, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_t* tabs = segmented(body, TABS, s_tab, LV_PCT(100), theme::TAB_H, theme::SURFACE);
     lv_obj_add_event_cb(tabs, onGpsTab, LV_EVENT_VALUE_CHANGED, NULL);
   }
 

@@ -171,7 +171,7 @@ void UITask::buildAdmin() {
   static const char* TABS[admin::TAB_COUNT + 1];
   for (int i = 0; i < admin::TAB_COUNT; i++) TABS[i] = admin::TAB_LABELS[i];
   TABS[admin::TAB_COUNT] = "";
-  s_tabs = segmented(body, TABS, s_tab, LV_PCT(100), 34, theme::SURFACE);
+  s_tabs = segmented(body, TABS, s_tab, LV_PCT(100), theme::TAB_H, theme::SURFACE);
   lv_obj_add_event_cb(s_tabs, onAdminTab, LV_EVENT_VALUE_CHANGED, NULL);
 
   s_status = label(body, "", THEME_FONT_SMALL, theme::ACCENT);

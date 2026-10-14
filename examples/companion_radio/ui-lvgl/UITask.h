@@ -105,7 +105,7 @@ public:
   void setSchemaValue(int idx, int v);
   void setMsgBanner(bool on);   // Settings > Display > Message banner
   void showNearby();
-  void showMap();                  // in its current mode
+  void showMap(bool frame = true);   // in its current mode; frame: on the target, if there is one
   void openMap(bool nav);          // the one map; false: from Nodes, with the nodes on it and Back to Nodes
   void mapLongPress(int x, int y);
   void mapZoom(int delta);
@@ -178,7 +178,7 @@ public:
   void navMarkHere();
   void navAveragingCancel();
   void navToNode(const uint8_t* key, int32_t lat, int32_t lon, const char* name);
-  void navToolsPopup();
+  void navToolsPopup(bool back = false);   // back: from a page it led to, as it was left
   void navToolAction(uint8_t act);
   void navSetShareTarget(int sel);
   void navWaypointsPopup();
@@ -197,7 +197,7 @@ public:
   void wifiEdit(lv_obj_t* ta);
   void wifiKeyboardHide();
   void setNearbyFilter(uint8_t f);
-  void toggleNearbySort();
+  void setNearbySort(bool last_heard);
   void startNearbyScan();
   void closeScanPopup();
   void openScanNode(int row);
@@ -368,6 +368,7 @@ public:
   void openRouteFor(const uint8_t* pub_key) { showRoute(pub_key); }
   void openMessagesList() { showChats(); }   // sim harness
   bool openNodesMap() { openMap(false); return true; }   // sim harness
+  void statusBarSync();   // up or hidden, by the screen's title bar (UITask.cpp)
 
 private:
   enum Screen : uint8_t { SCR_HOME, SCR_CHATS, SCR_CONTACTS, SCR_THREAD, SCR_SETTINGS, SCR_NEARBY, SCR_NODE, SCR_MAP, SCR_WIFI, SCR_SETTINGS_NAV, SCR_CLOCK, SCR_RADIO, SCR_CHANNEL_EDIT, SCR_ADMIN, SCR_BOT, SCR_DIAG, SCR_COMPASS, SCR_SCOPES, SCR_REPEATER, SCR_MELODY, SCR_QUICK, SCR_ADMIN_PICK, SCR_OTA, SCR_STORAGE, SCR_GPS, SCR_BATT, SCR_ROUTE, SCR_ROUTE_PICK };
@@ -437,6 +438,8 @@ private:
   void addMapMark(uint8_t kind, int idx, int32_t lat_e6, int32_t lon_e6, uint32_t col, const char* text);
   void mapPointToLatLon(int x, int y, int32_t& lat_e6, int32_t& lon_e6) const;
   double mapCenterBias() const;
+  int mapBottomH() const;
+  void mapPlaceBottom();
   void buildNavLayers();
   void buildNavControls(lv_obj_t* body);
   void rebuildNavMarkers();
@@ -605,6 +608,9 @@ private:
   lv_obj_t* _home_date = nullptr;
   lv_obj_t* _home_unread = nullptr;
   lv_obj_t* _header = nullptr;    // current screen's title bar (nullptr on Home)
+  lv_obj_t* _hdr_clock = nullptr;   // its time and battery, at the right end
+  lv_obj_t* _hdr_time = nullptr;
+  lv_obj_t* _hdr_batt = nullptr;
   lv_obj_t* _body = nullptr;
   lv_obj_t* _thread_list = nullptr;
   lv_obj_t* _compose_ta = nullptr;
@@ -627,8 +633,6 @@ private:
   uint32_t  _ui_started_ms = 0;   // begin(): the side button held soon after is the CLI rescue
   lv_obj_t* _nearby_list = nullptr;
   lv_obj_t* _nearby_status = nullptr;
-  lv_obj_t* _nearby_sort_lbl = nullptr;
-  lv_obj_t* _nearby_chips = nullptr;
   lv_obj_t* _node_info = nullptr;
   lv_obj_t* _node_ping = nullptr;
   lv_obj_t* _node_delete_lbl = nullptr;

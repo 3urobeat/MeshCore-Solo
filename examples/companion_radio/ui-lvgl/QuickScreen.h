@@ -30,7 +30,7 @@ static lv_obj_t* chips(lv_obj_t* parent, lv_event_cb_t cb, bool wrap) {
     lv_obj_set_size(b, LV_SIZE_CONTENT, 28);
     lv_obj_set_style_pad_hor(b, 8, 0);
     lv_obj_set_style_pad_ver(b, 0, 0);
-    lv_obj_set_style_radius(b, theme::RADIUS_SM, 0);
+    lv_obj_set_style_radius(b, theme::RADIUS, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), 0);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void*)(uintptr_t)i);

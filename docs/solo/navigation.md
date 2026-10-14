@@ -57,8 +57,10 @@ start**, so you can always go back to where the trail began.
 contact or channel) and **Set as target**.
 
 > [!NOTE]
-> **Wio Tracker L2:** up to 64 waypoints. The pin button on the map opens the
-> list; hold a spot on the map to make it a waypoint or the target.
+> **Wio Tracker L2:** up to 64 waypoints. The pin button on the map opens
+> **Places**: mark where you are, type coordinates, or tap a waypoint, the
+> trail start or someone sharing live to navigate there. Hold a spot on the
+> map to make it a waypoint or the target.
 
 ## Navigating to something
 
@@ -73,8 +75,9 @@ degrees and direction.
 
 > [!NOTE]
 > **Wio Tracker L2:** the target is drawn on the map with a line to it, and a
-> bar with distance, bearing, heading and time to arrival. The Compass app is
-> a turning dial.
+> bar along the bottom shows distance, bearing, heading and time to arrival
+> (without a target the map has the whole screen). The Compass app is a
+> turning dial.
 
 ## Sharing locations
 

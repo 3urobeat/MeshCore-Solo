@@ -64,9 +64,10 @@ void UITask::setKeyboardVisible(bool show) {
     fieldFocus(_compose_ta, false);
   }
   if (_header && _body) {
-    int top = theme::STATUS_H + (show ? 0 : lv_obj_get_height(_header));
+    int top = show ? theme::STATUS_H : theme::APPBAR_H;   // typing: the slimmer status bar in its place
     if (show) lv_obj_add_flag(_header, LV_OBJ_FLAG_HIDDEN);
     else      lv_obj_remove_flag(_header, LV_OBJ_FLAG_HIDDEN);
+    statusBarSync();
     lv_obj_set_pos(_body, 0, top);
     lv_obj_set_height(_body, lv_display_get_vertical_resolution(NULL) - top);
   }
@@ -139,7 +140,6 @@ void UITask::buildThread() {
   lv_obj_set_style_pad_all(body, 0, 0);
   lv_obj_set_style_pad_row(body, 0, 0);
   if (_header && (_thread_is_channel || can_send)) {   // channel / conversation options
-    lv_obj_set_width(lv_obj_get_child(_header, 1), 200);   // title, clear of the button
     headerButton(_header, LV_SYMBOL_SETTINGS, _thread_is_channel ? onChanThreadMenu : onConvThreadMenu, 4, NULL);
   }
 
@@ -286,7 +286,7 @@ static void msgLocButton(lv_obj_t* parent, const char* text, bool save, bool acc
   lv_obj_set_size(b, LV_SIZE_CONTENT, 28);
   lv_obj_set_style_pad_hor(b, 10, 0);
   lv_obj_set_style_pad_ver(b, 0, 0);
-  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   // on our own amber bubble the main one goes dark instead
   lv_obj_set_style_bg_color(b, lv_color_hex(accent ? (own ? theme::BG : theme::ACCENT) : theme::SURFACE_2), 0);

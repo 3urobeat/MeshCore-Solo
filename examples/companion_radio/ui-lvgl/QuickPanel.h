@@ -43,6 +43,8 @@ static void hidden(lv_anim_t* a) {
   (void)a;
   lv_obj_add_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
   if (s_catch) { lv_obj_delete(s_catch); s_catch = nullptr; }   // the frozen screen goes with it
+  s_sb_panel = false;   // back under the title bar, if the screen has one
+  s_ui->statusBarSync();
 }
 static void slide(int32_t to, bool away) {
   lv_anim_delete(s_panel, NULL);
@@ -134,7 +136,7 @@ static void onStatusBarTouch(lv_event_t* e) {
     s_drag = false;
     if (dy > s_h / 3) { s_open = true; slide(0, false); }
     else s_ui->quickPanelClose(true);
-  } else if (c == LV_EVENT_RELEASED && dy < 6) {
+  } else if (c == LV_EVENT_RELEASED && dy < 6 && !lv_event_get_user_data(e)) {   // (a title bar: drags only)
     if (s_open) s_ui->quickPanelClose(true);
     else if (s_ui->quickPanelBegin()) { s_open = true; slide(0, false); }
   }
@@ -256,6 +258,8 @@ bool UITask::quickPanelBegin() {
     freeze::early(s_catch, LV_OPA_50);   // no memory, or a popup's still frozen: the screen stays as it is
   }
   lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+  s_sb_panel = true;   // the full status bar over it, a title bar or not
+  statusBarSync();
   lv_obj_scroll_to_x(s_pages, 0, LV_ANIM_OFF);   // the first page each time
   dotsSet(0);
   layoutNow(s_panel);

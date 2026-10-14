@@ -8,6 +8,11 @@ filters by type (All, Fav, Companions, Repeaters, Rooms, Sensors); the sort,
 by distance or by last heard, is in the options. A ★ marks a favourite, a ♦
 someone sharing their position live.
 
+> [!NOTE]
+> **Wio Tracker L2:** the line over the list holds the count and two choices,
+> which nodes to show and in what order; **Scan** and the map are in the
+> title bar.
+
 **Enter** shows a node's details. **Hold Enter**, in the list or the details,
 for what you can do with it:
 

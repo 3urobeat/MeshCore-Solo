@@ -179,19 +179,19 @@ static lv_obj_t* dot(uint8_t kind) {
 static lv_obj_t* homeTile(lv_obj_t* parent, const char* icon, const char* text, lv_event_cb_t cb, int badge_n) {
   int w = (lv_display_get_horizontal_resolution(NULL) - 2 * theme::PAD - 2 * theme::GAP) / 3;
   lv_obj_t* b = lv_button_create(parent);
-  lv_obj_set_size(b, w, 76);
+  lv_obj_set_size(b, w, homeTileH(2));   // two rows fill the page
   lv_obj_set_style_pad_all(b, 4, 0);
   lv_obj_set_style_radius(b, theme::RADIUS, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE), 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(theme::SURFACE_2), LV_STATE_PRESSED);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_align(label(b, icon, THEME_FONT_LARGE, theme::ACCENT), LV_ALIGN_TOP_MID, 0, 10);
+  lv_obj_align(label(b, icon, THEME_FONT_LARGE, theme::ACCENT), LV_ALIGN_CENTER, 0, -11);   // icon over name, centred
   lv_obj_t* n = label(b, text, THEME_FONT_SMALL, theme::TEXT);
   lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_width(n, w - 10);
-  lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_align(n, LV_ALIGN_CENTER, 0, 14);
   tileBadge(b, badge_n);
   return b;
 }
@@ -441,7 +441,7 @@ void UITask::goHome() {
 void UITask::buildHome() {
   lv_obj_t* body = newScreen(NULL, false);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);   // a drag is a page swipe, not a scroll
-  lv_obj_set_style_pad_bottom(body, 26, 0);           // the dots
+  lv_obj_set_style_pad_bottom(body, HOME_DOTS_H, 0);  // the dots
   home::s_page_box = lv_obj_create(body);
   styleSurface(home::s_page_box, theme::BG);
   lv_obj_remove_flag(home::s_page_box, LV_OBJ_FLAG_SCROLLABLE);
@@ -473,7 +473,7 @@ void UITask::buildHome() {
     lv_obj_add_flag(b, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_size(b, LV_SIZE_CONTENT, 26);
     lv_obj_set_style_pad_hor(b, 14, 0);
-    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_radius(b, theme::RADIUS, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(theme::ACCENT), 0);
     lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, 0, 24);

@@ -166,6 +166,7 @@ void UITask::buildNavControls(lv_obj_t* body) {
   lv_obj_set_style_pad_hor(_nav_bar, theme::PAD, 0);
   lv_obj_set_style_pad_ver(_nav_bar, 3, 0);
   lv_obj_add_event_cb(_nav_bar, onNavList, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(_nav_bar, LV_OBJ_FLAG_HIDDEN);   // until there is a target (refreshNavBar)
   _nav_title = label(_nav_bar, "", THEME_FONT_BODY, theme::ACCENT);
   lv_label_set_long_mode(_nav_title, LV_LABEL_LONG_DOT);
   lv_obj_set_size(_nav_title, 260, 19);   // fixed height: LONG_DOT cuts instead of wrapping
@@ -393,15 +394,14 @@ void UITask::refreshNavBar() {
   char name[40];
   bool person = false, set = false;
   bool pos = navCurrentTarget(tlat, tlon, name, sizeof(name), person, set);
-  if (!set) {
-    setText(_nav_title, "No target");
-    setTextColor(_nav_title, theme::TEXT_MUTED);
-    setText(_nav_info, "Tap here to pick a target, or hold the map on a spot");
-    lv_obj_add_flag(_nav_clear, LV_OBJ_FLAG_HIDDEN);
-    return;
+  // The bar only while there is a target: the map gets the whole screen
+  // otherwise (a target comes from the pin's list or a hold on the map).
+  if (set == lv_obj_has_flag(_nav_bar, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_set_flag(_nav_bar, LV_OBJ_FLAG_HIDDEN, !set);
+    mapPlaceBottom();
+    if (navmap::s_ready) layoutMap();   // the names and markers clear of it, or not
   }
-  setTextColor(_nav_title, theme::ACCENT);
-  lv_obj_remove_flag(_nav_clear, LV_OBJ_FLAG_HIDDEN);
+  if (!set) return;
   setTextFmt(_nav_title, "%s %s", navmap::s_tb.active() ? LV_SYMBOL_LOOP : person ? UI_SYMBOL_USERS : UI_SYMBOL_FLAG,
                         name);
   if (!pos) {
@@ -501,14 +501,14 @@ void UITask::navFrameTrail() {
   }
   _map_follow = false;
   int w = _map_area ? lv_obj_get_width(_map_area) : 320;
-  int h = (_map_area ? lv_obj_get_height(_map_area) : 218) - navmap::BAR_H;
+  int h = (_map_area ? lv_obj_get_height(_map_area) : 218) - mapBottomH();
   double dx = (x1 - x0) * mapview::TILE_PX, dy = (y1 - y0) * mapview::TILE_PX;
   int z = mapview::MAX_Z - 1;
   while (z > mapview::MIN_Z && (dx * (1 << z) > w - 110 || dy * (1 << z) > h - 60)) z--;   // clear of the buttons
   _map_z = z;
   double n = (double)(1 << z);
   _map_cx = (x0 + x1) / 2 * n;
-  _map_cy = (y0 + y1) / 2 * n + navmap::BAR_H / 2.0 / mapview::TILE_PX;
+  _map_cy = (y0 + y1) / 2 * n + mapCenterBias();
   layoutMap();
 }
 
@@ -591,6 +591,7 @@ void UITask::navClosePopup() {
   if (_nav_overlay) lv_obj_delete_async(_nav_overlay);   // may be closing from its own button
   _nav_overlay = _nav_ta = _nav_kb = _nav_del_lbl = nullptr;
   _nav_trail_lbl = _nav_trail_btn = _nav_reset_lbl = _nav_share_lbl = _nav_share_btn = _nav_tb_btn = nullptr;
+  navmap::s_tools_list = nullptr;
 }
 
 lv_obj_t* UITask::navTextEntry(const TextEntry& t) {
@@ -624,76 +625,6 @@ lv_obj_t* UITask::navTextEntry(const TextEntry& t) {
 
 static void navRowRight(lv_obj_t* row, const char* text, uint32_t col, int right) {
   lv_obj_align(label(row, text, THEME_FONT_SMALL, col), LV_ALIGN_RIGHT_MID, -right, 0);
-}
-
-void UITask::navTargetsPopup() {
-  lv_obj_t* panel = navPopupPanel("Navigate to", true);
-  lv_obj_t* list = scrollList(panel);
-
-  int32_t lat = 0, lon = 0;
-  bool gps = _core->course.currentLocation(lat, lon);
-  bool imperial = _prefs && _prefs->units_imperial;
-  auto dist = [&](int32_t la, int32_t lo, char* out, size_t n) {
-    if (gps) geo::fmtDist(out, n, geo::haversineKm(lat, lon, la, lo), imperial);
-    else out[0] = '\0';
-  };
-
-  if (_prefs && _prefs->locator_has_target) {
-    char sub[40];
-    snprintf(sub, sizeof(sub), "Now: %s", _prefs->locator_label[0] ? _prefs->locator_label : "target");
-    listRow(list, LV_SYMBOL_CLOSE "  Clear target", sub, onNavPick, (void*)(uintptr_t)navmap::code(navmap::T_CLEAR, 0));
-  }
-
-  const WaypointModel& wp = _core->waypoints;
-  char sec[32];
-  snprintf(sec, sizeof(sec), "WAYPOINTS  %d/%d", wp.count(), WaypointStore::CAPACITY);
-  sectionTitle(list, sec);
-  for (int i = 0; i < wp.count(); i++) {
-    const Waypoint& w = wp.at(i);
-    char title[WAYPOINT_LABEL_LEN + 8], sub[40], d[12];
-    snprintf(title, sizeof(title), UI_SYMBOL_FLAG "  %s", w.label[0] ? w.label : "(unnamed)");
-    snprintf(sub, sizeof(sub), "%.5f, %.5f", w.lat_1e6 / 1e6, w.lon_1e6 / 1e6);
-    lv_obj_t* row = listRow(list, title, sub, onNavPick, (void*)(uintptr_t)navmap::code(navmap::T_WAYPOINT, i));
-    lv_obj_t* more = lv_button_create(row);   // the waypoint menu
-    lv_obj_set_size(more, 40, 34);
-    lv_obj_align(more, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_set_style_shadow_width(more, 0, 0);
-    lv_obj_set_style_radius(more, theme::RADIUS, 0);
-    lv_obj_set_style_bg_color(more, lv_color_hex(theme::SURFACE_2), 0);
-    lv_obj_add_event_cb(more, onNavWpMenu, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
-    lv_obj_center(label(more, LV_SYMBOL_EDIT, THEME_FONT_BODY, theme::TEXT));
-    dist(w.lat_1e6, w.lon_1e6, d, sizeof(d));
-    if (d[0]) navRowRight(row, d, theme::TEXT_MUTED, 52);
-  }
-  if (wp.count() == 0) {
-    noteLabel(list, "None yet. Hold the map to drop one, or tap the pin to mark where you are.");
-  }
-  TrailStore& ts = _core->trail.store();
-  if (!ts.empty()) {
-    char d[12], sub[24];
-    dist(ts.first().lat_1e6, ts.first().lon_1e6, d, sizeof(d));
-    snprintf(sub, sizeof(sub), "%d trail points", ts.count());
-    lv_obj_t* row = listRow(list, LV_SYMBOL_HOME "  Trail start", sub, onNavPick,
-                            (void*)(uintptr_t)navmap::code(navmap::T_TRAILSTART, 0));
-    if (d[0]) navRowRight(row, d, theme::TEXT_MUTED, theme::PAD);
-  }
-
-  const LiveTrackStore& lt = _core->live_share.track();
-  uint32_t now = rtc_clock.getCurrentTime();
-  sectionTitle(list, "SHARING LIVE");
-  int live = 0;
-  for (int i = 0; i < LiveTrackStore::CAPACITY; i++) {
-    if (!lt.isActive(i, now)) continue;
-    const LiveTrackStore::Entry& e = lt.slotAt(i);
-    char age[8], sub[40], d[12];
-    geo::fmtAgeShort(age, sizeof(age), now, e.ts);
-    snprintf(sub, sizeof(sub), "%s  -  %s ago", e.verified ? "direct" : "channel", age[0] ? age : "0s");
-    lv_obj_t* row = listRow(list, e.name, sub, onNavPick, (void*)(uintptr_t)navmap::code(navmap::T_LIVE, i));
-    dist(e.lat_1e6, e.lon_1e6, d, sizeof(d));
-    if (d[0]) navRowRight(row, d, theme::OK, theme::PAD);
-    live++;
-  }
-  if (live == 0) label(list, "Nobody is sharing their position.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 }
 
 // A place's coordinates and, with a fix, how far and which way.
@@ -968,9 +899,11 @@ static lv_obj_t* toolButton(lv_obj_t* bar, const char* text, uint8_t act, bool a
   return lv_obj_get_child(barButton(bar, text, onNavTool, act, accent), 0);
 }
 
-void UITask::navToolsPopup() {
+void UITask::navToolsPopup(bool back) {
+  if (back) s_pop_still = true;   // it never went away, as far as the eye goes
   lv_obj_t* panel = navPopupPanel("Map tools", true);
   lv_obj_t* list = scrollList(panel);
+  navmap::s_tools_list = list;
 
   sectionTitle(list, "TRAIL");
   _nav_trail_lbl = label(list, "", THEME_FONT_SMALL, theme::TEXT);
@@ -1057,6 +990,10 @@ void UITask::navToolsPopup() {
 #endif
 
   refreshNavTools();
+  if (back) {   // scrolled where it was left
+    layoutNow(panel);
+    lv_obj_scroll_to_y(list, navmap::s_tools_y, LV_ANIM_OFF);
+  }
 }
 
 void UITask::refreshNavTools() {
@@ -1409,6 +1346,7 @@ void UITask::navToolAction(uint8_t act) {
     case navmap::TL_OPT_TRAIL:   // one section of the Map options; back returns to the map
     case navmap::TL_OPT_SHARE:
     case navmap::TL_OPT_ALERT:
+      if (navmap::s_tools_list) navmap::s_tools_y = lv_obj_get_scroll_y(navmap::s_tools_list);   // back to here
       showMapOptions(act == navmap::TL_OPT_TRAIL ? settings::SEC_TRAIL
                      : act == navmap::TL_OPT_SHARE ? settings::SEC_LIVE_SHARE : settings::SEC_LOCATOR);
       return;
@@ -1440,34 +1378,83 @@ static void onNavCoordsKb(lv_event_t* e) { s_ui->navCoordsDone(lv_event_get_code
 
 // The pin button: every waypoint (tap for its menu), plus the two ways to add
 // one that aren't a long-press -- here (GPS, averaged per Settings) or typed.
-void UITask::navWaypointsPopup() {
+// The places the map knows -- waypoints, the trail start, people sharing
+// live -- to navigate to (a tap) or keep (a waypoint added here, by its
+// coordinates, or by holding the map). From the pin button and the target bar.
+void UITask::navTargetsPopup() {
   const WaypointModel& wp = _core->waypoints;
-  char title[32];
-  snprintf(title, sizeof(title), "Waypoints  %d/%d", wp.count(), WaypointStore::CAPACITY);
-  lv_obj_t* panel = navPopupPanel(title, true);
+  lv_obj_t* panel = navPopupPanel("Places", true);
   lv_obj_t* r = buttonBar(panel);
-  toolButton(r, UI_SYMBOL_PIN " Here (GPS)", navmap::TL_WP_HERE, true);
+  toolButton(r, UI_SYMBOL_PIN " Mark here", navmap::TL_WP_HERE, true);
   toolButton(r, LV_SYMBOL_KEYBOARD " Coordinates", navmap::TL_WP_COORDS, false);
-
   lv_obj_t* list = scrollList(panel);
+
   int32_t lat = 0, lon = 0;
   bool gps = _core->course.currentLocation(lat, lon);
+  bool imperial = _prefs && _prefs->units_imperial;
+  auto dist = [&](int32_t la, int32_t lo, char* out, size_t n) {
+    if (gps) geo::fmtDist(out, n, geo::haversineKm(lat, lon, la, lo), imperial);
+    else out[0] = '\0';
+  };
+
+  if (_prefs && _prefs->locator_has_target) {
+    char sub[40];
+    snprintf(sub, sizeof(sub), "Now: %s", _prefs->locator_label[0] ? _prefs->locator_label : "target");
+    listRow(list, LV_SYMBOL_CLOSE "  Clear target", sub, onNavPick, (void*)(uintptr_t)navmap::code(navmap::T_CLEAR, 0));
+  }
+
+  char sec[32];
+  snprintf(sec, sizeof(sec), "WAYPOINTS  %d/%d", wp.count(), WaypointStore::CAPACITY);
+  sectionTitle(list, sec);
   for (int i = 0; i < wp.count(); i++) {
     const Waypoint& w = wp.at(i);
-    char t[WAYPOINT_LABEL_LEN + 8], sub[40];
-    snprintf(t, sizeof(t), UI_SYMBOL_FLAG "  %s", w.label[0] ? w.label : "(unnamed)");
+    char title[WAYPOINT_LABEL_LEN + 8], sub[40], d[12];
+    snprintf(title, sizeof(title), UI_SYMBOL_FLAG "  %s", w.label[0] ? w.label : "(unnamed)");
     snprintf(sub, sizeof(sub), "%.5f, %.5f", w.lat_1e6 / 1e6, w.lon_1e6 / 1e6);
-    lv_obj_t* row = listRow(list, t, sub, onNavWpMenu, (void*)(uintptr_t)i);
-    if (gps) {
-      char d[12];
-      geo::fmtDist(d, sizeof(d), geo::haversineKm(lat, lon, w.lat_1e6, w.lon_1e6), _prefs && _prefs->units_imperial);
-      navRowRight(row, d, theme::TEXT_MUTED, theme::PAD);
-    }
+    lv_obj_t* row = listRow(list, title, sub, onNavPick, (void*)(uintptr_t)navmap::code(navmap::T_WAYPOINT, i));
+    lv_obj_t* more = lv_button_create(row);   // the waypoint menu
+    lv_obj_set_size(more, 40, 34);
+    lv_obj_align(more, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_set_style_shadow_width(more, 0, 0);
+    lv_obj_set_style_radius(more, theme::RADIUS, 0);
+    lv_obj_set_style_bg_color(more, lv_color_hex(theme::SURFACE_2), 0);
+    lv_obj_add_event_cb(more, onNavWpMenu, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+    lv_obj_center(label(more, LV_SYMBOL_EDIT, THEME_FONT_BODY, theme::TEXT));
+    dist(w.lat_1e6, w.lon_1e6, d, sizeof(d));
+    if (d[0]) navRowRight(row, d, theme::TEXT_MUTED, 52);
   }
   if (wp.count() == 0) {
-    noteLabel(list, "None yet. Add one here, type its coordinates, or hold the map on a spot.");
+    noteLabel(list, "None yet. Mark where you are, type coordinates, or hold the map on a spot.");
   }
+  TrailStore& ts = _core->trail.store();
+  if (!ts.empty()) {
+    char d[12], sub[24];
+    dist(ts.first().lat_1e6, ts.first().lon_1e6, d, sizeof(d));
+    snprintf(sub, sizeof(sub), "%d trail points", ts.count());
+    lv_obj_t* row = listRow(list, LV_SYMBOL_HOME "  Trail start", sub, onNavPick,
+                            (void*)(uintptr_t)navmap::code(navmap::T_TRAILSTART, 0));
+    if (d[0]) navRowRight(row, d, theme::TEXT_MUTED, theme::PAD);
+  }
+
+  const LiveTrackStore& lt = _core->live_share.track();
+  uint32_t now = rtc_clock.getCurrentTime();
+  sectionTitle(list, "SHARING LIVE");
+  int live = 0;
+  for (int i = 0; i < LiveTrackStore::CAPACITY; i++) {
+    if (!lt.isActive(i, now)) continue;
+    const LiveTrackStore::Entry& e = lt.slotAt(i);
+    char age[8], sub[40], d[12];
+    geo::fmtAgeShort(age, sizeof(age), now, e.ts);
+    snprintf(sub, sizeof(sub), "%s  -  %s ago", e.verified ? "direct" : "channel", age[0] ? age : "0s");
+    lv_obj_t* row = listRow(list, e.name, sub, onNavPick, (void*)(uintptr_t)navmap::code(navmap::T_LIVE, i));
+    dist(e.lat_1e6, e.lon_1e6, d, sizeof(d));
+    if (d[0]) navRowRight(row, d, theme::OK, theme::PAD);
+    live++;
+  }
+  if (live == 0) label(list, "Nobody is sharing their position.", THEME_FONT_SMALL, theme::TEXT_MUTED);
 }
+
+void UITask::navWaypointsPopup() { navTargetsPopup(); }   // one list of places (above)
 
 // "50.06142, 19.93721 Name" (decimal degrees; comma or space between them; the
 // name is optional) -> a new waypoint.

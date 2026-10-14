@@ -90,7 +90,10 @@ static void onMsgHold(lv_event_t* e) {
   lv_indev_wait_release(lv_indev_active());
   s_ui->messageMenu(threadRowOf((lv_obj_t*)lv_event_get_current_target(e)));
 }
-static void onChatFilter(lv_event_t* e) { s_ui->toggleChatFilter((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
+static void onChatFilter(lv_event_t* e) {   // (chatFilterChoice) the other one picked: flipped
+  const uintptr_t u = (uintptr_t)lv_event_get_user_data(e);
+  if ((choiceSelected((lv_obj_t*)lv_event_get_target(e)) == 1) != ((u & 0x100) != 0)) s_ui->toggleChatFilter((uint8_t)(u & 0xFF));
+}
 
 // ── Rooms ─────────────────────────────────────────────────────────────────────
 

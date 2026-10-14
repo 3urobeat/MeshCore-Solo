@@ -147,6 +147,8 @@ void UITask::lockScreen() {
   lv_obj_remove_style_all(s_lock);
   lv_obj_set_size(s_lock, LV_PCT(100), lv_display_get_vertical_resolution(NULL) - theme::STATUS_H);
   lv_obj_set_pos(s_lock, 0, theme::STATUS_H);   // the status bar stays visible
+  s_sb_lock = true;   // up over a title bar too
+  statusBarSync();
   lv_obj_set_style_bg_color(s_lock, lv_color_hex(theme::BG), 0);
   lv_obj_set_style_bg_opa(s_lock, LV_OPA_COVER, 0);
   lv_obj_add_flag(s_lock, LV_OBJ_FLAG_CLICKABLE);   // swallows every touch but the slider's
@@ -222,6 +224,8 @@ void UITask::unlockScreen() {
   }
   s_lock = s_lock_clock = s_lock_date = s_lock_unread = s_lock_slider = s_pin_dots = s_pin_msg = nullptr;
   _pin_entry[0] = '\0';
+  s_sb_lock = false;
+  statusBarSync();
   if (_screen == SCR_HOME) refreshHome();
   else if (_screen == SCR_CHATS) refreshChats();   // counts moved on while locked
   else if (_screen == SCR_THREAD) reopenThreadIfUnread();   // on to what came in meanwhile
@@ -432,7 +436,7 @@ void UITask::favGrid(lv_obj_t* grid) {
     bool used = contactctl::favName(_prefs, s, name, sizeof(name), &c);
     bool chan = favslots::kind(_prefs, s) == NodePrefs::FAV_KIND_CHANNEL;
     lv_obj_t* b = lv_button_create(grid);
-    lv_obj_set_size(b, w, 76);
+    lv_obj_set_size(b, w, homeTileH(2, lv_font_get_line_height(THEME_FONT_SMALL) + theme::GAP));   // the hint under them
     lv_obj_set_style_pad_all(b, 4, 0);
     lv_obj_set_style_radius(b, theme::RADIUS, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
@@ -445,12 +449,12 @@ void UITask::favGrid(lv_obj_t* grid) {
     lv_obj_add_event_cb(b, onFavTap, LV_EVENT_CLICKED, (void*)(uintptr_t)s);
     lv_obj_add_event_cb(b, onFavHold, LV_EVENT_LONG_PRESSED, (void*)(uintptr_t)s);
     const char* icon = !used ? LV_SYMBOL_PLUS : chan ? "#" : c.type == ADV_TYPE_ROOM ? LV_SYMBOL_HOME : UI_SYMBOL_USERS;
-    lv_obj_align(label(b, icon, THEME_FONT_LARGE, used ? theme::ACCENT : theme::TEXT_MUTED), LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(label(b, icon, THEME_FONT_LARGE, used ? theme::ACCENT : theme::TEXT_MUTED), LV_ALIGN_CENTER, 0, -11);
     lv_obj_t* n = label(b, used ? name : "Add", THEME_FONT_SMALL, used ? theme::TEXT : theme::TEXT_MUTED);
     lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(n, w - 10);
-    lv_obj_align(n, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_align(n, LV_ALIGN_CENTER, 0, 14);
     if (used) {
       int unread = chan ? _core->history.chUnread(_prefs->favourite_contacts[s][0])
                         : (c.type == ADV_TYPE_CHAT ? _core->dmUnread(c.id.pub_key) : 0);

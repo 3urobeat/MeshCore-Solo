@@ -236,7 +236,7 @@ static lv_obj_t* wheel(lv_obj_t* parent, uint8_t n, int sel, lv_event_cb_t cb, u
   *w = { n, (int32_t)(sel % n) * 256, 0, 0 };
   lv_obj_t* o = lv_obj_create(parent);
   styleSurface(o, theme::SURFACE);
-  lv_obj_set_style_radius(o, theme::RADIUS_SM, 0);
+  lv_obj_set_style_radius(o, theme::RADIUS, 0);
   lv_obj_remove_flag(o, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_CHAIN));
   lv_obj_set_size(o, 60, 84);   // three rows; leaves room for the button below
   lv_obj_set_user_data(o, w);
@@ -251,7 +251,7 @@ static lv_obj_t* colon(lv_obj_t* parent) { return label(parent, ":", THEME_FONT_
 }  // namespace clockview
 
 static void onOpenClock(lv_event_t* e)   { (void)e; s_ui->showClock(); }
-static void onClockTab(lv_event_t* e)    { s_ui->clockTab((int)(uintptr_t)lv_event_get_user_data(e)); }
+static void onClockTab(lv_event_t* e)    { s_ui->clockTab((int)lv_buttonmatrix_get_selected_button((lv_obj_t*)lv_event_get_target(e))); }
 static void onClockAct(lv_event_t* e)    { s_ui->clockAction((uint8_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void onRingDismiss(lv_event_t* e) { (void)e; s_ui->dismissRing(); }
 
@@ -293,18 +293,9 @@ void UITask::buildClock() {
   s_big = s_go_lbl = s_alarm_sw = s_cal = nullptr;
 
   // Tabs
-  lv_obj_t* tabs = centerRow(body);
-  static const char* const NAMES[TAB_COUNT] = { "Alarm", "Timer", "Stopwatch", "Calendar" };
-  for (int t = 0; t < TAB_COUNT; t++) {
-    lv_obj_t* b = lv_button_create(tabs);
-    lv_obj_set_height(b, 32);
-    lv_obj_set_flex_grow(b, 1);
-    lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_radius(b, theme::RADIUS, 0);
-    lv_obj_add_event_cb(b, onClockTab, LV_EVENT_CLICKED, (void*)(uintptr_t)t);
-    lv_obj_center(label(b, NAMES[t], THEME_FONT_SMALL, theme::TEXT));
-    styleSelected(b, t == s_tab);
-  }
+  static const char* TABS[TAB_COUNT + 1] = { "Alarm", "Timer", "Stopwatch", "Calendar", "" };
+  lv_obj_t* tabs = segmented(body, TABS, s_tab, LV_PCT(100), theme::TAB_H, theme::SURFACE);
+  lv_obj_add_event_cb(tabs, onClockTab, LV_EVENT_VALUE_CHANGED, NULL);
 
   if (s_tab == TAB_ALARM) {
     lv_obj_t* r = centerRow(body);
