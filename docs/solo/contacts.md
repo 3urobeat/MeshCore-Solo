@@ -43,8 +43,12 @@ back out, **Enter** opens its details and **Hold Enter** its options.
 
 > [!NOTE]
 > **Wio Tracker L2:** **Packet flow** is in the map's options (On the map).
-> Each packet runs along its line as a dot and fades, coloured by kind:
-> adverts blue, direct messages green, channels amber, the rest violet.
+> Every packet heard shows. One that can be placed runs along its line as a
+> dot and fades. One that can't (its sender or repeaters have no position)
+> is a ring around you. Colours by kind: adverts blue, direct messages
+> green, channels amber, requests violet, acks and paths teal, the rest
+> pink, your own white. The pill at the top counts each kind over the last
+> minute.
 
 > [!NOTE]
 > **Wio Tracker L2:** the **Nodes** app. Filter chips at the top, the sort in

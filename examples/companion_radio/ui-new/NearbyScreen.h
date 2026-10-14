@@ -287,6 +287,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   bool    _nav = false;     // full-screen navigate-to-node view (over detail)
   bool    _map = false;     // the nodes with a position on a map (under detail)
   static const uint32_t FLOW_SHOW_MS = 60000;   // packet flow lines stay this long
+  static const uint32_t FLOW_HERE_MS = 3000;    // and a ring here, for one placed nowhere else
   uint32_t _flow_seen = 0;
   int     _map_zoom = 0;    // 0: all of them in view; each step halves it, on the selected
   navview::EtaTracker _nav_eta;  // closing-speed/ETA for the navigate view
@@ -945,7 +946,8 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       if (millis() - f.t_ms > FLOW_SHOW_MS) break;   // newest first
       int px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
       for (int k = 0; k < f.n; k++) project(f.lat[k], f.lon[k], px[k], py[k]);
-      if (f.n == 1) {
+      if (f.n == 1) {   // a packet nothing of which could be placed: a ring here, briefly
+        if (f.here && millis() - f.t_ms > FLOW_HERE_MS) continue;
         if (inside(px[0], py[0])) gfx::drawCircle(d, px[0], py[0], 6 * s);
         continue;
       }

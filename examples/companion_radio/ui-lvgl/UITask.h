@@ -656,6 +656,7 @@ private:
   uint32_t  _route_shown = 0xFFFFFFFF;     // what routeRebuild() drew (routeSig())
   uint32_t  _next_route_ms = 0;
   uint32_t  _next_flow_ms = 0;            // the map's packet flow repaint
+  uint8_t   _flow_legend_tick = 0;        // its legend, every 10th repaint
   bool      _route_pick = false;         // the nodes map taps repeaters into the route
   lv_obj_t* _route_bar = nullptr;
   lv_obj_t* _route_lbl = nullptr;

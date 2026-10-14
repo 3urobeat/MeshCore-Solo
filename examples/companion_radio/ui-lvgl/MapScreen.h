@@ -271,18 +271,39 @@ static bool s_view_ok = false;
 static const uint32_t FLOW_LIFE = 7000;     // ms a flow stays on the map
 static const uint32_t FLOW_TRAVEL = 1500;   // ms the dot takes from end to end
 static const uint32_t PULSE_MS = 1400;
+static bool s_flow_nodes = false;           // no node markers on this map: a flow draws its own, while it lasts
 static lv_area_t s_flow_area;               // what the flows covered at the last tick
 static bool s_flow_area_on = false;
 
+// Fixed colours, not the accent: a kind looks the same whatever the theme.
 static uint32_t flowColour(uint8_t kind) {
   switch (kind) {
     case PacketFlow::K_ADVERT: return 0x4FC3F7;   // blue
-    case PacketFlow::K_MSG:    return theme::OK;  // green
-    case PacketFlow::K_GROUP:  return theme::ACCENT;
+    case PacketFlow::K_MSG:    return 0x6FCF6F;   // green
+    case PacketFlow::K_GROUP:  return 0xFFB000;   // amber
+    case PacketFlow::K_REQ:    return 0xB39DDB;   // violet
+    case PacketFlow::K_ACK:    return 0x80CBC4;   // teal
     case PacketFlow::K_SENT:   return theme::TEXT;
-    case PacketFlow::K_AHEAD:  return theme::TEXT_MUTED;
-    default:                   return 0xB39DDB;   // violet
+    default:                   return 0xF48FB1;   // pink: trace, control ...
   }
+}
+static const char* const FLOW_NAMES[PacketFlow::K_COUNT] = { "Adv", "DM", "Ch", "Req", "Ack", "Other", "Sent" };
+static lv_obj_t* s_flow_legend = nullptr;   // top centre: each kind's count over the last minute
+
+// "Adv 3  Ch 5 ...", each in its colour; hidden with nothing to count.
+static void flowLegendRefresh() {
+  if (!s_flow_legend) return;
+  char t[160];
+  int o = 0;
+  for (int k = 0; s_flow && s_flow->enabled() && k < PacketFlow::K_COUNT; k++) {
+    const int n = s_flow->count(k);
+    if (n > 0 && o < (int)sizeof(t) - 24)
+      o += snprintf(t + o, sizeof(t) - o, "%s#%06lX %s %d#", o ? "  " : "", (unsigned long)flowColour(k), FLOW_NAMES[k], n);
+  }
+  t[o] = '\0';
+  if (!o) { lv_obj_add_flag(s_flow_legend, LV_OBJ_FLAG_HIDDEN); return; }
+  setText(s_flow_legend, t);
+  lv_obj_remove_flag(s_flow_legend, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void flowPx(int32_t lat, int32_t lon, int32_t& x, int32_t& y) {
@@ -299,7 +320,7 @@ static bool flowArea(lv_area_t& r) {
   bool any = false;
   for (int i = 0; i < s_flow->count(); i++) {
     const PacketFlow::Flow& f = s_flow->at(i);
-    if (now - f.t_ms >= FLOW_LIFE) break;   // newest first: the rest are older
+    if (now - f.t_fade >= FLOW_LIFE) continue;   // (an older one may live on with a newer copy)
     for (int k = 0; k < f.n; k++) {
       int32_t x, y;
       flowPx(f.lat[k], f.lon[k], x, y);
@@ -307,8 +328,69 @@ static bool flowArea(lv_area_t& r) {
       r.x1 = min(r.x1, x); r.y1 = min(r.y1, y); r.x2 = max(r.x2, x); r.y2 = max(r.y2, y);
     }
   }
-  if (any) { r.x1 -= 28; r.y1 -= 28; r.x2 += 28; r.y2 += 28; }
+  if (any) { r.x1 -= 28; r.y1 -= 28; r.x2 += s_flow_nodes ? 120 : 28; r.y2 += 28; }   // (a node's name to its right)
   return any;
+}
+
+// On a map without node markers, the nodes a flow passes -- its sender and
+// repeaters, a dot and the name -- shown while it lasts and fading with it,
+// each once however many flows share it (the most visible one counts).
+static void drawFlowNodes(lv_layer_t* layer, const lv_area_t& a, uint32_t now) {
+  struct Node { int16_t idx; lv_opa_t opa; int32_t x, y; uint8_t kind; };
+  Node nodes[24];
+  int nn = 0;
+  for (int i = 0; i < s_flow->count(); i++) {   // newest first
+    const PacketFlow::Flow& f = s_flow->at(i);
+    const uint32_t age = now - (f.n == 1 ? f.t_ms : f.t_fade);   // a pulse's node: as long as the pulse
+    const uint32_t life = f.n == 1 ? PULSE_MS : FLOW_LIFE;
+    if (age >= life) continue;
+    const lv_opa_t opa = (lv_opa_t)(age < FLOW_TRAVEL ? 255 : 255 - 255 * (age - FLOW_TRAVEL) / (life - FLOW_TRAVEL + 1));
+    for (int k = 0; k < f.n; k++) {
+      if (f.node[k] < 0) continue;
+      int j = 0;
+      while (j < nn && nodes[j].idx != f.node[k]) j++;
+      if (j < nn) { if (opa > nodes[j].opa) nodes[j].opa = opa; continue; }
+      if (nn == (int)(sizeof(nodes) / sizeof(nodes[0]))) continue;
+      int32_t x, y;
+      flowPx(f.lat[k], f.lon[k], x, y);
+      nodes[nn++] = { f.node[k], opa, a.x1 + x, a.y1 + y, f.kind };
+    }
+  }
+  lv_draw_rect_dsc_t dot, pill;
+  lv_draw_rect_dsc_init(&dot);
+  dot.radius = LV_RADIUS_CIRCLE;
+  dot.border_color = lv_color_hex(theme::BG);
+  dot.border_width = 2;
+  lv_draw_rect_dsc_init(&pill);
+  pill.bg_color = lv_color_hex(theme::BG);
+  pill.radius = 4;
+  lv_draw_label_dsc_t ld;
+  lv_draw_label_dsc_init(&ld);
+  ld.font = THEME_FONT_SMALL;
+  ld.color = lv_color_hex(theme::TEXT);
+  ld.text_local = true;
+  const int32_t lh = lv_font_get_line_height(THEME_FONT_SMALL);
+  for (int j = 0; j < nn; j++) {
+    const Node& n = nodes[j];
+    if (n.x < a.x1 - 120 || n.x > a.x2 + 8 || n.y < a.y1 - 20 || n.y > a.y2 + 20) continue;
+    dot.bg_color = lv_color_hex(flowColour(n.kind));
+    dot.bg_opa = dot.border_opa = n.opa;
+    lv_area_t da = { n.x - 5, n.y - 5, n.x + 5, n.y + 5 };
+    lv_draw_rect(layer, &dot, &da);
+    ContactInfo c;
+    if (!the_mesh.getContactByIdx(n.idx, c) || !c.name[0]) continue;
+    char name[20];
+    snprintf(name, sizeof(name), "%s", c.name);
+    lv_point_t sz;
+    lv_text_get_size(&sz, name, THEME_FONT_SMALL, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    lv_area_t pa = { n.x + 8, n.y - lh / 2 - 1, n.x + 8 + sz.x + 9, n.y + lh / 2 + 1 };
+    pill.bg_opa = (lv_opa_t)(n.opa * 4 / 5);
+    lv_draw_rect(layer, &pill, &pa);
+    lv_area_t ta = { pa.x1 + 5, pa.y1 + 1, pa.x2 - 4, pa.y2 };
+    ld.text = name;
+    ld.opa = n.opa;
+    lv_draw_label(layer, &ld, &ta);
+  }
 }
 
 static void drawFlows(lv_layer_t* layer, const lv_area_t& a) {
@@ -334,8 +416,9 @@ static void drawFlows(lv_layer_t* layer, const lv_area_t& a) {
   dot.border_opa = LV_OPA_COVER;
   for (int i = s_flow->count() - 1; i >= 0; i--) {   // oldest first: the newest on top
     const PacketFlow::Flow& f = s_flow->at(i);
-    const uint32_t age = now - f.t_ms;
-    if (age >= FLOW_LIFE) continue;
+    const uint32_t age = now - f.t_ms;      // the dot's run
+    const uint32_t fade = now - f.t_fade;   // the fading: with every copy of the packet
+    if (fade >= FLOW_LIFE) continue;
     const lv_color_t col = lv_color_hex(flowColour(f.kind));
     int32_t px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
     for (int k = 0; k < f.n; k++) { flowPx(f.lat[k], f.lon[k], px[k], py[k]); px[k] += a.x1; py[k] += a.y1; }
@@ -359,7 +442,7 @@ static void drawFlows(lv_layer_t* layer, const lv_area_t& a) {
     const float t = age >= FLOW_TRAVEL ? 1.0f : (float)age / FLOW_TRAVEL;
     float left = total * t;
     ln.color = col;
-    ln.opa = (lv_opa_t)(age < FLOW_TRAVEL ? 255 : 255 - 215 * (age - FLOW_TRAVEL) / (FLOW_LIFE - FLOW_TRAVEL));
+    ln.opa = (lv_opa_t)(fade < FLOW_TRAVEL ? 255 : 255 - 215 * (fade - FLOW_TRAVEL) / (FLOW_LIFE - FLOW_TRAVEL));
     halo.opa = (lv_opa_t)(ln.opa * 2 / 3);
     int32_t hx = px[0], hy = py[0];   // the dot
     int32_t ex_[PacketFlow::MAX_PTS], ey_[PacketFlow::MAX_PTS];
@@ -391,6 +474,7 @@ static void drawFlows(lv_layer_t* layer, const lv_area_t& a) {
       lv_draw_arc(layer, &ring);
     }
   }
+  if (s_flow_nodes) drawFlowNodes(layer, a, now);
 }
 
 static const int MARK_D = 12;   // marker dot diameter
@@ -750,6 +834,14 @@ void UITask::buildMap() {
   lv_obj_set_ext_click_area(_map_dl_pill, 6);
   lv_obj_add_event_cb(_map_dl_pill, onMapDownload, LV_EVENT_CLICKED, NULL);
   lv_obj_add_flag(_map_dl_pill, LV_OBJ_FLAG_HIDDEN);
+  mapview::s_flow_legend = mapPill(mapview::s_going, "");   // packet flow: what's been heard
+  lv_label_set_recolor(mapview::s_flow_legend, true);
+  lv_obj_set_style_max_width(mapview::s_flow_legend, 212, 0);   // a busy minute wraps to a second line
+  lv_obj_set_style_text_align(mapview::s_flow_legend, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_radius(mapview::s_flow_legend, 8, 0);
+  lv_obj_add_flag(mapview::s_flow_legend, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(mapview::s_flow_legend, [](lv_event_t*) { mapview::s_flow_legend = nullptr; }, LV_EVENT_DELETE, NULL);
+  mapview::flowLegendRefresh();
   // Bottom left, one pill about the map itself: the map data credit (the
   // licences require it on the map; a tap shows the full line, also in
   // Settings > About), a bar one grid step long with its distance, the zoom.
@@ -981,7 +1073,9 @@ void UITask::rebuildMapMarkers() {
   mapview::s_mark_prev = mapview::s_mark_count;
   mapview::s_mark_count = 0;
   if (_map_nav) rebuildNavMarkers();
-  if (_map_nodes || !_map_nav) rebuildNodeMarkers();
+  const bool nodes = _map_nodes || !_map_nav;
+  if (nodes) rebuildNodeMarkers();
+  mapview::s_flow_nodes = !nodes;   // the flows bring theirs
   mapview::s_mark_prev = 0;
 }
 
@@ -1202,6 +1296,7 @@ void UITask::mapFlowTick() {
   using namespace mapview;
   if (!s_mark_layer || (int32_t)(millis() - _next_flow_ms) < 0) return;
   _next_flow_ms = millis() + 50;
+  if (++_flow_legend_tick >= 10) { _flow_legend_tick = 0; flowLegendRefresh(); }   // twice a second
   lv_area_t r;
   bool now_on = flowArea(r);
   if (!now_on && !s_flow_area_on) return;
