@@ -41,7 +41,7 @@ static const int PTS_MAX = TrailStore::CAPACITY + 2 * CHUNKS + TRAIL_SEGS + 4;
 static lv_point_precise_t* s_pts = nullptr;
 static int s_pts_n = 0;
 static int32_t s_pts_x0 = 0, s_pts_y0 = 0;   // the trail object's screen origin s_pts was made for
-static int s_seg_first[TRAIL_SEGS], s_segs = 0;
+static PSRAM_BSS int s_seg_first[TRAIL_SEGS], s_segs = 0;
 // What navTrailSync() has converted so far (s_sync_gen reset: all of it again).
 static uint32_t s_sync_gen = 0xFFFFFFFF, s_sync_seq = 0, s_sync_full_at = 0;
 static int s_sync_n = 0;
@@ -794,7 +794,7 @@ enum : uint8_t { TL_TRAIL_TOGGLE, TL_TRAIL_SAVE, TL_TRAIL_LOAD, TL_TRAIL_RESET, 
 static const int SHARE_TARGETS = MAX_GROUP_CHANNELS + 16;
 static uint8_t s_share_kind[SHARE_TARGETS];               // 0 = channel, 1 = contact
 static uint8_t s_share_ch[SHARE_TARGETS];
-static uint8_t s_share_key[SHARE_TARGETS][NodePrefs::FAVOURITE_PREFIX_LEN];
+static PSRAM_BSS uint8_t s_share_key[SHARE_TARGETS][NodePrefs::FAVOURITE_PREFIX_LEN];
 static int     s_share_n = 0;
 
 // Print sink over a FILE* for TrailStore's GPX writer (same duck type as
@@ -825,7 +825,7 @@ struct FileRW {
 // list also offers -- the low-battery auto-save still goes there.
 static const char* const TRAILS_DIR = "/sdcard/trails";
 static const int ST_MAX = 40;
-static char s_st_names[ST_MAX][28];   // newest first
+static PSRAM_BSS char s_st_names[ST_MAX][28];   // newest first
 static int  s_st_n = 0;
 static int  s_st_sel = -2;            // the one the popup is about; -1 = the internal slot
 static lv_obj_t* s_st_del_lbl = nullptr;
@@ -928,7 +928,7 @@ void UITask::navToolsPopup(bool back) {
   // Worst case: "\n" + a 31-byte name per channel, "\n" + star (3) + space +
   // 31 bytes per favourite. Static: ~1.9 KB is a lot for the loop's stack, and
   // the dropdown copies it.
-  static char opts[MAX_GROUP_CHANNELS * 32 + 16 * 36 + 1];
+  static PSRAM_BSS char opts[MAX_GROUP_CHANNELS * 32 + 16 * 36 + 1];
   int o = 0, sel = 0;
   navmap::s_share_n = 0;
   for (int i = 0; i < MAX_GROUP_CHANNELS && navmap::s_share_n < navmap::SHARE_TARGETS; i++) {

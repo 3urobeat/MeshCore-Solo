@@ -10,12 +10,12 @@ static void onOpenChannel(lv_event_t* e) {
 }
 
 // DM rows carry a 4-byte prefix; kept in a static table the rows point into.
-static uint8_t s_dm_rows[MessageHistory::DM_HIST_MAX][4];
+static PSRAM_BSS uint8_t s_dm_rows[MessageHistory::DM_HIST_MAX][4];
 static const int CONTACT_ROWS_MAX = 256;   // "All" with a full contact table stays usable
 static uint8_t (*s_contact_rows)[PUB_KEY_SIZE] = psramBuf<uint8_t[PUB_KEY_SIZE]>(CONTACT_ROWS_MAX);
 static uint16_t* s_contact_raw = psramBuf<uint16_t>(CONTACT_ROWS_MAX);   // their raw table index, for the name
 
-static uint16_t s_dm_pos[MessageHistory::DM_HIST_MAX];   // its newest message in the DM ring
+static PSRAM_BSS uint16_t s_dm_pos[MessageHistory::DM_HIST_MAX];   // its newest message in the DM ring
 static bool s_dm_known[MessageHistory::DM_HIST_MAX];      // a contact (has options on hold)
 static void onOpenDMRow(lv_event_t* e) {
   intptr_t r = vlist::arg(e);

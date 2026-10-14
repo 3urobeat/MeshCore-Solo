@@ -374,7 +374,7 @@ static void qrImage(lv_image_dsc_t& dsc, uint8_t* data, size_t size, int n, int 
 // The Solo site's QR code (ui-core/SiteQr.h), built once at 5 px a module.
 static lv_obj_t* siteQr(lv_obj_t* parent) {
   static const int S = 5, PX = (siteqr::N + 2 * siteqr::QUIET) * S;
-  static uint8_t data[8 + (PX + 7) / 8 * PX];
+  static PSRAM_BSS uint8_t data[8 + (PX + 7) / 8 * PX];
   static lv_image_dsc_t dsc;
   if (!dsc.data) qrImage(dsc, data, sizeof(data), siteqr::N, S, siteqr::dark);
   lv_obj_t* img = lv_image_create(parent);
@@ -386,9 +386,9 @@ static lv_obj_t* siteQr(lv_obj_t* parent) {
 // shown (the name can change), 3 px a module; null when it doesn't fit.
 static lv_obj_t* contactQr(lv_obj_t* parent) {
   static const int S = 3, PX = (contactqr::MAX_VERSION * 4 + 17 + 2 * siteqr::QUIET) * S;
-  static uint8_t data[8 + (PX + 7) / 8 * PX];
+  static PSRAM_BSS uint8_t data[8 + (PX + 7) / 8 * PX];
   static lv_image_dsc_t dsc;
-  static contactqr::Code code;
+  static PSRAM_BSS contactqr::Code code;
   if (!contactqr::make(code)) return nullptr;
   qrImage(dsc, data, sizeof(data), code.n, S, [](int x, int y) { return code.dark(x, y); });
   lv_obj_t* img = lv_image_create(parent);

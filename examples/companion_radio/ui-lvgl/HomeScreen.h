@@ -141,7 +141,7 @@ static lv_obj_t* s_caption = nullptr;
 static const int MAX_PTS = LiveTrackStore::CAPACITY + 2;
 enum : uint8_t { P_ME, P_LAST, P_TARGET, P_LIVE };   // how a point's dot looks
 struct Pt { int32_t lat, lon; uint8_t kind; lv_obj_t* obj; };
-static Pt s_pts[MAX_PTS];   // [0] you, then the target, then live shares
+static PSRAM_BSS Pt s_pts[MAX_PTS];   // [0] you, then the target, then live shares
 static int s_npts = 0;
 static bool s_fitted = false;   // homeMapFit() ran for this map
 static int s_z = mapview::DEFAULT_Z;

@@ -27,7 +27,7 @@ static lv_obj_t* s_hex_sw = nullptr;
 static lv_obj_t* s_hint = nullptr;
 static lv_obj_t* s_status = nullptr;
 static lv_obj_t* s_kb = nullptr;
-static char s_scope_opts[256];
+static PSRAM_BSS char s_scope_opts[256];
 
 static void clearForm() {
   s_types = s_name = s_secret = s_hex_sw = s_hint = s_status = s_kb = nullptr;

@@ -147,7 +147,7 @@ static void layout(double left, double top, int w, int h, int z, bool on, int bo
 
   // Greedy placement: the icon, then the text right / left / above / below it.
   struct Box { int16_t x1, y1, x2, y2; };
-  static Box used[MAX_PLACED * 2 + 8];
+  static PSRAM_BSS Box used[MAX_PLACED * 2 + 8];
   int nu = 0;
   // The map's controls: button columns, the zoom pill between them, scale /
   // credit and the centre button above the bottom bar, the bar.

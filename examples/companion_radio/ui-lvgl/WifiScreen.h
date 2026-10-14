@@ -9,7 +9,7 @@
 //
 // Single-TU fragment: included by ui-lvgl/UITask.cpp after MapScreen.h.
 
-static char s_wifi_names[lvport::WIFI_SCAN_MAX][33];
+static PSRAM_BSS char s_wifi_names[lvport::WIFI_SCAN_MAX][33];
 
 static void onWifiScan(lv_event_t* e) { (void)e; s_ui->wifiScan(); }
 static void onWifiSave(lv_event_t* e) { (void)e; s_ui->wifiSave(); }

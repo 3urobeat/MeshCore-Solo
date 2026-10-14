@@ -55,7 +55,10 @@ public:
     _job_stale = false;
     _job_state = JOB_RUNNING;
 #if defined(ESP32)
-    if (!_task && xTaskCreatePinnedToCore(jobTask, "tiles", 12288, this, tskIDLE_PRIORITY + 1, &_task, 0) != pdPASS) {
+    // The stack in PSRAM: internal RAM is what WiFi starts on (it fails to
+    // with ~25 KB left), and the task only reads the SD card, never the flash.
+    if (!_task && xTaskCreatePinnedToCoreWithCaps(jobTask, "tiles", 12288, this, tskIDLE_PRIORITY + 1, &_task, 0,
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
       _task = nullptr;
       runJob();   // no task: here, as before
       return true;

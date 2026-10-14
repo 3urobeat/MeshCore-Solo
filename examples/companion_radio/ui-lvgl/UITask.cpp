@@ -876,7 +876,7 @@ void UITask::takeScreenshot() {
     put32(2, size); put32(10, 54); put32(14, 40); put32(18, W); put32(22, H);
     hdr[26] = 1; hdr[28] = 24; put32(34, row * H);
     ok = fwrite(hdr, 1, 54, f) == 54;
-    static uint8_t line[320 * 3];   // not on the loop task's stack
+    static PSRAM_BSS uint8_t line[320 * 3];   // not on the loop task's stack
     for (int32_t y = H - 1; ok && y >= 0; y--) {   // bottom-up, BGR
       const uint16_t* s = px + y * W;
       for (int32_t x = 0; x < W && x < 320; x++) {

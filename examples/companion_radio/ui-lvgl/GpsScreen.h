@@ -38,7 +38,7 @@ static const int SKY = 168;
 static const int BAR_PITCH = 26, BAR_W = 16, BARS_H = 120, AXIS_W = 22;
 
 // Snapshot the screen draws from, sorted: used first, then by signal.
-static GpsSky::Sat s_sats[GpsSky::MAX_SATS];
+static PSRAM_BSS GpsSky::Sat s_sats[GpsSky::MAX_SATS];
 static bool s_used_flag[GpsSky::MAX_SATS];
 static int s_n = 0;
 

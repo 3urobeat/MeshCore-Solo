@@ -9,8 +9,8 @@
 
 namespace profileview {
 
-static trailprofile::Sampler s_prof;   // what the chart on screen shows
-static chart::Chart s_chart;
+static PSRAM_BSS trailprofile::Sampler s_prof;   // what the chart on screen shows
+static PSRAM_BSS chart::Chart s_chart;
 static char s_under[3][12];
 
 static void distText(float m, char* out, size_t n) {

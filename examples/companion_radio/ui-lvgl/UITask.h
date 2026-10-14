@@ -9,6 +9,14 @@
 #include <helpers/SensorManager.h>
 #include <helpers/BaseSerialInterface.h>
 #include <lvgl.h>
+// A big zero-initialised static in PSRAM (ESP32): the internal RAM is what
+// WiFi starts and joins on. Not for what DMA or an interrupt touches.
+#if defined(ESP32)
+  #include <esp_attr.h>
+  #define PSRAM_BSS EXT_RAM_BSS_ATTR
+#else
+  #define PSRAM_BSS
+#endif
 #ifdef PIN_BUZZER
   #include <helpers/ui/buzzer.h>
 #endif

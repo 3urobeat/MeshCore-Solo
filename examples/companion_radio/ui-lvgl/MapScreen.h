@@ -26,12 +26,12 @@
 
 namespace mapview {
 
-static RasterTileProvider s_raster("/sdcard/maps", LIVE_ROOT);
-static VectorTileProvider s_vector(s_raster);   // spike: vector data where there is some, raster elsewhere
+static PSRAM_BSS RasterTileProvider s_raster("/sdcard/maps", LIVE_ROOT);
+static PSRAM_BSS VectorTileProvider s_vector(s_raster);   // spike: vector data where there is some, raster elsewhere
 static TileProvider*      s_provider = &s_raster;   // Map tools > Vector map (test) swaps it
 static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();   // decoded tiles, in PSRAM
-static TileDownloader     s_dl("/sdcard/maps");
-static AreaStore          s_areas("/sdcard/maps");
+static PSRAM_BSS TileDownloader     s_dl("/sdcard/maps");
+static PSRAM_BSS AreaStore          s_areas("/sdcard/maps");
 static const uint32_t     AVG_TILE_BYTES = 22 * 1024;   // OpenTopoMap-ish, for the size estimate
 
 // Hand a tile to the decoder (on the other core); false while one is in flight.
@@ -1036,7 +1036,7 @@ void UITask::layoutMapMarks(double left, double top, int w, int h) {
   const int half = MARK_D / 2;
   const int lh = lv_font_get_line_height(THEME_FONT_SMALL) + 2;
   struct Box { int16_t x1, y1, x2, y2; };
-  static Box used[6 + MAX_MARKS + MARK_LABELS_MAX];   // the map's controls, the dots, the names
+  static PSRAM_BSS Box used[6 + MAX_MARKS + MARK_LABELS_MAX];   // the map's controls, the dots, the names
   int nu = 0;
   const int bottom = mapBottomH();   // the target's bar, or the route's
   const int16_t W = (int16_t)w, H = (int16_t)(h - bottom);

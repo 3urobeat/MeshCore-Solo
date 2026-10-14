@@ -55,7 +55,7 @@ static void shotCopy(const lv_area_t* a, const uint8_t* px) {
 // once read; wifiStoreLoad() / wifiStoreWrite() (per board, below) hold them.
 static const int WIFI_SAVED_MAX = 8;
 struct WifiNet { char ssid[33]; char pass[65]; };
-static WifiNet s_nets[WIFI_SAVED_MAX];
+static PSRAM_BSS WifiNet s_nets[WIFI_SAVED_MAX];
 static int s_net_count = -1;   // -1: not read yet
 static void wifiStoreLoad();
 static void wifiStoreWrite();
@@ -760,7 +760,9 @@ static void fetchTask(void*) {
 // memory for the worker task.
 static int fetchStart(const char* url) {
   if (s_fstate != F_IDLE) return 0;
-  if (!s_ftask && xTaskCreatePinnedToCore(fetchTask, "tilefetch", 10240, nullptr, tskIDLE_PRIORITY, &s_ftask, 0) != pdPASS) {
+  // The stack in PSRAM, as the tile decoder's (TileCache.h): WiFi needs the internal RAM.
+  if (!s_ftask && xTaskCreatePinnedToCoreWithCaps(fetchTask, "tilefetch", 10240, nullptr, tskIDLE_PRIORITY, &s_ftask, 0,
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
     s_ftask = nullptr;
     return -1;
   }

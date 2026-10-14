@@ -24,7 +24,7 @@ static LiveVal s_vals[diag::MAX_ROWS + EXTRA];
 static int s_rows = 0;
 
 // The history, a sample every 5 minutes from boot (UITask::sampleHistory()).
-static uicore::StatusHistory<96, 300000UL> s_hist;
+static PSRAM_BSS uicore::StatusHistory<96, 300000UL> s_hist;
 static uint32_t s_hist_shown = 0;   // the history's version the charts show
 static lv_obj_t* s_ch_obj[4];       // History's charts and their values now
 static lv_obj_t* s_ch_now[4];
@@ -38,7 +38,7 @@ static uint32_t totalRecv() {
 // One chart's samples as drawn: a copy, so the draw callback needn't know
 // which ring (of which size) they came from. What the axis and the pill
 // say is set once (setupCharts()).
-static chart::Chart s_charts[4];
+static PSRAM_BSS chart::Chart s_charts[4];
 template <int N>
 static void chartOf(int k, const uicore::History<N>& h) {
   chart::Chart& c = s_charts[k];
@@ -218,7 +218,7 @@ static void onNoiseRun(lv_event_t* e) { (void)e; s_ui->diagNoiseRun(); }
 
 // A sweep as bars (Chart.h), the step nearest the mesh's frequency in the
 // accent, then its quietest / loudest values.
-static chart::Chart s_sweep_chart;
+static PSRAM_BSS chart::Chart s_sweep_chart;
 static char s_sweep_under[3][12];
 static void plotSweep(lv_obj_t* list, const char* title, const Sweep& sw, float mesh_f) {
   sectionTitle(list, title);

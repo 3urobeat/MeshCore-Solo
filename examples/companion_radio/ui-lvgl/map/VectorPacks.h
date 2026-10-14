@@ -206,6 +206,6 @@ private:
   }
 };
 
-static VectorPacks s_vpacks;
+static PSRAM_BSS VectorPacks s_vpacks;
 
 }  // namespace mapview
