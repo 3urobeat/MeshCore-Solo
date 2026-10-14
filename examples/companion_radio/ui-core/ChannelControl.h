@@ -198,6 +198,62 @@ static void setMelody(NodePrefs* p, uint8_t idx, uint8_t slot) {
 
 static bool favourite(const NodePrefs* p, uint8_t idx) { return p && (p->ch_fav_bitmask & (1ULL << idx)); }
 
+// The channels a list shows, in order: out[] gets the slot numbers, the count
+// comes back. Favourites first (fav_sort), then by ch_sort -- slot order, the
+// channel with the newest message first (channels without one after those,
+// in slot order), or by name. Stable, so equal rows keep their slot order.
+static int order(const NodePrefs* p, const MessageHistory& hist, uint8_t* out, bool fav_only) {
+  int n = 0;
+  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    ChannelDetails ch;
+    if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
+    if (fav_only && !favourite(p, i)) continue;
+    out[n++] = (uint8_t)i;
+  }
+  const bool fav_first = !p || p->fav_sort;
+  const uint8_t mode = p && p->ch_sort < NodePrefs::CH_SORT_COUNT ? p->ch_sort : 0;
+  if (n < 2 || (!fav_first && mode == 0)) return n;
+
+  uint16_t rank[MAX_GROUP_CHANNELS];   // newest message = 0
+  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) rank[i] = 0xFFFF;
+  if (mode == 1) {
+    int left = n;
+    for (int j = 0; j < hist.chHistCount() && left > 0; j++) {
+      uint8_t c = hist.chAtPos(hist.chHistPosNewest(j)).ch_idx;
+      if (c < MAX_GROUP_CHANNELS && rank[c] == 0xFFFF) { rank[c] = (uint16_t)j; left--; }
+    }
+  }
+  // true when a goes before b
+  auto before = [&](uint8_t a, uint8_t b) {
+    if (fav_first) {
+      bool fa = favourite(p, a), fb = favourite(p, b);
+      if (fa != fb) return fa;
+    }
+    if (mode == 1) return rank[a] < rank[b];
+    if (mode == 2) {
+      ChannelDetails ca, cb;
+      the_mesh.getChannel(a, ca);
+      the_mesh.getChannel(b, cb);
+      const char* x = bareName(ca.name);
+      const char* y = bareName(cb.name);
+      for (;; x++, y++) {
+        char u = *x >= 'A' && *x <= 'Z' ? *x + 32 : *x;
+        char v = *y >= 'A' && *y <= 'Z' ? *y + 32 : *y;
+        if (u != v) return (uint8_t)u < (uint8_t)v;
+        if (!u) return false;
+      }
+    }
+    return false;
+  };
+  for (int i = 1; i < n; i++) {   // insertion sort: stable
+    uint8_t v = out[i];
+    int j = i;
+    while (j > 0 && before(v, out[j - 1])) { out[j] = out[j - 1]; j--; }
+    out[j] = v;
+  }
+  return n;
+}
+
 static void setFavourite(NodePrefs* p, uint8_t idx, bool on) {
   if (!p) return;
   if (on) p->ch_fav_bitmask |= 1ULL << idx; else p->ch_fav_bitmask &= ~(1ULL << idx);

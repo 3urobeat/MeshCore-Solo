@@ -157,6 +157,10 @@ static void optLockLook(uint8_t v, char* b, int n, const NodePrefs&) { snprintf(
 static void optExpiry(uint8_t v, char* b, int n, const NodePrefs&) {
   snprintf(b, n, "%s", NodePrefs::contactExpiryLabel(v));
 }
+static void optChSort(uint8_t v, char* b, int n, const NodePrefs&) {
+  static const char* L[NodePrefs::CH_SORT_COUNT] = { "Slots", "Newest", "Name" };
+  snprintf(b, n, "%s", L[v < NodePrefs::CH_SORT_COUNT ? v : 0]);
+}
 static void optVolume(uint8_t v, char* b, int n, const NodePrefs&) {
   static const char* L[5] = { "Quietest", "Quiet", "Medium", "Loud", "Loudest" };
   snprintf(b, n, "%s", L[v < 5 ? v : 4]);
@@ -281,6 +285,8 @@ static const Setting ALL[] = {
   IDX("Contact expiry", "Prune after inactivity", SEC_CONTACTS, contact_expiry_idx,
       NodePrefs::CONTACT_EXPIRY_COUNT, optExpiry, nullptr),
   SW("Favourites first", "In contact and node lists", SEC_CONTACTS, fav_sort, nullptr),
+  IDX("Channel order", "Slots, newest message or name", SEC_CONTACTS, ch_sort,
+      NodePrefs::CH_SORT_COUNT, optChSort, nullptr),
 
   // manual_add_contacts bit 0: 0 adds every node heard, 1 only the types below.
   IDX("Add heard nodes", "Every node, or only these types", SEC_AUTO_ADD, manual_add_contacts, 2, optAutoAdd, nullptr),
@@ -333,7 +339,8 @@ static const struct { uint16_t offset; const char* text; } SHORT_LABELS[] = {
   { NP_OFF(gps_interval), "GPS pwr" },           { NP_OFF(clock_12h), "12h clock" },
   { NP_OFF(clock_hide_seconds), "Seconds" },     { NP_OFF(units_imperial), "Imperial" },
   { NP_OFF(dm_resend_count), "Resend" },         { NP_OFF(contact_expiry_idx), "Expire" },
-  { NP_OFF(fav_sort), "Favs top" },              { NP_OFF(buzzer_volume), "Buzzer vol" },
+  { NP_OFF(fav_sort), "Favs top" },              { NP_OFF(ch_sort), "Ch order" },
+  { NP_OFF(buzzer_volume), "Buzzer vol" },
   { NP_OFF(quiet_hours), "Quiet hrs" },          { NP_OFF(quiet_from), " from" },
   { NP_OFF(quiet_to), " until" },                { NP_OFF(notif_melody_dm), "DM sound" },
   { NP_OFF(notif_melody_ch), "Ch sound" },       { NP_OFF(notif_melody_ad), "AD sound" },

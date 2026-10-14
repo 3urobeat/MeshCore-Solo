@@ -836,23 +836,7 @@ class MessagesScreen : public UIScreen {
 
   void buildChannelList() {
     NodePrefs* p = _task->getNodePrefs();
-    bool fav_only = (p && p->ch_fav_only);
-    _num_channels = 0;
-    for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
-      ChannelDetails ch;
-      if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
-      if (fav_only && !(p->ch_fav_bitmask & (1ULL << i))) continue;
-      _channel_indices[_num_channels++] = (uint8_t)i;
-    }
-    // Favourites to the front, everything else keeping channel-slot order.
-    if (!p || !p->fav_sort) return;
-    int front = 0;
-    for (int i = 0; i < _num_channels; i++) {
-      if (!chIsFav(_channel_indices[i])) continue;
-      uint8_t v = _channel_indices[i];
-      for (int j = i; j > front; j--) _channel_indices[j] = _channel_indices[j - 1];
-      _channel_indices[front++] = v;
-    }
+    _num_channels = chanctl::order(p, _history, _channel_indices, p && p->ch_fav_only);
   }
 
   // Advance one of the contact menu's value rows. dir is +1 for RIGHT and for

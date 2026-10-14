@@ -224,16 +224,10 @@ void UITask::fillChats() {
   own();
   bool fav_first = !_prefs || _prefs->fav_sort;
   int ch_rows = 0;
-  for (int pass = fav_first ? 0 : 1; pass < 2 && !chatFolded(FOLD_CHANNELS); pass++) {
-    for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
-      ChannelDetails ch;
-      if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') continue;
-      bool fav = chanctl::favourite(_prefs, i);
-      if (ch_fav_only && !fav) continue;
-      if (fav_first && fav != (pass == 0)) continue;
-      ch_rows++;
-      vlist::add(body, &CHANNEL, i);
-    }
+  if (!chatFolded(FOLD_CHANNELS)) {
+    uint8_t order[MAX_GROUP_CHANNELS];
+    ch_rows = chanctl::order(_prefs, _core->history, order, ch_fav_only);
+    for (int r = 0; r < ch_rows; r++) vlist::add(body, &CHANNEL, order[r]);
   }
   if (!chatFolded(FOLD_CHANNELS)) {
     if (ch_rows == 0 && ch_fav_only) { label(body, "No favourite channels", THEME_FONT_SMALL, theme::TEXT_MUTED); own(); }

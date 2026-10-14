@@ -535,6 +535,11 @@ struct NodePrefs {  // persisted to file
   // ui-new: 0 = big clock + date + unread pill, 1 = compact clock with the
   // clock fields as rows below. The L2 has its own lock screen.
   uint8_t  lock_compact;
+  // Settings > Contacts > "Channel order": how the channel lists are sorted
+  // (after favourites, when those go first): 0 = as the slots are (default),
+  // 1 = latest message first, 2 = by name. See chanctl::order().
+  static const uint8_t CH_SORT_COUNT = 3;
+  uint8_t  ch_sort;
 
   // Single source of truth for the live-share option tables (shared by the Map
   // UI labels and the auto-send engine in UITask).
