@@ -14,6 +14,7 @@
 #define LODEPNG_NO_COMPILE_CPP
 extern "C" {
 #include "src/libs/lodepng/lodepng.h"
+#include "src/libs/tjpgd/tjpgd.h"   // LVGL's TJpgDec (LV_USE_TJPGD), for JPEG tiles
 }
 
 #if defined(ESP32)
@@ -92,6 +93,41 @@ static bool pngHasInk(const uint8_t* png, size_t len) {
   return ink;
 }
 
+// A JPEG tile (the Esri layers) into out[TILE_PX * TILE_PX] RGB565, with
+// LVGL's TJpgDec: RGB888 out of it a block at a time. One decode at a time
+// (the tile cache's), so one work pool.
+static bool isJpeg(const uint8_t* d, size_t n) { return n > 3 && d[0] == 0xFF && d[1] == 0xD8 && d[2] == 0xFF; }
+struct JpegSrc { const uint8_t* d; size_t n, at; uint16_t* out; };
+static size_t jpegIn(JDEC* jd, uint8_t* buf, size_t n) {
+  JpegSrc* s = (JpegSrc*)jd->device;
+  if (n > s->n - s->at) n = s->n - s->at;
+  if (buf) memcpy(buf, s->d + s->at, n);
+  s->at += n;
+  return n;
+}
+static int jpegOut(JDEC* jd, void* bitmap, JRECT* r) {
+  JpegSrc* s = (JpegSrc*)jd->device;
+  const uint8_t* p = (const uint8_t*)bitmap;
+  const int w = r->right - r->left + 1;
+  for (int y = r->top; y <= r->bottom; y++) {
+    if (y >= TILE_PX) { p += w * 3; continue; }
+    uint16_t* o = s->out + y * TILE_PX + r->left;
+    for (int x = 0; x < w; x++, p += 3)
+      if (r->left + x < TILE_PX) o[x] = (uint16_t)(((p[0] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[2] >> 3));
+  }
+  return 1;
+}
+static bool decodeJpeg(const uint8_t* d, size_t n, uint16_t* out) {
+  static const size_t POOL = 8192;
+  static void* pool = nullptr;
+  if (!pool && !(pool = lv_malloc(POOL))) return false;
+  JDEC jd;
+  JpegSrc src = { d, n, 0, out };
+  if (jd_prepare(&jd, jpegIn, pool, POOL, &src) != JDR_OK) return false;
+  if (jd.width != TILE_PX || jd.height != TILE_PX) return false;
+  return jd_decomp(&jd, jpegOut, 0) == JDR_OK;
+}
+
 class TileProvider {
 public:
   virtual ~TileProvider() {}
@@ -111,6 +147,7 @@ public:
   // `live`: a second folder in the same layout (live tiles, LiveCache.h), read
   // when <root> has no tile.
   explicit RasterTileProvider(const char* root, const char* live = nullptr) : _root(root), _live(live) {}
+  void setRoots(const char* root, const char* live) { _root = root; _live = live; }   // another base layer
 
   // Also reads <root>/attribution.txt (written by tools/maps/fetch_tiles.py and
   // the on-device downloader): the tile set's credit line, shown on the map.
@@ -148,8 +185,12 @@ public:
 #endif
 
     bool ok = false;
+    if (isJpeg(png, len)) {   // (under the .png name: MapLayers.h)
+      ok = decodeJpeg(png, len, out);
+      if (!ok) { lv_free(png); return false; }
+    }
 #if defined(ESP32)
-    ok = pngdecRgb565(png, len, out, TILE_PX);   // lodepng below if it can't
+    if (!ok) ok = pngdecRgb565(png, len, out, TILE_PX);   // lodepng below if it can't
 #endif
     if (!ok) {
       lv_draw_buf_t* db = decodePng(png, len);
@@ -180,7 +221,7 @@ public:
   bool overlayMissed() const override { return _overlay_missed; }
 
   const char* attribution() const override {
-    const char* base = _attr[0] ? _attr : "\xC2\xA9 OpenStreetMap contributors";
+    const char* base = _attr[0] ? _attr : layer().attr;   // nothing on the card yet: the layer's own
     if (!s_trails_on) return base;
     snprintf(_attr_full, sizeof(_attr_full), "%s | %s", base, TRAILS_ATTR);
     return _attr_full;

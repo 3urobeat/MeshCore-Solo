@@ -169,6 +169,7 @@ public:
   void setLiveTiles(bool on);
   void setTrails(bool on);
   void setVectorMap(bool on);
+  void setMapLayer(int i);
   void simMapAt(const char* spec);      // Map tools > Live tiles
   void simCompose(const char* text);    // the open thread's field: this text, keyboard up
   void simDm();                         // the first chat contact's thread

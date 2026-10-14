@@ -880,6 +880,11 @@ static void scanTrails() {
 static void onSavedTrail(lv_event_t* e) { s_ui->savedTrailPopup((int)(intptr_t)lv_event_get_user_data(e)); }
 
 static void onNavTools(lv_event_t* e)       { (void)e; s_ui->navToolsPopup(); }
+static void onMapLayer(lv_event_t* e) {   // the map shows it at once: Map tools out of the way
+  int i = choiceSelected((lv_obj_t*)lv_event_get_target(e));
+  s_ui->navClosePopup();
+  s_ui->setMapLayer(i);
+}
 static void onTrails(lv_event_t* e) {
   s_ui->setTrails(lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED));
 }
@@ -976,6 +981,7 @@ void UITask::navToolsPopup(bool back) {
   lv_obj_add_event_cb(lsw, onLiveTiles, LV_EVENT_VALUE_CHANGED, NULL);
 
   g = group(list, "LAYERS");
+  choiceRow(g, "Map", "Topo, light, dark or satellite", mapview::LAYER_OPTS, mapview::s_layer, onMapLayer);
   lv_obj_t* tsw = switchRow(g, "Hiking trails", "Marked routes in their colours", nullptr);
   if (lvport::trailsOn()) lv_obj_add_state(tsw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(tsw, onTrails, LV_EVENT_VALUE_CHANGED, NULL);

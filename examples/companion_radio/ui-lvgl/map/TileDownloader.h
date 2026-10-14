@@ -12,9 +12,10 @@
 // itself runs asynchronously in the board's fetcher (lvport::fetch*), so the
 // mesh keeps being serviced during a long download.
 //
-// The server comes from <root>/source.txt (line 1: URL template with {z} {x}
-// {y}, line 2: attribution, optional line 3: the server's last zoom level,
-// default 19 -- or 17 for OpenTopoMap); without it, OpenTopoMap. Whatever the source,
+// The server is the base layer's (MapLayers.h; setLayer()); <root>/source.txt
+// can name another (line 1: URL template with {z} {x} {y}, line 2:
+// attribution, optional line 3: the server's last zoom level, default 19 --
+// or 17 for OpenTopoMap). Whatever the source,
 // its attribution is written to <root>/attribution.txt for the map to show.
 //
 // Hiking trails (s_trails_on): each tile's trails overlay is fetched right
@@ -37,8 +38,6 @@
 
 namespace mapview {
 
-static const char* const DEFAULT_TILE_URL = "https://a.tile.opentopomap.org/{z}/{x}/{y}.png";
-static const char* const DEFAULT_TILE_ATTR = "\xC2\xA9 OpenStreetMap contributors, SRTM | \xC2\xA9 OpenTopoMap (CC-BY-SA)";
 
 struct TileArea {
   double lon0, lat0, lon1, lat1;   // west, south, east, north
@@ -92,6 +91,16 @@ public:
   static const int RETRY_ROUNDS = 3;         // goes at the tiles that failed, after the first pass
 
   explicit TileDownloader(const char* root) : _root(root) {}
+  // Another base layer: its folder, its server. Not while a job runs (the caller checks).
+  void setLayer(uint8_t layer) {
+    if (active()) return;
+    if (_live) liveEnd();   // the caller starts it again, for the new folder
+    _layer_id = layer;
+    _root = mapview::layer(layer).root;
+    _job_checked = false;   // its own unfinished job
+    _lv_failed_next = 0;
+    for (LiveTile& t : _lv_failed) t = LiveTile();
+  }
 
   State state() const       { return _state; }
   const TileArea& area() const { return _area; }   // of the current / last job
@@ -232,7 +241,7 @@ public:
       if (r > 0) {
         size_t len = 0;
         const uint8_t* data = lvport::fetchData(len);
-        if (!looksLikeImage(data, len)) reason = "server didn't send a PNG tile";   // an error page: passing too
+        if (!looksLikeImage(data, len)) reason = "server didn't send a tile";   // an error page: passing too
         else {
           if (_layer == 1) {   // trails: the overlay, or an empty marker
             if (!writeTrails(_z, _x, _y, data, len)) { lvport::fetchRelease(); finish(FAILED, "Can't write to the SD card"); return; }
@@ -317,6 +326,7 @@ public:
 
 private:
   const char* _root;
+  uint8_t  _layer_id = 0;      // the base layer (MapLayers.h)
   State    _state = IDLE;
   TileArea _area = {0, 0, 0, 0, 0, 0};
   uint32_t _total = 0, _done = 0, _skipped = 0, _failed = 0;
@@ -416,8 +426,8 @@ private:
       _lv_fetching = false;
       size_t len = 0;
       const uint8_t* data = r > 0 ? lvport::fetchData(len) : nullptr;
-      char lpath[64];
-      LiveCache::tilePath(lpath, sizeof(lpath), _lv_cur.z, _lv_cur.x, _lv_cur.y);
+      char lpath[80];
+      LiveCache::tilePath(lpath, sizeof(lpath), _lv_cur.z, _lv_cur.x, _lv_cur.y, _layer_id);
       if (_lv_cur.layer == 1) {   // trails over a tile already shown
         if (r > 0 && looksLikeImage(data, len) && writeTrails(_lv_cur.z, _lv_cur.x, _lv_cur.y, data, len)) {
           _lv_consec_fail = 0;
@@ -426,7 +436,7 @@ private:
           liveFailed(_lv_cur);
         }
       } else if (r > 0 && looksLikeImage(data, len) && !isNoTilePicture(data, len) && writeFile(lpath, data, len)) {
-        s_live_cache.add(_lv_cur.z, _lv_cur.x, _lv_cur.y, (uint32_t)len);   // kept apart, within the Storage limit
+        s_live_cache.add(_lv_cur.z, _lv_cur.x, _lv_cur.y, (uint32_t)len, _layer_id);   // kept apart, within the Storage limit
         _lv_consec_fail = 0;
         if (_lv_done_n < LV_DONE) _lv_done[_lv_done_n++] = _lv_cur;
       } else {
@@ -560,14 +570,15 @@ private:
   }
 
   void loadSource() {
-    snprintf(_url_tpl, sizeof(_url_tpl), "%s", DEFAULT_TILE_URL);
-    snprintf(_attr, sizeof(_attr), "%s", DEFAULT_TILE_ATTR);
-    _src_zmax = -1;
+    const MapLayer& L = mapview::layer(_layer_id);
+    snprintf(_url_tpl, sizeof(_url_tpl), "%s", L.url);
+    snprintf(_attr, sizeof(_attr), "%s", L.attr);
+    _src_zmax = L.zmax;
     char path[64];
     snprintf(path, sizeof(path), "%s/source.txt", _root);
     if (FILE* f = fopen(path, "r")) {
       char line[256];
-      if (fgets(line, sizeof(line), f)) { trim(line); if (strstr(line, "{z}")) snprintf(_url_tpl, sizeof(_url_tpl), "%s", line); }
+      if (fgets(line, sizeof(line), f)) { trim(line); if (strstr(line, "{z}")) { snprintf(_url_tpl, sizeof(_url_tpl), "%s", line); _src_zmax = -1; } }
       if (fgets(line, sizeof(line), f)) { trim(line); if (line[0]) snprintf(_attr, sizeof(_attr), "%s", line); }
       if (fgets(line, sizeof(line), f)) { int z = atoi(line); if (z >= 1 && z <= 22) _src_zmax = z; }
       fclose(f);
@@ -593,9 +604,9 @@ private:
     if (FILE* f = fopen(path, "w")) { fprintf(f, "%s\n", _attr); fclose(f); }
   }
 
-  // PNG only for now: RasterTileProvider has no JPEG decoder yet.
+  // PNG, or JPEG (the Esri layers; RasterTileProvider tells them apart).
   static bool looksLikeImage(const uint8_t* d, size_t n) {
-    return d && n >= 8 && d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G';
+    return d && n >= 8 && ((d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') || isJpeg(d, n));
   }
 
   // A blocked / key-required server answers every tile with the same picture:

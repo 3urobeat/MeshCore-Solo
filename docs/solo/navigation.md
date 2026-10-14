@@ -127,6 +127,13 @@ it: GPS, the trail's distance, live shares, and the distance to the target
 >   Downloaded areas can be renamed, refreshed or deleted.
 > - **Live tiles**: with WiFi on, tiles for where you look are fetched and
 >   cached, up to the size set in Settings › Storage.
+> - **Map** (Map tools › Layers): what the map is drawn from. **Topo**
+>   (OpenTopoMap, the default), **Light** and **Dark** (Esri's grey
+>   canvases, no labels, up to zoom 16), **Satellite** (Esri World Imagery)
+>   and **Esri Topo**. Each keeps its own downloaded areas and live tiles
+>   (`/sdcard/maps-light`, `-dark`, `-sat`, `-esritopo`; Topo stays in
+>   `/sdcard/maps`). The Esri layers are meant for personal use: their terms
+>   don't cover downloading large areas.
 > - **Vector regions** (only in a build with `-D MAP_VECTOR`, unfinished):
 >   whole regions as packs made with `tools/maps/osm_vector.py`, copied to
 >   the card.

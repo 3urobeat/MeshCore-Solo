@@ -27,6 +27,7 @@ public:
   enum : uint8_t { F_TRAILS = 1, F_COMPLETE = 2 };
 
   explicit AreaStore(const char* root) : _root(root) {}
+  void setRoot(const char* root) { if (_root != root) { _root = root; _loaded = false; } }   // another base layer
 
   int count() { load(); return _n; }
   MapArea& at(int i) { load(); return _a[i]; }

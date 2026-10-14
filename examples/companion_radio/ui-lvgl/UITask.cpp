@@ -95,6 +95,7 @@ static bool s_chats_stale = false;   // Messages: a refresh waits for a held row
 #include "LvglPort.h"
 #include "lv_mem_psram.h"
 #include "HistoryStore.h"
+#include "map/MapLayers.h"
 #include "map/LiveCache.h"
 static histstore::SdArchive s_archive;   // message history on the SD card
 namespace storeview { static void stopWalk(); }   // StorageScreen.h
@@ -1429,7 +1430,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_scroll(int dy) {
 #if defined(SIM_PLATFORM) && defined(__EMSCRIPTEN__)
 // The simulator page opens a screen by name (screenshots of the layout):
 // home, chats, contacts, settings, settings:<page>, nearby, map, navmap, places, clock, radio,
-// gps, diag, compass, storage, repeater, wifi, bot, quick, node, channel.
+// gps, diag, compass, storage, repeater, wifi, bot, quick, node, channel, layer:<n>.
 extern "C" EMSCRIPTEN_KEEPALIVE int sim_ui_show(const char* name) {
   if (!s_ui || !name) return 0;
   UITask& u = *s_ui;
@@ -1442,6 +1443,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE int sim_ui_show(const char* name) {
   else if (!strcmp(name, "map")) u.openMap(false);
   else if (!strcmp(name, "navmap")) u.openMap(true);
   else if (!strcmp(name, "places")) { u.openMap(true); u.navTargetsPopup(); }
+  else if (!strncmp(name, "layer:", 6)) u.setMapLayer(atoi(name + 6));   // the map's base layer (MapLayers.h)
   else if (!strcmp(name, "clock")) u.showClock();
   else if (!strcmp(name, "radio")) u.showRadio();
   else if (!strcmp(name, "gps")) u.showGps(false);

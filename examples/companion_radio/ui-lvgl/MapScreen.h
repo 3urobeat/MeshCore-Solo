@@ -32,6 +32,20 @@ static TileProvider*      s_provider = &s_raster;   // Map tools > Vector map (t
 static TileCache&         s_cache = *new (psramBuf<TileCache>(1)) TileCache();   // decoded tiles, in PSRAM
 static PSRAM_BSS TileDownloader     s_dl("/sdcard/maps");
 static PSRAM_BSS AreaStore          s_areas("/sdcard/maps");
+
+// The base layer `i` (MapLayers.h) for everything that reads or writes tiles;
+// false while a download or an area's deletion works in the current one's folder.
+static bool applyLayer(int i) {
+  if (i < 0 || i >= LAYER_COUNT) i = 0;
+  if (i == s_layer) return true;
+  if (s_dl.active() || s_areas.deleting()) return false;
+  s_layer = (uint8_t)i;
+  s_raster.setRoots(LAYERS[i].root, LAYERS[i].live);
+  s_dl.setLayer(s_layer);
+  s_areas.setRoot(LAYERS[i].root);
+  s_cache.invalidate();
+  return true;
+}
 static const uint32_t     AVG_TILE_BYTES = 22 * 1024;   // OpenTopoMap-ish, for the size estimate
 
 // Hand a tile to the decoder (on the other core); false while one is in flight.
@@ -720,6 +734,7 @@ void UITask::openMap(bool nav) {
 void UITask::showMap(bool frame) {
   _screen = SCR_MAP;
   mapview::s_trails_on = lvport::trailsOn();
+  mapview::applyLayer(lvport::mapLayer());   // (a download running in another: that one, until it's done)
   mapview::s_provider = lvport::vectorOn() ? (mapview::TileProvider*)&mapview::s_vector : &mapview::s_raster;
   mapLiveBegin();
   mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
@@ -983,7 +998,8 @@ void UITask::layoutMap() {
                           (unsigned long)ld, (unsigned long)fl, (unsigned long)ln);
   }
   else setTextFmt(_map_zoom_lbl, "z%d", _map_z);
-  const char* hint = !have_provider ? "No map on the SD card.\nPut tiles in /maps (tools/maps)."
+  const char* hint = !have_provider ? (mapview::s_layer ? "Nothing of this map on the card -\ndownload an area or turn Live tiles on"
+                                                        : "No map on the SD card.\nPut tiles in /maps (tools/maps).")
                    : mapview::s_dl.liveQueued() > 0 ? nullptr   // being fetched
                    : (!_map_pending && shown == 0 && missing > 0)
                        ? "No map here at this zoom -\nzoom out or download the area" : nullptr;
@@ -1583,6 +1599,17 @@ void UITask::setTrails(bool on) {
   if (!on) return;   // turned on: where the trails come from
   if (lvport::liveTiles() && lvport::wifiAllowed()) showToast("Trails load with the map over WiFi", 3000);
   else showToast("Download an area again to add its trails", 3000);
+}
+
+// Map tools > Map: another base layer, its tiles from its own folder.
+void UITask::setMapLayer(int i) {
+  if (!mapview::applyLayer(i)) { showToast("Wait for the download to finish"); return; }
+  lvport::setMapLayer(i);
+  mapLiveBegin();   // live tiles: from the new layer's server
+  mapview::s_available = lvport::mountStorage() && mapview::s_provider->available();
+  if (_screen == SCR_MAP) layoutMap();
+  if (!lvport::liveTiles() || !lvport::wifiAllowed())
+    showToast("Shows what is downloaded for this map - or turn Live tiles on", 3000);
 }
 
 // Map tools > Vector map (test): /sdcard/vmap drawn on the device where it has data.

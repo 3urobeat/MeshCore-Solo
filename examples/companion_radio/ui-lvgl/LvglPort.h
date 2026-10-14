@@ -993,6 +993,9 @@ static void setLiveTiles(bool on) { nvs::putBool("mc_wifi", "live", on); }
 // Map tools > Hiking trails: the Waymarked Trails overlay over the map.
 static bool trailsOn() { return nvs::getBool("mc_ui", "trails", false); }
 static void setTrailsOn(bool on) { nvs::putBool("mc_ui", "trails", on); }
+// Map tools > Map: the base layer (map/MapLayers.h).
+static int  mapLayer() { return nvs::getU8("mc_ui", "layer", 0); }
+static void setMapLayer(int i) { nvs::putU8("mc_ui", "layer", i); }
 // Map tools > Vector map (test). Unfinished: on only in a -D MAP_VECTOR build,
 // off (and its switch gone) otherwise, whatever was saved.
 #ifdef MAP_VECTOR

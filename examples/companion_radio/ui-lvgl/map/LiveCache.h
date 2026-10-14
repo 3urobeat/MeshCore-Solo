@@ -1,6 +1,7 @@
 #pragma once
 // Live map tiles (fetched while browsing online) live apart from downloaded
-// maps, under LIVE_ROOT/{z}/{x}/{y}.png, and only up to a size limit
+// maps, under LIVE_ROOT/{z}/{x}/{y}.png (another base layer: a folder of
+// its own in it, MapLayers.h), and only up to a size limit
 // (Settings > Storage): an index remembers the order they came in, and the
 // oldest are deleted once the tiles add up to more than the limit. Maps
 // downloaded on purpose (TileDownloader jobs, the PC tool) are never touched.
@@ -34,11 +35,11 @@ public:
   uint32_t count() { load(); return _h.count; }
   bool clearing() const { return _clearing; }
 
-  // A tile was written to LIVE_ROOT: remember it (eviction follows in service()).
-  void add(int z, int x, int y, uint32_t size) {
+  // A tile was written to `layer`'s live folder: remember it (eviction follows in service()).
+  void add(int z, int x, int y, uint32_t size, uint8_t layer) {
     load();
     if (_h.count >= RING) evictOne();   // the ring is full: make room right away
-    Rec r = { (int32_t)z, x, y, size };
+    Rec r = { (int32_t)z | (int32_t)layer << 8, x, y, size };   // (records from before layers: 0, Topo)
     uint32_t slot = (_h.head + _h.count) % RING;
     _h.count++;
     _h.bytes += size;
@@ -63,8 +64,8 @@ public:
     if (_clearing && _h.count == 0) { _clearing = false; _h.bytes = 0; writeHdr(); }
   }
 
-  static void tilePath(char* out, size_t n, int z, int x, int y) {
-    snprintf(out, n, "%s/%d/%d/%d.png", LIVE_ROOT, z, x, y);
+  static void tilePath(char* out, size_t n, int z, int x, int y, uint8_t layer) {
+    snprintf(out, n, "%s/%d/%d/%d.png", mapview::layer(layer).live, z, x, y);
   }
 
 private:
@@ -124,7 +125,7 @@ private:
     Rec r;
     if (readRec(_h.head, r)) {
       char path[128];
-      tilePath(path, sizeof(path), r.z, r.x, r.y);
+      tilePath(path, sizeof(path), r.z & 0xFF, r.x, r.y, (uint8_t)(r.z >> 8));
       remove(path);
       _h.bytes = _h.bytes > r.size ? _h.bytes - r.size : 0;
     }
