@@ -325,7 +325,7 @@ struct KeyboardWidget {
   // that construct a KeyboardWidget standalone, in which case isT9() defaults
   // to ABC and mainScript()/altScript() default to Latin-only.
   NodePrefs* prefs = nullptr;
-  bool isT9() const { return prefs && prefs->keyboard_type == 1; }
+  bool isT9() const { return _physical_t9_input || (prefs && prefs->keyboard_type == 1); }
   bool isPin() const { return pin_mode; }
   // Which script occupies page 0 (the keyboard's default/opening page) and
   // which occupies page 1 (reached by the #@/abc cycle key) -- Settings >
@@ -1273,11 +1273,7 @@ struct KeyboardWidget {
       // the special row's DONE cell -- same as a physical button. CardKB's
       // own Enter is only ever KEY_ENTER when that's true (see pollCardKB()'s
       // KEY_KB_ENTER cases just above), so there's no ambiguity here.
-      if (row < rows && isT9()
-#if defined(SIMPSON)
-          && !_physical_t9_input
-#endif
-      ) {
+      if (row < rows && isT9()) {
         int cell = row * cols + col;
         const char* group = t9GroupStr(cell);
         int glen = kbUtf8Len(group);       // codepoint count, not byte length

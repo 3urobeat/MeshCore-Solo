@@ -42,7 +42,9 @@
 #define PIN_BUTTON1        (6)
 #define BUTTON_PIN         PIN_BUTTON1
 
-#define PIN_BUZZER         (0)
+#ifndef PIN_BUZZER
+  #define PIN_BUZZER       (0)
+#endif
 #ifndef PIN_VIBRATION
   #define PIN_VIBRATION    (1)
 #endif
