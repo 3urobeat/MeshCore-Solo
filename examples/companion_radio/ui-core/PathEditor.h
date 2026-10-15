@@ -62,9 +62,11 @@ public:
     _links = 0;
     _stored = c->out_path_len != OUT_PATH_UNKNOWN;
     _pinned = _stored && (c->flags & CONTACT_FLAG_ROUTE_PINNED) != 0;
+    _too_long = false;
     if (_stored) {
       uint8_t size = (c->out_path_len >> 6) + 1;
       uint8_t cnt = c->out_path_len & 63;
+      _too_long = cnt > MAX_HOPS;
       for (uint8_t i = 0; i < cnt && _n < MAX_HOPS; i++) loadHash(&c->out_path[i * size], size);
     }
     _edited = false;
@@ -247,10 +249,13 @@ public:
   // The list as the contact's stored route; an empty list stores "direct"
   // (no repeaters, sent straight to the node). False when the hops share no
   // usable width.
-  bool canSave() const { return saveWidth() > 0; }
+  // A stored route longer than MAX_HOPS loads only its first hops; saving it
+  // would cut it short, so it can't be saved until its hops are all removed.
+  bool tooLong() const { return _too_long; }
+  bool canSave() const { return !_too_long && saveWidth() > 0; }
   bool save() {
     uint8_t w = saveWidth();
-    if (w == 0) return false;
+    if (w == 0 || _too_long) return false;
     uint8_t path[MAX_HOPS * 3];
     for (int i = 0; i < _n; i++) memcpy(&path[i * w], _hops[i].key, w);
     if (!the_mesh.setContactPath(_target_key, path, w, (uint8_t)_n, _pinned)) return false;
@@ -271,6 +276,7 @@ private:
 
   void changed() {
     _edited = true;
+    if (_n == 0) _too_long = false;   // emptied: what's saved now is the user's own list
     invalidate();
   }
 
@@ -369,6 +375,7 @@ private:
   State    _state = IDLE;
   Fail     _fail = FAIL_NONE;
   bool     _stored = false;
+  bool     _too_long = false;     // the stored route has more hops than the list holds
   bool     _pinned = false;
   bool     _edited = false;
   bool     _probe = false;

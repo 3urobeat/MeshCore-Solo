@@ -216,7 +216,7 @@ public:
         break;
       case R_TO_NODE: r.setToNode(!r.toNode()); break;
       case R_SAVE:
-        if (!r.save()) _task->showAlert("Can't save", 1000);
+        if (!r.save()) _task->showAlert(r.tooLong() ? "Too long to edit" : "Can't save", 1000);
         else _task->showAlert(r.count() ? "Path saved" : "Saved: direct", 1000);
         break;
       case R_KEEP: toggleKeep(); break;

@@ -294,7 +294,7 @@ void UITask::routeAct(uint8_t act) {
       routeKeep();
       break;
     case routeview::RT_SAVE:
-      if (!R.save()) { showToast("Can't save this route"); break; }
+      if (!R.save()) { showToast(R.tooLong() ? "Too long to edit - remove all hops first" : "Can't save this route"); break; }
       showToast(R.count() ? (R.pinned() ? "Route saved and kept" : "Route saved") : "Saved: direct to the node");
       routeRebuild();
       break;
