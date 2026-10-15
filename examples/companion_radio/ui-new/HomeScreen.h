@@ -670,6 +670,16 @@ public:
      : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
        _prev_page(0), _shutdown_init(false), sensors_lpp(200) {  }
 
+  void showBluetoothPage() {
+    _page = BLUETOOTH;
+    _quick_sel = 0;
+  }
+
+  void showGpsPage() {
+    _page = STATUS;
+    _quick_sel = 0;
+  }
+
   // Flips home screen between LOCK page and the page that was showing before locking
   void setLocked(bool locked) {
     if (locked) {
