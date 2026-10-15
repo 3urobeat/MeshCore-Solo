@@ -44,10 +44,11 @@
 | M5Stack Cardputer ADV *(experimental)* | ESP32-S3 | ST7789 TFT 240 × 135 | `solo-<version>-M5Stack-Cardputer-ADV-merged.bin` |
 | LilyGO T-Echo Lite + KeyShield *(experimental)* | nRF52840 | GxEPD2 250 × 122 | `solo-<version>-LilyGo-T-Echo-Lite-keyshield.uf2` |
 | ProMicro *(experimental)* | nRF52840 | SSD1306 128 × 64 | `solo-<version>-ProMicro.uf2` |
+| Simpson (DIY, [schematic](./docs/solo/hardware.md#simpson)) *(experimental)* | nRF52840 | SH1106 128 × 64 | `solo-<version>-Simpson.uf2` |
 
 Firmware files are on the [releases page](https://github.com/MarekZegare4/MeshCore-Solo/releases). Every binary serves the companion app over Bluetooth and USB serial at the same time.
 
-Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo/hardware.md#wiring-on-the-heltec-v3--v4); ProMicro needs a CardKB; the T-Echo Lite needs the KeyShield. The rest work out of the box.
+Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo/hardware.md#wiring-on-the-heltec-v3--v4); ProMicro needs a CardKB; the T-Echo Lite needs the KeyShield; Simpson has its own keypad. The rest work out of the box.
 
 ---
 
@@ -91,6 +92,6 @@ Questions and feedback: the [Solo firmware thread](https://discord.com/channels/
 
 ## Contributors
 
-Big thanks to [vanous](https://github.com/vanous), [marczykm](https://github.com/marczykm), [tchellow](https://github.com/tchellow), [3urobeat](https://github.com/3urobeat) and [pmow](https://github.com/pmow).
+Big thanks to [vanous](https://github.com/vanous), [marczykm](https://github.com/marczykm), [tchellow](https://github.com/tchellow), [3urobeat](https://github.com/3urobeat), [pmow](https://github.com/pmow) and [sim1988son](https://github.com/sim1988son).
 
 Built on upstream [MeshCore](https://github.com/meshcore-dev/MeshCore) and its [community](https://github.com/meshcore-dev/MeshCore/graphs/contributors).

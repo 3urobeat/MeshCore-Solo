@@ -11,7 +11,7 @@ same with nothing plugged in.
 | GAT562 30S Mesh Kit | — | built in |
 | Heltec V3 / V4 | soldered (below) | soldered (below) |
 | ProMicro | on the main I2C bus (required: it has no buttons) | — |
-| Cardputer ADV, T-Echo Lite + KeyShield | built-in keyboard instead | — |
+| Cardputer ADV, T-Echo Lite + KeyShield, Simpson | built-in keyboard instead | — |
 
 ### CardKB
 
@@ -107,6 +107,46 @@ Settings › Display has a few settings of its own:
 
 The panel refreshes only when what it shows changes. Times are shown to the
 minute (no seconds counting up), and clock seconds are hidden by default.
+
+## Simpson
+
+A DIY board by [sim1988son](https://github.com/sim1988son), an extended
+FakeTec: a ProMicro nRF52840 with a RA-01S (SX1262) radio, an ATGM336H GPS,
+a 1.3" SH1106 OLED, a 4×4 keypad on a PCF8574 I2C expander (address 0x20),
+a buzzer and a vibration motor. The GPS, the buzzer and the motor are each
+switched by a MOSFET.
+
+[![Simpson schematic](./hardware/simpson-schematic.png)](./hardware/simpson-schematic.pdf)
+
+The schematic as a PDF: [simpson-schematic.pdf](./hardware/simpson-schematic.pdf).
+The build is `solo-<version>-Simpson.uf2`; pins are in
+[`variants/simpson`](../../variants/simpson).
+
+### The keypad
+
+**Fn** steps through four modes, shown in the corner of a text field and as
+an alert: **Ctl** (navigation), **abc**, **ABC** and **123**. Bluetooth, GPS
+and the brightness keys do the same in every mode.
+
+Ctl:
+
+| | | | |
+| :-: | :-: | :-: | :-: |
+| Back | Up | — | Bluetooth page |
+| Left | Enter | Right | Brightness + |
+| Symbols | Down | — | Brightness − |
+| Messages | — | **Fn** | Status page |
+
+abc / ABC (T9: pressing a key again cycles its letters) and 123:
+
+| | | | |
+| :-: | :-: | :-: | :-: |
+| `.,?!` / 1 | ABC / 2 | DEF / 3 | Bluetooth page |
+| GHI / 4 | JKL / 5 | MNO / 6 | Brightness + |
+| PQRS / 7 | TUV / 8 | WXYZ / 9 | Brightness − |
+| Backspace | Space / 0 | **Fn** | Status page |
+
+Symbols opens the keyboard's symbols page while a text field is open.
 
 ## Wio Tracker L2
 
