@@ -40,6 +40,9 @@ bool SH1106Display::begin()
   // spi_dev NULL, and UITask::begin() calls turnOn() regardless of our
   // return value, which then dereferences the null spi_dev.
   bool ok = display.begin(addr ? addr : DISPLAY_ADDRESS, true);
+#ifdef DISPLAY_ROTATION
+  display.setRotation(DISPLAY_ROTATION);
+#endif
   return addr != 0 && ok;
 }
 

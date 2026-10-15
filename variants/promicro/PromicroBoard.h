@@ -5,7 +5,9 @@
 #include <helpers/NRF52Board.h>
 
 #define  PIN_VBAT_READ 17
-#define  ADC_MULTIPLIER   (1.815f) // dependent on voltage divider resistors. TODO: more accurate battery tracking
+#ifndef ADC_MULTIPLIER
+  #define  ADC_MULTIPLIER   (1.815f) // dependent on voltage divider resistors. TODO: more accurate battery tracking
+#endif
 
 class PromicroBoard : public NRF52BoardDCDC {
 protected:

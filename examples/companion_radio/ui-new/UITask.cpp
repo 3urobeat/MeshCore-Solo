@@ -11,6 +11,9 @@
 #include "target.h"
 
 #include "CardKB.h"
+#if defined(SIMPSON)
+  #include <string.h>
+#endif
 #ifdef WIFI_SSID
   #include <WiFi.h>
 #endif
@@ -120,6 +123,13 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _sensors = sensors;
   _node_prefs = node_prefs;
   _kb.prefs = node_prefs;
+#if defined(SIMPSON)
+  if (!_simpson_keypad.begin()) {
+    MESH_DEBUG_PRINTLN("Simpson keypad initialization failed");
+  }
+  _kb.input_mode_hint = "Ctl";
+  _kb.hide_keyboard_grid = true;
+#endif
   if (node_prefs) battery::useCurve(node_prefs->batt_curve_mv);   // Settings > Battery curve
   uint32_t aoff = autoOffMillis();
   _auto_off = millis() + (aoff > 0 ? aoff : AUTO_OFF_MILLIS);
@@ -401,6 +411,20 @@ void UITask::gotoMessagesScreen() {
   ((MessagesScreen*)messages_screen)->reset();
   setCurrScreen(messages_screen);
 }
+
+#if defined(SIMPSON)
+void UITask::gotoBluetoothHomePage() {
+  setCurrScreen(home);
+  static_cast<HomeScreen*>(home)->showBluetoothPage();
+  _next_refresh = 0;
+}
+
+void UITask::gotoGpsHomePage() {
+  setCurrScreen(home);
+  static_cast<HomeScreen*>(home)->showGpsPage();
+  _next_refresh = 0;
+}
+#endif
 
 #ifdef SIM_PLATFORM
 void UITask::simMessage(const char* text) {
@@ -1066,6 +1090,114 @@ void UITask::pollHallSensor() {
 #endif
 }
 
+#if defined(SIMPSON)
+void UITask::pollSimpsonKeypad() {
+  const uint8_t key = _simpson_keypad.poll();
+  if (key != SIMPSON_KEY_NONE) handleSimpsonKeypadKey(key);
+}
+
+void UITask::handleSimpsonKeypadKey(uint8_t key) {
+  if (checkDisplayOn(KEY_ENTER) == 0 || (_locked && !_unlock_kb)) return;
+
+  const uint32_t auto_off = autoOffMillis();
+  if (auto_off > 0) _auto_off = millis() + auto_off;
+
+  if (key == SIMPSON_KEY_MODE_CHANGED) {
+    static const char* const modes[] = { "Ctl", "abc", "ABC", "123" };
+    _kb.input_mode_hint = modes[_simpson_keypad.mode()];
+    _kb.hide_keyboard_grid = true;
+    showAlert(modes[_simpson_keypad.mode()], 1200);
+    _next_refresh = 0;
+    return;
+  }
+
+  switch (key) {
+    case SIMPSON_KEY_CANCEL:
+      enqueueKey(KEY_CANCEL);
+      break;
+    case SIMPSON_KEY_UP:
+      enqueueKey(KEY_UP);
+      break;
+    case SIMPSON_KEY_DOWN:
+      enqueueKey(KEY_DOWN);
+      break;
+    case SIMPSON_KEY_LEFT:
+      enqueueKey(KEY_LEFT);
+      break;
+    case SIMPSON_KEY_RIGHT:
+      enqueueKey(KEY_RIGHT);
+      break;
+    case SIMPSON_KEY_ENTER:
+      enqueueKey(_unlock_kb ? KEY_KB_ENTER : KEY_ENTER);
+      break;
+    case SIMPSON_KEY_BLUETOOTH:
+      if (!_unlock_kb) gotoBluetoothHomePage();
+      break;
+    case SIMPSON_KEY_GPS:
+      if (!_unlock_kb) gotoGpsHomePage();
+      break;
+    case SIMPSON_KEY_MESSAGES:
+      if (!_unlock_kb) gotoMessagesScreen();
+      break;
+    case SIMPSON_KEY_BRIGHTNESS_UP:
+    case SIMPSON_KEY_BRIGHTNESS_DOWN:
+      if (!_unlock_kb && _node_prefs) {
+        uint8_t& brightness = _node_prefs->display_brightness;
+        if (key == SIMPSON_KEY_BRIGHTNESS_UP && brightness < 4) ++brightness;
+        if (key == SIMPSON_KEY_BRIGHTNESS_DOWN && brightness > 0) --brightness;
+        applyBrightness();
+        bool dirty = true;
+        savePrefsIfDirty(dirty);
+      }
+      break;
+    case SIMPSON_KEY_SYMBOLS:
+      if (_unlock_kb) break;
+      if (_kb.isVisible()) _kb.openSymbolsPage();
+      else showAlert("Open a text field first", 1200);
+      break;
+    case SIMPSON_KEY_BACKSPACE:
+      if (_kb.isVisible()) {
+        if (_unlock_kb) handleUnlockKey(0x08);
+        else _kb.backspaceTyped();
+      } else {
+        enqueueKey(KEY_CANCEL);
+      }
+      break;
+    default:
+      if (_kb.isVisible()) {
+        const auto typeInput = [this](char c) {
+          if (_unlock_kb) handleUnlockKey(c);
+          else _kb.handleInput(c);
+        };
+        switch (_simpson_keypad.mode()) {
+          case SIMPSON_KEYPAD_ABC:
+          case SIMPSON_KEYPAD_ABC_UPPER:
+            if (key == ',') {
+              _kb.typePhysicalT9Cell(0, _simpson_keypad.mode() == SIMPSON_KEYPAD_ABC_UPPER);
+            } else {
+              static const char t9_keys[] = "ADGJMPTW";
+              const char* found = strchr(t9_keys, (char)key);
+              if (found) {
+                _kb.typePhysicalT9Cell((int)(found - t9_keys) + 1,
+                  _simpson_keypad.mode() == SIMPSON_KEYPAD_ABC_UPPER);
+              } else if (key == ' ') {
+                typeInput(' ');
+              }
+            }
+            break;
+          case SIMPSON_KEYPAD_NUMERIC:
+            if (key >= '0' && key <= '9') typeInput((char)key);
+            break;
+          case SIMPSON_KEYPAD_CONTROL:
+            break;
+        }
+      }
+      break;
+  }
+  _next_refresh = 0;
+}
+#endif
+
 #include "PerfL1.h"
 
 void UITask::loop() {
@@ -1293,6 +1425,9 @@ void UITask::loop() {
   }
 #endif
   pollCardKB();
+#if defined(SIMPSON)
+  pollSimpsonKeypad();
+#endif
   pollHallSensor();
 #ifdef ENV_USE_TCA8418
   {

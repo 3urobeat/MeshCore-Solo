@@ -291,6 +291,9 @@ struct KeyboardWidget {
   // next letter, then reverts) — Hold-Enter on Shift toggles caps_lock, which
   // keeps it on for a whole run of capitals instead.
   bool caps_lock = false;
+  bool _physical_t9_input = false;
+  const char* input_mode_hint = nullptr;
+  bool hide_keyboard_grid = false;
   // Set by render() every time it's actually called; UITask clears it before
   // curr->render() each frame (beginFrame()) so it reflects only "was the
   // keyboard the thing on screen this frame" -- lets the alert overlay (new
@@ -355,6 +358,16 @@ struct KeyboardWidget {
   // the #@/abc key's existing cycle (case 4 below) reaches it for free.
   int totalPages() const { return hasAltAlphabet() ? 3 : 2; }
   bool pageIsSymbols(int pg) const { return pg == totalPages() - 1; }
+  void openSymbolsPage() {
+    if (!_visible || isPin() || _ph_menu.active || cursor_mode || accent_active) return;
+    page = totalPages() - 1;
+    t9_cell = -1;
+  }
+
+  void backspaceTyped() {
+    if (_visible) handleInput(0x08);
+  }
+
   // Which script (Latin/Cyrillic/Greek) the given non-symbols page shows.
   uint8_t scriptAt(int pg) const { return pg == 0 ? mainScript() : altScript(); }
 
@@ -492,6 +505,29 @@ struct KeyboardWidget {
     insertGlyph(one, false);
   }
 
+#if defined(SIMPSON)
+  void typePhysicalT9Cell(int cell, bool uppercase) {
+    if (!_visible || isPin() || cell < 0 || cell >= KB_T9_ROWS * KB_T9_COLS ||
+        _ph_menu.active || cursor_mode || accent_active) return;
+
+    const int saved_row = row;
+    const int saved_col = col;
+    const int saved_page = page;
+    const bool saved_caps = caps;
+    row = cell / KB_T9_COLS;
+    col = cell % KB_T9_COLS;
+    page = 0;
+    caps = uppercase;
+    _physical_t9_input = true;
+    handleInput(KEY_ENTER);
+    _physical_t9_input = false;
+    row = saved_row;
+    col = saved_col;
+    page = saved_page;
+    caps = saved_caps;
+  }
+#endif
+
   void clearPlaceholders() { _ph_count = 0; }
 
   void addPlaceholder(const char* ph) {
@@ -604,7 +640,8 @@ struct KeyboardWidget {
     // lines, so the preview keeps the same height whichever mode is on.
     // A tall screen (the 4.2" panel: 20 lines) gives the keys half a line more each.
     const int key_lh    = display.height() >= 18 * lh ? lh * 3 / 2 : lh;
-    const int kb_h      = compact_ui ? (KB_T9_ROWS + 1) * lh : (rows + 1) * key_lh;
+    const bool hide_grid = hide_keyboard_grid && !isPin();
+    const int kb_h      = hide_grid ? lh : (compact_ui ? (KB_T9_ROWS + 1) * lh : (rows + 1) * key_lh);
     const int preview_h = display.height() - kb_h - display.sepH();
     const int prev_lines = (preview_h / lh) > 1 ? (preview_h / lh) : 1;
     const int sep_y   = prev_lines * lh;
@@ -794,13 +831,21 @@ struct KeyboardWidget {
     // submit -- so they get no hint of their own). Physical buttons (if used
     // instead of/alongside CardKB) still drive row/col/page as normal; it
     // just won't be visible on this screen which cell is selected.
-    if (compact_ui) {
-      display.setColor(UIColor::primary_txt);
-      if (cursor_mode) {
-        display.drawTextCentered(display.width() / 2, chars_y, "<> char  ^v word");
-      } else {
-        display.drawTextCentered(display.width() / 2, chars_y, "Tab: placeholders");
-        display.drawTextCentered(display.width() / 2, chars_y + lh, "Fn+letter: accent");
+    if (compact_ui || hide_grid) {
+      if (!hide_grid) {
+        display.setColor(UIColor::primary_txt);
+        if (cursor_mode) {
+          display.drawTextCentered(display.width() / 2, chars_y, "<> char  ^v word");
+        } else {
+          display.drawTextCentered(display.width() / 2, chars_y, "Tab: placeholders");
+          display.drawTextCentered(display.width() / 2, chars_y + lh, "Fn+letter: accent");
+        }
+      } else if (input_mode_hint) {
+        char hint[40];
+        snprintf(hint, sizeof(hint), "FN: %s", input_mode_hint);
+        display.setColor(UIColor::primary_txt);
+        display.setCursor(display.width() - display.getTextWidth(hint) - 2, display.height() - lh);
+        display.print(hint);
       }
     } else {
       // character grid
@@ -1228,7 +1273,11 @@ struct KeyboardWidget {
       // the special row's DONE cell -- same as a physical button. CardKB's
       // own Enter is only ever KEY_ENTER when that's true (see pollCardKB()'s
       // KEY_KB_ENTER cases just above), so there's no ambiguity here.
-      if (row < rows && isT9()) {
+      if (row < rows && isT9()
+#if defined(SIMPSON)
+          && !_physical_t9_input
+#endif
+      ) {
         int cell = row * cols + col;
         const char* group = t9GroupStr(cell);
         int glen = kbUtf8Len(group);       // codepoint count, not byte length

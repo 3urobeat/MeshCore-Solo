@@ -8,6 +8,9 @@
 #include <helpers/ContactInfo.h>
 #include <Arduino.h>
 #include <helpers/sensors/LPPDataHelpers.h>
+#if defined(SIMPSON)
+  #include <SimpsonKeypad.h>
+#endif
 
 #ifndef LED_STATE_ON
   #define LED_STATE_ON 1
@@ -80,6 +83,9 @@ class UITask : public UITaskBase, public UiCoreHost {
   // each) + NUL = 372B, rounded up with margin.
   char _bot_buzz_buf[400];
   KeyboardWidget _kb;        // shared across all screens — only one active at a time
+#if defined(SIMPSON)
+  SimpsonKeypad _simpson_keypad;
+#endif
   unsigned long _alert_expiry;
   unsigned long _alert_t0 = 0;   // when the banner began to come down
   // Settings > Message alert Compact: the alert is an envelope and a count
@@ -231,6 +237,10 @@ private:
 #endif
 #endif
   void pollCardKB();
+#if defined(SIMPSON)
+  void pollSimpsonKeypad();
+  void handleSimpsonKeypadKey(uint8_t key);
+#endif
   void handleCardKBByte(uint8_t raw);
   void setCardKBBackground(bool on);   // no-op without CardKB / the poll task
   void startCardKBCapture();           // end of begin(): start the poll task
@@ -306,6 +316,10 @@ public:
   void gotoHomeScreen() { setCurrScreen(home); }
   void gotoSettingsScreen();
   void gotoMessagesScreen();
+#if defined(SIMPSON)
+  void gotoBluetoothHomePage();
+  void gotoGpsHomePage();
+#endif
 #ifdef SIM_PLATFORM
   void simCompose(const char* text);   // sim tests: a channel post's keyboard holding `text`
   void simMessage(const char* text);   // sim tests: a channel message arrives
