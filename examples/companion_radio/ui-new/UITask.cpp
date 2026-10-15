@@ -39,7 +39,7 @@
 // outright rather than fall back, which quietly made every ui-new env on those
 // boards unbuildable (heltec v3/v4, thinknode m1/m5, mesh pocket, techo).
 #ifndef MESHCORE_VERSION
-  #define MESHCORE_VERSION    "1.17.1"
+  #define MESHCORE_VERSION    "1.18.0"
 #endif
 #define BOOT_SCREEN_MILLIS   3000   // 3 seconds
 
