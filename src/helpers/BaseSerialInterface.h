@@ -16,14 +16,13 @@ public:
   virtual bool isConnected() const = 0;
   virtual void loop() {};
   // Returns true when a BLE companion app is connected. Default delegates to
-  // isConnected(); override in dual-interface wrappers that always report
-  // isConnected()=true but still need to distinguish BLE from USB state.
+  // isConnected(); MultiSerialInterface asks its Bluetooth interfaces only.
   virtual bool isBLEConnected() const { return isConnected(); }
   // True when a companion app is actually connected over *any* transport
   // (BLE bonded or a host holding the USB-CDC port open). Distinct from
-  // isConnected(), which a dual interface hardcodes true as a send fallback.
-  // Used for app-connected UI (Auto buzzer mute, message-wake). Default =
-  // isConnected() so single-transport interfaces are unchanged.
+  // isConnected(), which a USB serial port reports true even with nothing on
+  // the other end (it can't tell). Used for app-connected UI (Auto buzzer
+  // mute, message-wake). Default = isConnected().
   virtual bool isClientConnected() const { return isConnected(); }
 
   // For a loop that sleeps between passes: frames waiting to be read or sent.

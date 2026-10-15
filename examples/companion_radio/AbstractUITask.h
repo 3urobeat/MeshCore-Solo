@@ -40,7 +40,7 @@ protected:
   }
 
   // hasConnection() means "a BLE companion app is connected". Not isConnected()
-  // (a dual interface hardcodes that true as a USB send-fallback). Drives the BT
+  // (true whenever the build has a USB serial port). Drives the BT
   // status indicator, pairing PIN, and the GPX-export collision warning — all
   // BLE-specific. The Auto buzzer mute / message-wake use isClientConnected()
   // (BLE *or* an open USB port) directly instead. Each UI calls this at the top
@@ -86,9 +86,9 @@ public:
   }
   bool hasConnection() const { return _connected; }
   virtual void onBLEDisconnected() {}
-  // True only when a BLE central is actually bonded/connected. On a dual
-  // (BLE+USB) interface hasConnection() is always true (USB counts), so use
-  // this for BLE-specific UI like the pairing-PIN prompt.
+  // True only when a BLE central is actually bonded/connected, right now
+  // (hasConnection() is the same, as of the last pollConnection()). For
+  // BLE-specific UI like the pairing-PIN prompt.
   bool isBLEConnected() const { return _serial->isBLEConnected(); }
   // True when a companion app is connected over any transport (BLE bonded or an
   // open USB-CDC port). For app-connected behaviour like Auto buzzer mute.

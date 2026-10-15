@@ -60,6 +60,15 @@ static bool commitTempFile(FILESYSTEM* fs, const char* tmp, const char* final_pa
 #endif
 }
 
+// Before a load: a restart between commitTempFile()'s remove and rename leaves
+// only the temp file, complete. (A save cut short leaves the old file beside
+// it, and the next save overwrites the temp. Only the very first save, cut
+// short, leaves a temp alone that is incomplete: the loaders stop at a short
+// record, and the JSON reader keeps what it read.)
+static void recoverTempFile(FILESYSTEM* fs, const char* tmp, const char* final_path) {
+  if (!fs->exists(final_path) && fs->exists(tmp)) fs->rename(tmp, final_path);
+}
+
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   static uint32_t _ContactsChannelsTotalBlocks = 0;
 #endif
@@ -441,6 +450,7 @@ static void removeStrayDir(FILESYSTEM* fs, const char* path) {
 void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) {
   removeStrayDir(_fs, "/prefs");
   if (_fs->exists("/prefs")) _fs->remove("/prefs");   // 2.0-rc's binary settings: 2.0 starts from the defaults
+  recoverTempFile(_fs, "/prefs.tmp", "/prefs.json");
   File file = openRead(_fs, "/prefs.json");
   if (file) {
     BufferedFile in(file);
@@ -536,6 +546,7 @@ void DataStore::restoreRTCTime() {
 }
 
 void DataStore::loadContacts(DataStoreHost* host) {
+recoverTempFile(_getContactsChannelsFS(), "/contacts3.tmp", "/contacts3");
 File file = openRead(_getContactsChannelsFS(), "/contacts3");
     if (file) {
       bool full = false;
@@ -614,6 +625,7 @@ void DataStore::saveContacts(DataStoreHost* host, bool (*filter)(const ContactIn
 
 bool DataStore::loadChannels(DataStoreHost* host) {
     FILESYSTEM* fs = _getContactsChannelsFS();
+    recoverTempFile(fs, "/channels3.tmp", "/channels3");
     File file = openRead(fs, "/channels3");
     if (file) {
       // /channels3: the leading 4-byte field's first byte is the channel's
@@ -735,6 +747,7 @@ void DataStore::saveChannels(DataStoreHost* host) {
 }
 
 bool DataStore::loadScopeList(ScopeList& list, const NodePrefs& prefs) {
+  recoverTempFile(_fs, "/scopes1.tmp", "/scopes1");
   File file = openRead("/scopes1");
   if (file) {
     uint8_t hdr[2] = { 0, 0 };   // default_idx is read back below even if the header read fails

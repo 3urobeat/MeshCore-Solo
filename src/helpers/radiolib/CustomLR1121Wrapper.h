@@ -41,6 +41,8 @@ public:
 
   float getLastRSSI() const override { return ((CustomLR1121 *)_radio)->getRSSI(); }
   float getLastSNR() const override { return ((CustomLR1121 *)_radio)->getSNR(); }
+  float readLiveRSSI() const override { return ((CustomLR1121 *)_radio)->getRSSI(); }
+  float readLiveSNR() const override { return ((CustomLR1121 *)_radio)->getSNR(); }
 
   uint8_t getSpreadingFactor() const override { return ((CustomLR1121 *)_radio)->getSpreadingFactor(); }
   

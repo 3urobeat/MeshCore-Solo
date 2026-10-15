@@ -335,8 +335,7 @@ class HomeScreen : public UIScreen {
       if (!on)                            strcpy(v, "-");
       else if (_task->isBLEConnected())   strcpy(v, "Connected");
       // The pairing PIN is BLE-specific: show it while BLE is on but not yet
-      // bonded. (Gating on a plain isConnected() broke this on dual builds,
-      // where it's hardcoded true.)
+      // bonded. (Not a plain isConnected(): a USB port makes that true.)
       else if (the_mesh.getBLEPin() != 0) snprintf(v, sizeof(rows[0].value), "PIN %d", (int)the_mesh.getBLEPin());
       else                                strcpy(v, "Waiting");
     } else if (page == ADVERT) {
