@@ -77,14 +77,14 @@ TEST(AlarmRepeatRoundTrip, AnArbitraryNonPresetMaskReadsAsOff) {
 }
 
 TEST(AlarmRepeatLabel, MatchesEachPresetIndex) {
-  EXPECT_STREQ("OFF", NodePrefs::alarmRepeatLabel(0));
+  EXPECT_STREQ("Once", NodePrefs::alarmRepeatLabel(0));
   EXPECT_STREQ("Daily", NodePrefs::alarmRepeatLabel(1));
   EXPECT_STREQ("Weekdays", NodePrefs::alarmRepeatLabel(2));
   EXPECT_STREQ("Weekends", NodePrefs::alarmRepeatLabel(3));
 }
 
-TEST(AlarmRepeatLabel, OutOfRangeIndexClampsToOff) {
-  EXPECT_STREQ("OFF", NodePrefs::alarmRepeatLabel(99));
+TEST(AlarmRepeatLabel, OutOfRangeIndexClampsToOnce) {
+  EXPECT_STREQ("Once", NodePrefs::alarmRepeatLabel(99));
 }
 
 TEST(KeyboardAlphabetLabel, MatchesEachAlphabetIndex) {

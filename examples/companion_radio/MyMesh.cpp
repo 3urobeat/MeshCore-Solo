@@ -311,7 +311,7 @@ int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
 }
 
 uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * 0.5f);
+  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * _prefs.tx_delay_factor);
   uint32_t d = getRNG()->nextInt(0, 5*t + 1);
   // Yield filter (Tools > Repeater): scale the flood retransmit delay so a
   // mobile companion waits longer and lets better-sited fixed repeaters win the
@@ -320,7 +320,7 @@ uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
   return d * (1 + _prefs.repeat_delay_boost);
 }
 uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * 0.2f);
+  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
@@ -1316,29 +1316,6 @@ void MyMesh::onAckRecv(mesh::Packet* packet, uint32_t ack_crc) {
   if (_listener) _listener->onACKRecv(ack_crc);
 }
 
-// The board's own settings (upstream's dynamic prefs, a key-value store), over
-// the NodePrefs fields that hold them here: a board with a LoRa front end
-// reads "fem_rxgain" / "fem_txgain" at begin() and writes them from its CLI.
-bool MyMesh::BoardPrefs::getByKey(const char* key, char* value, size_t max_len) {
-  uint8_t* f = field(key);
-  if (!f || max_len < 2) return false;
-  value[0] = *f ? '1' : '0';
-  value[1] = 0;
-  return true;
-}
-bool MyMesh::BoardPrefs::setByKey(const char* key, const char* value) {
-  uint8_t* f = field(key);
-  if (!f) return false;
-  *f = strcmp(value, "1") == 0 ? 1 : 0;
-  _mesh->savePrefs();
-  return true;
-}
-uint8_t* MyMesh::BoardPrefs::field(const char* key) {
-  if (strcmp(key, "fem_rxgain") == 0) return &_mesh->_prefs.radio_fem_rxgain;
-  if (strcmp(key, "fem_txgain") == 0) return &_mesh->_prefs.radio_fem_txgain;
-  return nullptr;
-}
-
 MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
     // Sized to match simple_repeater's pool (32), not the old client-only 16: with the
     // on-device Repeater toggle, queued retransmits (adverts/channel flood from
@@ -1347,7 +1324,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
     // silently drops every incoming packet — DMs and channels included — until a slot
     // frees up.
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(32), tables),
-      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _listener(NULL), _iter(0), _board_prefs(this) {
+      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _listener(NULL), _iter(0) {
   _iter_started = false;
   _cli_rescue = false;
   cli_command[0] = 0;
@@ -1392,9 +1369,11 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   repeat_scope_count = 0;
 
   // defaults
-  memset(&_prefs, 0, sizeof(_prefs));
+  _prefs.clearFields();
   memset(_prefs.ch_scope_idx, NodePrefs::CH_SCOPE_DEFAULT, sizeof(_prefs.ch_scope_idx));
   _prefs.airtime_factor = 1.0;
+  _prefs.tx_delay_factor = 0.5f;
+  _prefs.direct_tx_delay_factor = 0.2f;
   strcpy(_prefs.node_name, "NONAME");
   _prefs.freq = LORA_FREQ;
   _prefs.sf = LORA_SF;
@@ -1507,6 +1486,8 @@ void MyMesh::begin() {
   if (isnan(_prefs.airtime_factor) || isinf(_prefs.airtime_factor)) _prefs.airtime_factor = 0;
   if (isnan(_prefs.rx_delay_base)  || isinf(_prefs.rx_delay_base))  _prefs.rx_delay_base  = 0;
   _prefs.rx_delay_base = constrain(_prefs.rx_delay_base, 0, 20.0f);
+  _prefs.tx_delay_factor = constrain(_prefs.tx_delay_factor, 0, 2.0f);
+  _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 150.0f, 2500.0f);
   _prefs.bw = constrain(_prefs.bw, 7.8f, 500.0f);
@@ -1540,7 +1521,7 @@ void MyMesh::begin() {
 #else
   radio_driver.setPowerSaving(false);   // see Features.h FEAT_RX_POWERSAVE -- ignore any stale persisted rx_powersave byte
 #endif
-  board.attachDynamicPrefs(&_board_prefs);   // FEM gains: the board reads them now, and its CLI sets them
+  board.attachDynamicPrefs(_prefs.getCustom());   // the board's own settings (FEM gains): read now, set by its CLI
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
 }

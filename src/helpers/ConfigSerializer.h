@@ -11,7 +11,9 @@
 #endif
 
 #ifndef CONFIG_MAX_TOKEN_LEN
-  #define CONFIG_MAX_TOKEN_LEN   128
+  // A value read whole: the companion's longest are 140-byte texts and an
+  // 80-byte table in hex (160).
+  #define CONFIG_MAX_TOKEN_LEN   192
 #endif
 
 class ConfigSerializer {

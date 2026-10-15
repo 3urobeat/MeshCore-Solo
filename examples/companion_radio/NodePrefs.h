@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <stdio.h>
 #include <time.h>
+#include <helpers/ConfigSerializer.h>
+#include <helpers/DynamicConfigSerializer.h>
 
 // Firmware's own boot-default radio params — used both as the companion's
 // initial freq/sf/bw/cr (MyMesh.cpp) and, here, as the seed for a never-
@@ -44,12 +46,11 @@ static inline float defaultRepeaterFreqForBand(float companion_freq) {
 #define ADVERT_SOUND_SCOPE_ALL        0
 #define ADVERT_SOUND_SCOPE_ZERO_HOP   1
 
-struct NodePrefs {  // persisted to file
-  // Saved to /prefs as it is in memory (DataStore::savePrefs): a new field
-  // goes at the END of the struct and needs nothing else -- an older file is
-  // shorter, so the field keeps its default (MyMesh's constructor). Moving,
-  // resizing or removing a field shifts the ones after it: bump PREFS_VERSION
-  // then, and every device starts again from the defaults.
+// The settings' fields. NodePrefs (below) adds how they're saved: /prefs.json,
+// one key per field (NodePrefs::structure()). A new field goes anywhere here
+// and gets a key there; a file without it leaves the default (MyMesh's
+// constructor), and a key no field has any more is skipped.
+struct NodePrefsFields {
 
   // ── Identity & scope ──────────────────────────────────────────────────
   char node_name[32];
@@ -95,6 +96,12 @@ struct NodePrefs {  // persisted to file
   // these yet: they keep the constructor default (MyMesh.cpp).
   uint8_t radio_fem_rxgain;
   uint8_t radio_fem_txgain;
+  // Retransmit delay factors (x airtime, the random window for a forwarded
+  // flood / direct packet) and the AGC reset interval (seconds / 4, 0 = off),
+  // as upstream's (CLI txdelay / direct.txdelay / agc.reset.interval).
+  float tx_delay_factor;
+  float direct_tx_delay_factor;
+  uint8_t agc_reset_interval;
   // User-saved radio presets, written by the "Save current..." entry in the
   // shared preset picker (Settings > Radio and Tools > Repeater both populate
   // these same slots). name[0] == '\0' marks an empty slot.
@@ -624,8 +631,6 @@ struct NodePrefs {  // persisted to file
 
   // /prefs' layout (see the comment at the top). A file of another version
   // isn't read: the defaults stand.
-  static const uint16_t PREFS_VERSION = 2;   // 2: 2.0 layout, rc1-rc3 files start from the defaults
-
   // Bit-index for each home page. Used by page_order (entries store bit+1) and
   // by home_pages_mask. Single source of truth — both HomeScreen::pageBit/bitToPage
   // and SettingsScreen::homePageBitIndex route their per-enum lookups through these.
@@ -694,6 +699,264 @@ struct NodePrefs {  // persisted to file
     }
     if (pos < size) buf[pos] = '\0';
   }
+};
+
+// The settings, saved as /prefs.json (DataStore). What upstream's companion
+// has is under its keys -- "radio", "gps", "repeat", "comp", "custom" -- so
+// either firmware reads what the other wrote of it; the rest is under "solo".
+// Keys are at most 15 characters (ConfigSerializer). Byte arrays and 64-bit
+// masks go as hex.
+class NodePrefs : public NodePrefsFields, public ConfigSerializer {
+  // A section: a ConfigSerializer whose structure() is one of NodePrefs's.
+  class Section : public ConfigSerializer {
+    NodePrefs* _p;
+    void (NodePrefs::*_fn)(Section&);
+  protected:
+    void structure() override { (_p->*_fn)(*this); }
+  public:
+    Section(NodePrefs* p, void (NodePrefs::*fn)(Section&)) : _p(p), _fn(fn) { }
+    using ConfigSerializer::def;
+    template <typename T> void hex(const char* key, T& v) { def(key, (void*)&v, sizeof(v)); }
+    void sub(const char* key, Section& s) { def(key, s); }
+  };
+
+  // The board's own settings (Board::attachDynamicPrefs()): the LoRa front
+  // end's gains are fields here; any other key a board has is kept in
+  // `custom` as it is upstream.
+  class FemPrefs : public KeyValueStore {
+    NodePrefs* _p;
+    uint8_t* field(const char* key) {
+      if (strcmp(key, "fem_rxgain") == 0) return &_p->radio_fem_rxgain;
+      if (strcmp(key, "fem_txgain") == 0) return &_p->radio_fem_txgain;
+      return nullptr;
+    }
+  public:
+    FemPrefs(NodePrefs* p) : _p(p) { }
+    bool getByKey(const char* key, char* value, size_t max_len) override {
+      uint8_t* f = field(key);
+      if (!f || max_len < 2) return false;
+      value[0] = *f ? '1' : '0';
+      value[1] = 0;
+      return true;
+    }
+    bool setByKey(const char* key, const char* value) override {
+      uint8_t* f = field(key);
+      if (!f) return false;
+      *f = atoi(value) ? 1 : 0;
+      _p->markDirty();
+      return true;
+    }
+  };
+
+  // ── upstream's sections ──
+  void radioKeys(Section& s) {
+    s.def("freq", freq); s.def("bw", bw); s.def("sf", sf); s.def("cr", cr);
+    s.def("cad", cad_enabled); s.def("int_thr", interference_threshold);
+    s.def("rxgain", rx_boosted_gain);
+    s.def("fem_rxgain", radio_fem_rxgain); s.def("fem_txgain", radio_fem_txgain);
+    s.def("tx", tx_power_dbm); s.def("af", airtime_factor); s.def("rxdelay", rx_delay_base);
+    s.def("f_txdelay", tx_delay_factor); s.def("d_txdelay", direct_tx_delay_factor);
+    s.def("agc_int", agc_reset_interval);
+    s.def("hash_mode", path_hash_mode); s.def("multi_ack", multi_acks);
+  }
+  void gpsKeys(Section& s) {
+    s.def("en", gps_enabled); s.def("int", gps_interval); s.def("adv_loc", advert_loc_policy);
+  }
+  void repeatKeys(Section& s) {   // upstream keeps "disable", the inverse
+    uint8_t off = client_repeat ? 0 : 1;
+    s.def("disable", off);
+    client_repeat = off ? 0 : 1;
+  }
+  void compKeys(Section& s) {
+    s.def("auto_max", autoadd_max_hops);
+    s.def("defs_nm", default_scope_name, sizeof(default_scope_name));
+    s.hex("defs_key", default_scope_key);
+    s.def("pin", ble_pin); s.def("buzz_q", buzzer_quiet);
+    s.def("auto_add", autoadd_config); s.def("man_add", manual_add_contacts);
+    s.def("tel_base", telemetry_mode_base); s.def("tel_loc", telemetry_mode_loc);
+    s.def("tel_env", telemetry_mode_env);
+    s.def("tz_offset", tz_offset_hours);
+  }
+
+  // ── this firmware's ("solo") ──
+  void radioSolo(Section& s) {
+    s.def("rx_ps", rx_powersave); s.def("apc", tx_apc); s.def("dm_resend", dm_resend_count);
+    char k[4] = "p0";
+    for (int i = 0; i < USER_RADIO_PRESET_MAX; i++) {
+      k[1] = '0' + i;
+      s.sub(k, preset[i]);
+    }
+  }
+  void presetKeys(Section& s) {
+    for (int i = 0; i < USER_RADIO_PRESET_MAX; i++) {
+      if (&s != &preset[i]) continue;
+      UserRadioPreset& p = user_radio_presets[i];
+      s.def("name", p.name, sizeof(p.name));
+      s.def("freq", p.freq); s.def("bw", p.bw); s.def("sf", p.sf); s.def("cr", p.cr);
+    }
+  }
+  void repeaterSolo(Section& s) {
+    s.def("skip_adv", repeat_skip_adverts); s.def("max_hops", repeat_max_hops);
+    s.def("delay_boost", repeat_delay_boost); s.def("min_snr", repeat_min_snr);
+    s.def("sup_dup", repeat_suppress_dup); s.def("scope_only", repeat_scope_only);
+    s.def("extra_scopes", repeat_extra_scope_mask);
+    s.def("use_prof", repeater_use_profile);
+    s.def("freq", repeater_freq); s.def("bw", repeater_bw);
+    s.def("sf", repeater_sf); s.def("cr", repeater_cr);
+  }
+  void powerSolo(Section& s) {
+    s.def("ble_off", ble_off);
+    s.def("low_mv", low_batt_mv); s.def("batt_disp", batt_display_mode);
+    s.hex("curve", batt_curve_mv);
+  }
+  void displaySolo(Section& s) {
+    s.def("bright", display_brightness); s.def("bright_pct", display_brightness_pct);
+    s.def("auto_off", auto_off_secs); s.def("auto_lock", auto_lock);
+    s.def("lock_compact", lock_compact);
+    s.def("rot", display_rotation); s.def("joy_rot", joystick_rotation);
+    s.def("eink_full", eink_full_refresh_every);
+    s.def("text_scale", ui_text_scale); s.def("icon_scale", ui_icon_scale);
+    s.def("pages", home_pages_mask); s.hex("dash", dashboard_fields);
+    s.hex("order", page_order); s.def("order_set", page_order_set);
+    s.def("ch_sort", ch_sort); s.def("flow", flow_show);
+    s.def("kb", keyboard_type); s.def("kb_alt", keyboard_alt_alphabet);
+    s.def("kb_main", keyboard_main_alphabet); s.def("kb_cardkb", keyboard_cardkb_compact);
+  }
+  void clockSolo(Section& s) {
+    s.def("hide_sec", clock_hide_seconds); s.def("h12", clock_12h);
+    s.def("alarm", alarm_on); s.def("alarm_h", alarm_hour); s.def("alarm_m", alarm_min);
+    s.def("alarm_rep", alarm_repeat_mask);
+  }
+  void soundSolo(Section& s) {
+    s.def("vol", buzzer_volume); s.def("auto", buzzer_auto);
+    s.def("quiet", quiet_hours); s.def("quiet_from", quiet_from); s.def("quiet_to", quiet_to);
+    s.def("msg_wake", msg_wake); s.def("msg_alert", msg_alert);
+    s.def("rt_bpm", ringtone_bpm_idx); s.def("rt_len", ringtone_len); s.hex("rt", ringtone_notes);
+    s.def("rt2_bpm", ringtone2_bpm_idx); s.def("rt2_len", ringtone2_len); s.hex("rt2", ringtone2_notes);
+    s.def("mel_dm", notif_melody_dm); s.def("mel_ch", notif_melody_ch); s.def("mel_ad", notif_melody_ad);
+    s.def("adv_scope", advert_sound_scope);
+    s.hex("ch_over", ch_notif_override); s.hex("ch_muted", ch_notif_muted);
+    s.hex("ch_mel_set", ch_notif_melody_set); s.hex("ch_mel_2", ch_notif_melody_2);
+    s.hex("dm", dm_notif); s.hex("dm_mel", dm_melody);
+  }
+  void scopeSolo(Section& s) { s.hex("ch", ch_scope_idx); }
+  void botSolo(Section& s) {
+    s.def("dm_en", bot_enabled); s.def("dm_trig", bot_trigger, sizeof(bot_trigger));
+    s.def("dm_reply", bot_reply_dm, sizeof(bot_reply_dm));
+    s.def("dm_cmd", bot_commands_enabled); s.def("dm_act", bot_actions_dm); s.def("dm_scope", bot_dm_scope);
+    s.def("ch_en", bot_channel_enabled); s.def("ch_idx", bot_channel_idx);
+    s.def("ch_trig", bot_trigger_ch, sizeof(bot_trigger_ch));
+    s.def("ch_reply", bot_reply_ch, sizeof(bot_reply_ch));
+    s.def("ch_cmd", bot_commands_ch); s.def("ch_act", bot_actions_ch);
+    s.def("rm_en", bot_room_enabled); s.hex("rm_pfx", bot_room_prefix);
+    s.def("rm_trig", bot_trigger_room, sizeof(bot_trigger_room));
+    s.def("rm_reply", bot_reply_room, sizeof(bot_reply_room));
+    s.def("rm_cmd", bot_commands_room); s.def("rm_act", bot_actions_room);
+    s.def("q_start", bot_quiet_start); s.def("q_end", bot_quiet_end);
+  }
+  void gpsSolo(Section& s) {
+    s.def("imperial", units_imperial);
+    s.def("tr_delta", trail_min_delta_idx); s.def("tr_pace", trail_show_pace);
+    s.def("tr_pause", trail_autopause_idx); s.def("tr_lowbatt", trail_autosave_lowbatt);
+    s.def("avg", gps_avg_idx); s.def("trk_shared", track_shared_loc);
+    s.def("adv_auto", advert_auto_interval_sec); s.def("adv_prec", advert_loc_prec);
+  }
+  void shareSolo(Section& s) {
+    s.def("en", loc_share_enabled); s.def("tgt", loc_share_target_type);
+    s.def("ch", loc_share_channel_idx); s.hex("dm", loc_share_dm_prefix);
+    s.def("move", loc_share_move_idx); s.def("int", loc_share_interval_idx);
+    s.def("hb", loc_share_heartbeat_idx); s.def("scope", loc_share_scope);
+    s.def("dur", loc_share_duration_idx);
+  }
+  void locatorSolo(Section& s) {
+    s.def("en", locator_enabled); s.def("has", locator_has_target);
+    s.def("radius", locator_radius_idx); s.def("mode", locator_mode);
+    s.def("lat", locator_lat_1e6); s.def("lon", locator_lon_1e6);
+    s.def("label", locator_label, sizeof(locator_label));
+    s.def("kind", locator_target_kind); s.hex("key", locator_key);
+    s.def("beep", locator_beeper);
+  }
+  void listsSolo(Section& s) {
+    s.def("dm_all", dm_show_all); s.def("room_fav", room_fav_only);
+    s.hex("ch_fav", ch_fav_bitmask); s.def("ch_fav_only", ch_fav_only);
+    s.hex("favs", favourite_contacts); s.hex("fav_kinds", favourite_kinds);
+    s.def("fav_sort", fav_sort); s.def("expiry", contact_expiry_idx);
+  }
+  void gpioSolo(Section& s) {
+    s.def("m1", gpio1_mode); s.def("m2", gpio2_mode); s.def("m3", gpio3_mode); s.def("m4", gpio4_mode);
+  }
+  void msgsSolo(Section& s) {
+    char k[4] = "m0";
+    for (int i = 0; i < 10; i++) {
+      k[1] = '0' + i;
+      s.def(k, custom_msgs[i], sizeof(custom_msgs[i]));
+    }
+  }
+  void lockSolo(Section& s) { s.hex("hash", lock_screen_password); s.hex("salt", lock_screen_password_salt); }
+  void soloKeys(Section& s) {
+    s.sub("radio", radio_solo); s.sub("repeater", repeater_solo); s.sub("power", power_solo);
+    s.sub("display", display_solo); s.sub("clock", clock_solo); s.sub("sound", sound_solo);
+    s.sub("scope", scope_solo); s.sub("bot", bot_solo); s.sub("gps", gps_solo);
+    s.sub("share", share_solo); s.sub("locator", locator_solo); s.sub("lists", lists_solo);
+    s.sub("gpio", gpio_solo); s.sub("msgs", msgs_solo); s.sub("lock", lock_solo);
+  }
+
+  Section radio, gps, repeat, comp;
+  Section solo, radio_solo, preset[USER_RADIO_PRESET_MAX], repeater_solo, power_solo, display_solo,
+          clock_solo, sound_solo, scope_solo, bot_solo, gps_solo, share_solo, locator_solo,
+          lists_solo, gpio_solo, msgs_solo, lock_solo;
+  FemPrefs fem;
+  DynamicConfigSerializer custom;
+
+protected:
+  void structure() override {
+    def("name", node_name, sizeof(node_name));
+    def("lat", node_lat);
+    def("lon", node_lon);
+    def("radio", radio);
+    def("gps", gps);
+    def("repeat", repeat);
+    def("comp", comp);
+    def("custom", custom);
+    def("solo", solo);
+  }
+
+public:
+  // The node's position as the file holds it (MyMesh keeps it in `sensors`):
+  // DataStore sets it before a save and reads it after a load.
+  double node_lat = 0, node_lon = 0;
+
+  NodePrefs()
+    : radio(this, &NodePrefs::radioKeys), gps(this, &NodePrefs::gpsKeys),
+      repeat(this, &NodePrefs::repeatKeys), comp(this, &NodePrefs::compKeys),
+      solo(this, &NodePrefs::soloKeys), radio_solo(this, &NodePrefs::radioSolo),
+      preset{ {this, &NodePrefs::presetKeys}, {this, &NodePrefs::presetKeys},
+              {this, &NodePrefs::presetKeys}, {this, &NodePrefs::presetKeys} },
+      repeater_solo(this, &NodePrefs::repeaterSolo), power_solo(this, &NodePrefs::powerSolo),
+      display_solo(this, &NodePrefs::displaySolo), clock_solo(this, &NodePrefs::clockSolo),
+      sound_solo(this, &NodePrefs::soundSolo), scope_solo(this, &NodePrefs::scopeSolo),
+      bot_solo(this, &NodePrefs::botSolo), gps_solo(this, &NodePrefs::gpsSolo),
+      share_solo(this, &NodePrefs::shareSolo), locator_solo(this, &NodePrefs::locatorSolo),
+      lists_solo(this, &NodePrefs::listsSolo), gpio_solo(this, &NodePrefs::gpioSolo),
+      msgs_solo(this, &NodePrefs::msgsSolo), lock_solo(this, &NodePrefs::lockSolo),
+      fem(this), custom(&fem) {
+    clearFields();
+  }
+  // The sections point back at this object: it isn't copied.
+  NodePrefs(const NodePrefs&) = delete;
+  NodePrefs& operator=(const NodePrefs&) = delete;
+
+  // Every field zero (MyMesh then sets the defaults).
+  void clearFields() { memset(static_cast<NodePrefsFields*>(this), 0, sizeof(NodePrefsFields)); }
+
+  // The board's settings (upstream's getCustom()), for Board::attachDynamicPrefs().
+  KeyValueStore* getCustom() { return &custom; }
+  bool isRepeatEn() const { return client_repeat != 0; }
+  void setRepeatEn(bool en) { client_repeat = en ? 1 : 0; }
+
+  bool isDirty() const override { return ConfigSerializer::isDirty() || custom.isDirty(); }
+  void clearDirty() override { ConfigSerializer::clearDirty(); custom.clearDirty(); }
+  using ConfigSerializer::markDirty;
 };
 
 // Local hour `h` inside [start, end): a window with start > end wraps past

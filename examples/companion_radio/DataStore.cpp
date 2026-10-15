@@ -218,25 +218,40 @@ bool DataStore::saveMainIdentity(const mesh::LocalIdentity &identity) {
 }
 
 // ── Prefs ──
-// /prefs: a header, the node's position, then NodePrefs as it is in memory
-// (see the comment at the top of NodePrefs.h). Only the build that wrote it
-// reads it back, so the struct's padding and alignment are no concern.
-struct PrefsHeader {
-  uint32_t magic;     // PREFS_MAGIC
-  uint16_t version;   // NodePrefs::PREFS_VERSION
-  uint16_t size;      // sizeof(NodePrefs) when written
-  uint32_t crc;       // CRC-32 of the position and the struct's bytes
-};
-static const uint32_t PREFS_MAGIC = 0x534F4C4F;   // "SOLO"
-
-static uint32_t crc32(uint32_t crc, const uint8_t* p, size_t n) {
-  crc = ~crc;
-  while (n--) {
-    crc ^= *p++;
-    for (int k = 0; k < 8; k++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
+// /prefs.json (NodePrefs::structure()). The JSON goes through a buffer: the
+// serializer reads and writes it a character at a time, each a file call.
+class BufferedFile : public Stream {
+  File& _f;
+  uint8_t _buf[256];
+  size_t _n = 0, _at = 0;
+  bool _ok = true;
+public:
+  explicit BufferedFile(File& f) : _f(f) { }
+  // Reading (a file opened to read).
+  int available() override { fill(); return (int)(_n - _at); }
+  int read() override { fill(); return _at < _n ? _buf[_at++] : -1; }
+  int peek() override { fill(); return _at < _n ? _buf[_at] : -1; }
+  void fill() {
+    if (_at < _n) return;
+    int got = (int)_f.read(_buf, sizeof(_buf));
+    _n = got > 0 ? (size_t)got : 0;
+    _at = 0;
   }
-  return ~crc;
-}
+  // Writing (a file opened to write): flush() at the end.
+  size_t write(uint8_t c) override { return write(&c, 1); }
+  size_t write(const uint8_t* p, size_t len) override {
+    for (size_t i = 0; i < len; i++) {
+      if (_n == sizeof(_buf)) flush();
+      _buf[_n++] = p[i];
+    }
+    return len;
+  }
+  void flush() override {
+    if (_n && _f.write(_buf, _n) != _n) _ok = false;
+    _n = 0;
+  }
+  bool ok() const { return _ok; }
+};
 
 // Every value inside its range, whatever the file held: a damaged byte reads
 // as the default rather than as a setting no screen can show.
@@ -425,37 +440,18 @@ static void removeStrayDir(FILESYSTEM* fs, const char* path) {
 // `prefs` comes in holding the defaults; what the file holds replaces them.
 void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) {
   removeStrayDir(_fs, "/prefs");
-  File file = openRead(_fs, "/prefs");
+  if (_fs->exists("/prefs")) _fs->remove("/prefs");   // 2.0-rc's binary settings: 2.0 starts from the defaults
+  File file = openRead(_fs, "/prefs.json");
   if (file) {
-    PrefsHeader h;
-    NodePrefs* tmp = new NodePrefs(prefs);   // a field the file is too short for keeps its default
-    double lat = 0, lon = 0;
-    bool ok = file.read((uint8_t*)&h, sizeof(h)) == sizeof(h)
-           && h.magic == PREFS_MAGIC && h.version == NodePrefs::PREFS_VERSION
-           && file.read((uint8_t*)&lat, sizeof(lat)) == sizeof(lat)
-           && file.read((uint8_t*)&lon, sizeof(lon)) == sizeof(lon);
-    if (ok) {
-      const size_t n = h.size < sizeof(NodePrefs) ? h.size : sizeof(NodePrefs);
-      ok = file.read((uint8_t*)tmp, n) == (int)n;
-      uint32_t crc = crc32(0, (const uint8_t*)&lat, sizeof(lat));
-      crc = crc32(crc, (const uint8_t*)&lon, sizeof(lon));
-      crc = crc32(crc, (const uint8_t*)tmp, n);
-      // Written by a newer build (a downgrade): its extra fields are skipped,
-      // but the CRC covers them, so read them through it rather than losing
-      // every setting to a mismatch.
-      for (size_t left = h.size - n; ok && left > 0; ) {
-        uint8_t buf[32];
-        size_t k = left < sizeof(buf) ? left : sizeof(buf);
-        ok = file.read(buf, k) == (int)k;
-        crc = crc32(crc, buf, k);
-        left -= k;
-      }
-      ok = ok && crc == h.crc;
-    }
+    BufferedFile in(file);
+    prefs.node_lat = node_lat;
+    prefs.node_lon = node_lon;
+    // Saved whole (a temp file, then renamed): a file that doesn't parse to
+    // the end was damaged since. What was read of it stays.
+    if (!prefs.loadSerial(in)) MESH_DEBUG_PRINTLN("prefs: /prefs.json damaged, the rest from the defaults");
     file.close();
-    if (ok) { prefs = *tmp; node_lat = lat; node_lon = lon; }
-    else MESH_DEBUG_PRINTLN("prefs: /prefs unreadable (another version or damaged), defaults kept");
-    delete tmp;
+    node_lat = prefs.node_lat;
+    node_lon = prefs.node_lon;
   } else {   // first boot after an update from before 2.0 (/node_prefs: older still, the same layout)
     for (const char* old : { "/new_prefs", "/node_prefs" }) {
       if (!_fs->exists(old)) continue;
@@ -468,25 +464,23 @@ void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) 
       break;
     }
   }
+  prefs.clearDirty();
   sanitize(prefs);
 }
 
-void DataStore::savePrefs(const NodePrefs& prefs, double node_lat, double node_lon) {
+void DataStore::savePrefs(NodePrefs& prefs, double node_lat, double node_lon) {
   // Atomic temp-then-rename (see commitTempFile): an interrupted save leaves
-  // the previous /prefs in place.
+  // the previous /prefs.json in place.
   File file = ::openWrite(_fs, "/prefs.tmp");
   if (!file) return;
-  PrefsHeader h = { PREFS_MAGIC, NodePrefs::PREFS_VERSION, (uint16_t)sizeof(NodePrefs), 0 };
-  h.crc = crc32(0, (const uint8_t*)&node_lat, sizeof(node_lat));
-  h.crc = crc32(h.crc, (const uint8_t*)&node_lon, sizeof(node_lon));
-  h.crc = crc32(h.crc, (const uint8_t*)&prefs, sizeof(NodePrefs));
-  // Once the flash fills, writes come back short: only a whole record replaces the old one.
-  bool ok = file.write((const uint8_t*)&h, sizeof(h)) == sizeof(h)
-         && file.write((const uint8_t*)&node_lat, sizeof(node_lat)) == sizeof(node_lat)
-         && file.write((const uint8_t*)&node_lon, sizeof(node_lon)) == sizeof(node_lon)
-         && file.write((const uint8_t*)&prefs, sizeof(NodePrefs)) == sizeof(NodePrefs);
+  prefs.node_lat = node_lat;
+  prefs.node_lon = node_lon;
+  BufferedFile out(file);
+  bool ok = prefs.saveSerial(out);
+  out.flush();
+  ok = ok && out.ok();   // once the flash fills, writes come back short
   file.close();
-  if (ok) commitTempFile(_fs, "/prefs.tmp", "/prefs");
+  if (ok) { commitTempFile(_fs, "/prefs.tmp", "/prefs.json"); prefs.clearDirty(); }
   else _fs->remove("/prefs.tmp");
 }
 

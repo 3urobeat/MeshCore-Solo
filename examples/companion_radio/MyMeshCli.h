@@ -21,7 +21,10 @@ bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
     command += 3;
   }
   if (cliRadioCommand(command, reply, n)) return true;
-  if (n >= 64 && board.handleCommand(command, 0, reply)) return true;   // the board's own (radio.fem.*); short replies
+  if (n >= 64 && board.handleCommand(command, 0, reply)) {   // the board's own (radio.fem.*); short replies
+    if (_prefs.isDirty()) savePrefs();
+    return true;
+  }
 
   if (strcmp(command, "reboot") == 0 || strcmp(command, "poweroff") == 0 || strcmp(command, "shutdown") == 0) {
     bool restart = command[0] == 'r';
@@ -183,6 +186,25 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
     float d = atof(&command[12]);
     if (!(d >= 0 && d <= 20.0f)) snprintf(reply, n, "Error, must be 0-20");
     else { _prefs.rx_delay_base = d; savePrefs(); snprintf(reply, n, "OK"); }
+    return true;
+  }
+  if (strcmp(command, "get txdelay") == 0) { snprintf(reply, n, "> %s", StrHelper::ftoa(_prefs.tx_delay_factor)); return true; }
+  if (strcmp(command, "get direct.txdelay") == 0) { snprintf(reply, n, "> %s", StrHelper::ftoa(_prefs.direct_tx_delay_factor)); return true; }
+  if (memcmp(command, "set txdelay ", 12) == 0 || memcmp(command, "set direct.txdelay ", 19) == 0) {
+    const bool direct = command[4] == 'd';
+    float f = atof(&command[direct ? 19 : 12]);
+    if (!(f >= 0 && f <= 2.0f)) { snprintf(reply, n, "Error, must be 0-2"); return true; }
+    (direct ? _prefs.direct_tx_delay_factor : _prefs.tx_delay_factor) = f;
+    savePrefs();
+    snprintf(reply, n, "OK");
+    return true;
+  }
+  if (strcmp(command, "get agc.reset.interval") == 0) { snprintf(reply, n, "> %d", _prefs.agc_reset_interval * 4); return true; }
+  if (memcmp(command, "set agc.reset.interval ", 23) == 0) {
+    int secs = constrain(atoi(&command[23]), 0, 255 * 4);
+    _prefs.agc_reset_interval = (uint8_t)(secs / 4);
+    savePrefs();
+    snprintf(reply, n, "OK - interval rounded to %d", _prefs.agc_reset_interval * 4);
     return true;
   }
   if (strcmp(command, "get path.hash.mode") == 0) { snprintf(reply, n, "> %d", (int)_prefs.path_hash_mode); return true; }

@@ -4,7 +4,6 @@
 #include <Mesh.h>
 #include <helpers/ui/DisplayDriver.h>
 #include "Features.h"   // FEAT_RX_POWERSAVE, used by MyMesh.cpp
-#include <helpers/KeyValueStore.h>
 
 // Forward declaration for UITask
 class UITask;
@@ -285,6 +284,9 @@ protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
   bool getCADEnabled() const override;
+  int getAGCResetInterval() const override {
+    return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
+  }
   int calcRxDelay(float score, uint32_t air_time) const override;
   uint32_t getRetransmitDelay(const mesh::Packet *packet) override;
   uint32_t getDirectRetransmitDelay(const mesh::Packet *packet) override;
@@ -699,15 +701,6 @@ private:
   bool send_unscoped;   // force un-scoped flood (instead of using send_scope)
   char cli_command[80];
   char reply_buf[166];
-  class BoardPrefs : public KeyValueStore {   // MyMesh.cpp
-    MyMesh* _mesh;
-    uint8_t* field(const char* key);
-  public:
-    BoardPrefs(MyMesh* mesh) : _mesh(mesh) { }
-    bool setByKey(const char* key, const char* value) override;
-    bool getByKey(const char* key, char* value, size_t max_len) override;
-  };
-  BoardPrefs _board_prefs;
   uint8_t app_target_ver;
   uint8_t *sign_data;
   uint32_t sign_data_len;

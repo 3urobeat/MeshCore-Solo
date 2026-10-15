@@ -34,7 +34,7 @@ public:
   bool loadMainIdentity(mesh::LocalIdentity &identity);
   bool saveMainIdentity(const mesh::LocalIdentity &identity);
   void loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon);
-  void savePrefs(const NodePrefs& prefs, double node_lat, double node_lon);
+  void savePrefs(NodePrefs& prefs, double node_lat, double node_lon);
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
   // Returns true if a channels file (current or legacy) existed and was
