@@ -91,9 +91,9 @@ connected over USB.
 
 ## Connecting the phone app
 
-Every build serves the MeshCore app over **Bluetooth and USB**, one at a time:
-while Bluetooth is connected, USB is ignored. To use USB, disconnect Bluetooth
-first or turn it off on the device.
+Every build serves the MeshCore app over **Bluetooth and USB** at the same
+time: the app works on either link, with no need to disconnect the other.
+Turning Bluetooth off on the device leaves USB on.
 
 The Bluetooth pairing PIN is shown on the Bluetooth home page until the phone
 is paired. Switching Bluetooth off keeps it off after a restart or

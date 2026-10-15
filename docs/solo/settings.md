@@ -117,6 +117,8 @@ so its documentation applies:
 | `get tx`, `set tx 14` | TX power in dBm |
 | `get af` / `set af`, `get dutycycle` / `set dutycycle` | Airtime factor, or the same as a duty cycle in % |
 | `rxdelay`, `int.thresh`, `cad`, `radio.rxgain`, `path.hash.mode`, `multi.acks` | The advanced radio options, with `get` / `set` |
+| `txdelay`, `direct.txdelay` | How long a repeated packet waits, as a share of its airtime (0–2; 0.5 and 0.2 by default), with `get` / `set` |
+| `agc.reset.interval` | Seconds between radio gain resets (in steps of 4, `0` off), with `get` / `set` |
 | `get name`, `set name …` | The device name |
 | `get pin`, `set pin 123456` | The Bluetooth PIN, `0` for a random one; used from the next start |
 | `get tz.offset`, `set tz.offset 2` | Time zone, in hours from UTC |

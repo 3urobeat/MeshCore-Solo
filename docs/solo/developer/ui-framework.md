@@ -95,6 +95,13 @@ pixel sizes** — derive everything from these:
 | `width()` / `height()` | panel size in px |
 | `isEink()` | true only on landscape e-ink; branch on this, not on pixel counts |
 
+Colours are upstream's `UIColor` roles (`DisplayDriver.h`), each display
+driver's `.cpp` filling them with its own values. ui-new draws in two:
+`UIColor::window_bkg` (the background: black on an OLED, white on e-ink) and
+`UIColor::primary_txt` (the ink). A highlight is a `primary_txt` bar with
+`window_bkg` text on it. A new driver defines all nine roles in its `.cpp`
+(see `SH1106Display.cpp`), and `setColor()` takes the value as it is.
+
 Drawing helpers (all clip/measure for you):
 
 - `drawScreenHeader(d, title, page=-1, pages=0, menu_hint=false, menu_open=false)`
@@ -353,15 +360,21 @@ slow e-ink refresh:
 Device settings live in one `NodePrefs` struct (`NodePrefs.h`), saved via
 `the_mesh.savePrefs()` and loaded by `DataStore.cpp`. Rules when adding a field:
 
-- `/prefs` holds the struct as it is in memory, behind a header with a format
-  version and a CRC. **Add a new field at the end of the struct**; nothing
-  else is needed: an older file is shorter, so the field keeps its default
-  (set in `MyMesh`'s constructor).
-- Moving, resizing or removing a field shifts the ones after it: bump
-  `NodePrefs::PREFS_VERSION`, and every device starts again from the
-  defaults.
+- `/prefs.json` holds one JSON key per field, written by upstream's
+  `ConfigSerializer`. The keys upstream MeshCore has (`radio`, `gps`,
+  `repeat`, `comp`, `custom`, `wifi`) keep upstream's names; everything
+  Solo adds sits under `solo`, grouped by topic (`display`, `sound`, `bot` …).
+- **A new field** goes anywhere in `NodePrefsFields` and gets a key in the
+  matching `…Solo(Section&)` function of `NodePrefs`: `s.def("key", field)`
+  for a number or a string, `s.hex("key", field)` for a byte array or a
+  bit mask. A key is at most 15 characters. A file without the key leaves the
+  default (set in `MyMesh`'s constructor), and a key no field has any more is
+  skipped, so fields can be moved, resized and removed freely.
+- `test/test_companion_prefs_json` checks that every field comes back byte
+  for byte: run `pio test -e native` after adding one; a field without a key
+  fails it.
 - Give a field with a range a line in `sanitize()` (`DataStore.cpp`), so a
-  damaged byte reads as the default. Saves are atomic (temp-file + rename),
+  damaged value reads as the default. Saves are atomic (temp-file + rename),
   so a crash mid-save can't corrupt settings.
 
 **The `_dirty` convention:** a multi-field editor screen mutates `_node_prefs`

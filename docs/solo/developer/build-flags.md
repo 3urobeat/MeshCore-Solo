@@ -24,7 +24,7 @@ per-user. Listed here so the rest of this page can assume them.
 | Flag | Meaning |
 | --- | --- |
 | `FIRMWARE_SOLO_BUILD=1` | Marks the build as Solo (full on-device UI) rather than a companion-only firmware. |
-| `DUAL_SERIAL=1` | The companion app can attach over BLE *or* USB serial, whichever it finds; BLE wins if both are live. Every solo build sets this — Solo standardises on one build per board rather than splitting BLE-only / USB-only variants. |
+| `DUAL_SERIAL=1` | The companion app attaches over BLE and USB serial at once (upstream's `MultiSerialInterface`; the same as `ENABLE_USB_INTERFACE` next to `BLE_PIN_CODE`). Every solo build sets this — Solo standardises on one build per board rather than splitting BLE-only / USB-only variants. |
 | `MAX_CONTACTS=<n>` | Size of the contact table. Default is 32 if unset; solo builds set 350. |
 | `MAX_GROUP_CHANNELS=<n>` | Size of the channel list. Required for channel support to compile in at all — not optional the way the rest of this page is. |
 | `OFFLINE_QUEUE_SIZE=<n>` | How many messages queue for later delivery while the phone app is disconnected. Default 16; solo builds set 256. |
