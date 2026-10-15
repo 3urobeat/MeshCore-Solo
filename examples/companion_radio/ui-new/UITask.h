@@ -4,7 +4,7 @@
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/ui/UIScreen.h>
 #include <helpers/SensorManager.h>
-#include <helpers/BaseSerialInterface.h>
+#include <helpers/MultiSerialInterface.h>
 #include <helpers/ContactInfo.h>
 #include <Arduino.h>
 #include <helpers/sensors/LPPDataHelpers.h>
@@ -284,7 +284,7 @@ public:
   void setNodeLockPassword(const char* plain);
   bool passwordLockEnabled() const;
 
-  UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial), _display(NULL), _sensors(NULL), _node_prefs(NULL) {
+  UITask(mesh::MainBoard* board, MultiSerialInterface* serial) : UITaskBase(board, serial), _display(NULL), _sensors(NULL), _node_prefs(NULL) {
     next_batt_chck = _next_refresh = 0;
     ui_started_at = 0;
     _batt_mv = 0;

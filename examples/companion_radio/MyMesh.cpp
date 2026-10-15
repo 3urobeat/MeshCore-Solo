@@ -1372,6 +1372,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.clearFields();
   memset(_prefs.ch_scope_idx, NodePrefs::CH_SCOPE_DEFAULT, sizeof(_prefs.ch_scope_idx));
   _prefs.airtime_factor = 1.0;
+#ifdef ENABLE_WIFI_INTERFACE
+  _prefs.wifi_enabled = 1;   // on, so a WiFi-only build works; it doesn't start without an SSID
+#endif
   _prefs.tx_delay_factor = 0.5f;
   _prefs.direct_tx_delay_factor = 0.2f;
   strcpy(_prefs.node_name, "NONAME");
@@ -1570,7 +1573,7 @@ bool MyMesh::isValidClientRepeatFreq(uint32_t f) const {
 
 void MyMesh::startInterface(BaseSerialInterface &serial) {
   _serial = &serial;
-  if (!_prefs.ble_off) serial.enable();
+  serial.enable();   // main.cpp then turns Bluetooth off if the user left it off (ble_off)
 }
 
 static bool isAllZero(const uint8_t* buf, size_t n) {

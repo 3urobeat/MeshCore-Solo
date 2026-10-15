@@ -328,7 +328,7 @@ class HomeScreen : public UIScreen {
       add("All messages", Q_MORE, QA_MORE, 0);
       n += recentChats(rows + n, quickFit() - 1);
     } else if (page == BLUETOOTH) {
-      const bool on = _task->isSerialEnabled();
+      const bool on = _task->isBluetoothEnabled();
       add("Bluetooth", Q_SWITCH, QA_BT, on ? 1 : 0);
       add("Phone", Q_VALUE, QA_NONE, 0);
       char* v = rows[n - 1].value;
@@ -440,7 +440,7 @@ class HomeScreen : public UIScreen {
       case QA_BRIGHTNESS:
       case QA_AUTO_ADVERT: _quick_edit = true; break;   // Left/Right change it, Enter / Back keep it
       case QA_BT:
-        if (_task->isSerialEnabled()) _task->disableSerial(); else _task->enableSerial();
+        if (_task->isBluetoothEnabled()) _task->disableBluetooth(); else _task->enableBluetooth();
         break;
       case QA_ADVERT:
         _task->notify(UIEventType::ack);
@@ -609,7 +609,7 @@ class HomeScreen : public UIScreen {
     struct Sicon { bool active; const MiniIcon* icon; };
     const Sicon icons[] = {
       { board.isExternalPowered(),                                 &ICON_CHARGE },   // USB power: next to the battery
-      { _task->isSerialEnabled() && _task->isBLEConnected(),       &ICON_BLUETOOTH },
+      { _task->isBluetoothEnabled() && _task->isBLEConnected(),       &ICON_BLUETOOTH },
       { gps_on,                                                    gps_fix ? &ICON_GPS : &ICON_GPS_SEARCH },
       { _node_prefs && _node_prefs->alarm_on,                      &ICON_ALARM },
       { mute_on,                                                   &ICON_MUTE },

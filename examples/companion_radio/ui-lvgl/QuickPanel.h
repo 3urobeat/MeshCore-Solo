@@ -314,7 +314,7 @@ bool UITask::quickPanelOpen() const { return qpanel::s_open; }
 void UITask::quickPanelRefresh() {
   using namespace qpanel;
   if (!s_panel) return;
-  tileSet(T_BT, LV_SYMBOL_BLUETOOTH, hasConnection() ? "Connected" : "Bluetooth", isSerialEnabled());
+  tileSet(T_BT, LV_SYMBOL_BLUETOOTH, hasConnection() ? "Connected" : "Bluetooth", isBluetoothEnabled());
   tileSet(T_WIFI, LV_SYMBOL_WIFI, lvport::netRadio() == lvport::NET_UP ? "Online" : "WiFi", lvport::wifiAllowed());
   int32_t lat, lon;
   const bool gps = _core->gpsEnabled();
@@ -357,7 +357,7 @@ void UITask::quickPanelTile(int t, bool hold) {
   }
   // The tile shows what changed: no toast saying it again.
   switch (t) {
-    case T_BT:    setBluetooth(!isSerialEnabled()); break;
+    case T_BT:    setBluetooth(!isBluetoothEnabled()); break;
     case T_WIFI:  wifiSetAllowed(!lvport::wifiAllowed()); break;
     case T_GPS:   if (_core->gpsAvailable()) setGps(!_core->gpsEnabled()); break;
     case T_SOUND:

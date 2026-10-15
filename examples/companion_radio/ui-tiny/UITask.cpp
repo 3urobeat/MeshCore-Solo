@@ -241,7 +241,7 @@ public:
     } else if (_page == HomePage::BLUETOOTH) {
       display.setColor(DisplayDriver::GREEN);
       display.drawXbm((display.width() - 32) / 2, 8,
-          _task->isSerialEnabled() ? bluetooth_on : bluetooth_off,
+          _task->isBluetoothEnabled() ? bluetooth_on : bluetooth_off,
           32, 32);
       display.setTextSize(1);
       // display.drawTextCentered(display.width() / 2, 40 - 11, "toggle: " PRESS_LABEL);
@@ -387,10 +387,10 @@ public:
       return true;
     }
     if (c == KEY_ENTER && _page == HomePage::BLUETOOTH) {
-      if (_task->isSerialEnabled()) {  // toggle Bluetooth on/off
-        _task->disableSerial();
+      if (_task->isBluetoothEnabled()) {  // toggle Bluetooth on/off
+        _task->disableBluetooth();
       } else {
-        _task->enableSerial();
+        _task->enableBluetooth();
       }
       return true;
     }
@@ -674,7 +674,7 @@ void UITask::loop() {
         _cached_batt_mv,
         isBuzzerQuiet(),
         getGPSState(),
-        isSerialEnabled());
+        isBluetoothEnabled());
 
     bool status_dirty = _statusBar.needsRedraw();
     bool content_dirty = (millis() >= _next_refresh && curr);

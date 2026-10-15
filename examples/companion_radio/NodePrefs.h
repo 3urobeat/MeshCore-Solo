@@ -176,8 +176,14 @@ struct NodePrefsFields {
   // ── Connectivity (BLE) ────────────────────────────────────────────────
   uint32_t ble_pin;
   // 1 = the user switched Bluetooth off: it stays off after a reboot or
-  // hibernate (MyMesh::startInterface). USB keeps working either way.
+  // hibernate (main.cpp). USB keeps working either way.
   uint8_t  ble_off;
+#ifdef ENABLE_WIFI_INTERFACE
+  // The app over WiFi (TCP), upstream's: an empty SSID uses the build's WIFI_SSID.
+  char wifi_ssid[33];
+  char wifi_pwd[64];
+  uint8_t wifi_enabled;
+#endif
 
   // ── Power & battery ───────────────────────────────────────────────────
   uint16_t low_batt_mv;         // auto-shutdown threshold: 0=disabled, 3000-3500 mV
@@ -893,6 +899,13 @@ class NodePrefs : public NodePrefsFields, public ConfigSerializer {
     }
   }
   void lockSolo(Section& s) { s.hex("hash", lock_screen_password); s.hex("salt", lock_screen_password_salt); }
+#ifdef ENABLE_WIFI_INTERFACE
+  void wifiKeys(Section& s) {
+    s.def("ssid", wifi_ssid, sizeof(wifi_ssid));
+    s.def("pwd", wifi_pwd, sizeof(wifi_pwd));
+    s.def("enabled", wifi_enabled);
+  }
+#endif
   void soloKeys(Section& s) {
     s.sub("radio", radio_solo); s.sub("repeater", repeater_solo); s.sub("power", power_solo);
     s.sub("display", display_solo); s.sub("clock", clock_solo); s.sub("sound", sound_solo);
@@ -902,6 +915,9 @@ class NodePrefs : public NodePrefsFields, public ConfigSerializer {
   }
 
   Section radio, gps, repeat, comp;
+#ifdef ENABLE_WIFI_INTERFACE
+  Section wifi;
+#endif
   Section solo, radio_solo, preset[USER_RADIO_PRESET_MAX], repeater_solo, power_solo, display_solo,
           clock_solo, sound_solo, scope_solo, bot_solo, gps_solo, share_solo, locator_solo,
           lists_solo, gpio_solo, msgs_solo, lock_solo;
@@ -918,6 +934,9 @@ protected:
     def("repeat", repeat);
     def("comp", comp);
     def("custom", custom);
+#ifdef ENABLE_WIFI_INTERFACE
+    def("wifi", wifi);
+#endif
     def("solo", solo);
   }
 
@@ -929,6 +948,9 @@ public:
   NodePrefs()
     : radio(this, &NodePrefs::radioKeys), gps(this, &NodePrefs::gpsKeys),
       repeat(this, &NodePrefs::repeatKeys), comp(this, &NodePrefs::compKeys),
+#ifdef ENABLE_WIFI_INTERFACE
+      wifi(this, &NodePrefs::wifiKeys),
+#endif
       solo(this, &NodePrefs::soloKeys), radio_solo(this, &NodePrefs::radioSolo),
       preset{ {this, &NodePrefs::presetKeys}, {this, &NodePrefs::presetKeys},
               {this, &NodePrefs::presetKeys}, {this, &NodePrefs::presetKeys} },
@@ -951,6 +973,13 @@ public:
 
   // The board's settings (upstream's getCustom()), for Board::attachDynamicPrefs().
   KeyValueStore* getCustom() { return &custom; }
+#ifdef ENABLE_WIFI_INTERFACE
+  #ifndef WIFI_SSID
+    #define WIFI_SSID ""
+  #endif
+  // use ssid from prefs, or fallback to ssid from build flags
+  const char* getWifiSSID() const { return wifi_ssid[0] ? wifi_ssid : WIFI_SSID; }
+#endif
   bool isRepeatEn() const { return client_repeat != 0; }
   void setRepeatEn(bool en) { client_repeat = en ? 1 : 0; }
 

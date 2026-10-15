@@ -22,6 +22,17 @@ bool ArduinoSerialInterface::isConnected() const {
   return true;   // no way of knowing, so assume yes
 }
 
+bool ArduinoSerialInterface::isClientConnected() const {
+#if defined(NRF52_PLATFORM) || (defined(ARDUINO_USB_MODE) && ARDUINO_USB_MODE == 0 && defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT == 1)
+  // (bool)Serial: the host has the CDC port open (DTR) -- a serial monitor
+  // counts too, charging alone doesn't.
+  return _serial == (Stream*)&Serial && (bool)Serial;
+#else
+  // A UART bridge: (bool)Serial is just "begun", always true.
+  return false;
+#endif
+}
+
 bool ArduinoSerialInterface::isWriteBusy() const {
   return false;
 }

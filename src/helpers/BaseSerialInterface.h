@@ -14,6 +14,7 @@ public:
   virtual bool isEnabled() const = 0;
 
   virtual bool isConnected() const = 0;
+  virtual void loop() {};
   // Returns true when a BLE companion app is connected. Default delegates to
   // isConnected(); override in dual-interface wrappers that always report
   // isConnected()=true but still need to distinguish BLE from USB state.

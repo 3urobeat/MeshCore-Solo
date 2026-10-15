@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/SensorManager.h>
-#include <helpers/BaseSerialInterface.h>
+#include <helpers/MultiSerialInterface.h>
 #include <lvgl.h>
 // A big zero-initialised static in PSRAM (ESP32): the internal RAM is what
 // WiFi starts and joins on. Not for what DMA or an interrupt touches.
@@ -53,7 +53,7 @@ struct TextEntry {
 
 class UITask : public UITaskBase, public UiCoreHost {
 public:
-  UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial) {}
+  UITask(mesh::MainBoard* board, MultiSerialInterface* serial) : UITaskBase(board, serial) {}
 
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
   void loop() override;

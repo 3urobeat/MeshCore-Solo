@@ -65,72 +65,94 @@ static uint32_t _atoi(const char* sp) {
   DataStore store(sim_fs, rtc_clock);
 #endif
 
-#ifdef ESP32
-  #ifdef WIFI_SSID
-    #include <helpers/esp32/SerialWifiInterface.h>
-    SerialWifiInterface serial_interface;
-    #ifndef TCP_PORT
-      #define TCP_PORT 5000
-    #endif
-  #elif defined(DUAL_SERIAL)
-    #include <helpers/esp32/DualSerialInterface.h>
-    DualSerialInterface serial_interface;
-  #elif defined(BLE_PIN_CODE)
+// The companion app's links (upstream's interface manager): Bluetooth, USB,
+// WiFi, Ethernet, a UART, whichever the build has, all at once. DUAL_SERIAL
+// (Solo's builds) is Bluetooth and USB.
+#if defined(DUAL_SERIAL) && !defined(ENABLE_USB_INTERFACE)
+  #define ENABLE_USB_INTERFACE
+#endif
+#if !defined(BLE_PIN_CODE) && !defined(ENABLE_WIFI_INTERFACE) && !defined(ETHERNET_ENABLED) \
+    && !defined(SERIAL_RX) && !defined(ENABLE_USB_INTERFACE) && !defined(SIM_PLATFORM)
+  #define ENABLE_USB_INTERFACE   // no other link: the app on USB, as before
+#endif
+#include <helpers/MultiSerialInterface.h>
+MultiSerialInterface interface_manager;
+
+// include bluetooth interface
+#if defined(BLE_PIN_CODE)
+  #ifdef ESP32
     #include <helpers/esp32/SerialBLEInterface.h>
-    SerialBLEInterface serial_interface;
-  #elif defined(SERIAL_RX)
-    #include <helpers/ArduinoSerialInterface.h>
-    ArduinoSerialInterface serial_interface;
-    HardwareSerial companion_serial(1);
-  #else
-    #include <helpers/ArduinoSerialInterface.h>
-    ArduinoSerialInterface serial_interface;
-  #endif
-#elif defined(RP2040_PLATFORM)
-  //#ifdef WIFI_SSID
-  //  #include <helpers/rp2040/SerialWifiInterface.h>
-  //  SerialWifiInterface serial_interface;
-  //  #ifndef TCP_PORT
-  //    #define TCP_PORT 5000
-  //  #endif
-  // #elif defined(BLE_PIN_CODE)
-  //   #include <helpers/rp2040/SerialBLEInterface.h>
-  //   SerialBLEInterface serial_interface;
-  #if defined(SERIAL_RX)
-    #include <helpers/ArduinoSerialInterface.h>
-    ArduinoSerialInterface serial_interface;
-    HardwareSerial companion_serial(1);
-  #else
-    #include <helpers/ArduinoSerialInterface.h>
-    ArduinoSerialInterface serial_interface;
-  #endif
-#elif defined(NRF52_PLATFORM)
-  #ifdef DUAL_SERIAL
-    #include <helpers/nrf52/DualSerialInterface.h>
-    DualSerialInterface serial_interface;
-  #elif defined(BLE_PIN_CODE)
+    SerialBLEInterface bluetooth_interface;
+  #elif defined(NRF52_PLATFORM)
     #include <helpers/nrf52/SerialBLEInterface.h>
-    SerialBLEInterface serial_interface;
+    SerialBLEInterface bluetooth_interface;
+  #elif defined(RP2040_PLATFORM)
+    #include <helpers/rp2040/SerialBLEInterface.h>
+    SerialBLEInterface bluetooth_interface;
   #else
-    #include <helpers/ArduinoSerialInterface.h>
-    ArduinoSerialInterface serial_interface;
+    #error "SerialBLEInterface is not defined for this platform"
   #endif
-#elif defined(STM32_PLATFORM)
+#endif
+
+// include wifi interface
+#ifdef ENABLE_WIFI_INTERFACE
+  #ifndef WIFI_SSID
+    #define WIFI_SSID ""
+  #endif
+  #ifndef WIFI_PWD
+    #define WIFI_PWD ""
+  #endif
+  #ifndef TCP_PORT
+    #define TCP_PORT 5000
+  #endif
+  #ifndef WIFI_RETRY_INTERVAL
+    #if defined(RP2040_PLATFORM)
+      #define WIFI_RETRY_INTERVAL 30000   // each attempt blocks loop(), so retry less often
+    #else
+      #define WIFI_RETRY_INTERVAL 10000   // millis between reconnect attempts
+    #endif
+  #endif
+  #ifndef WIFI_RETRY_TIMEOUT
+    #define WIFI_RETRY_TIMEOUT 5000     // RP2040: cap on how long one join may block loop()
+  #endif
+  #if defined(ESP32) || defined(RP2040_PLATFORM)
+    #include <helpers/wifi/SerialWifiInterface.h>
+    SerialWifiInterface wifi_interface;
+  #else
+    #error "SerialWifiInterface is not defined for this platform"
+  #endif
+#endif
+
+// include usb interface
+#if defined(ENABLE_USB_INTERFACE)
   #include <helpers/ArduinoSerialInterface.h>
-  ArduinoSerialInterface serial_interface;
-#elif defined(SIM_PLATFORM)
-  // No real BLE/USB companion-app transport in Phase 1 -- always reports
-  // "not connected". See variants/sim/SimSerialInterface.h.
+  ArduinoSerialInterface usb_serial_interface;
+#endif
+
+// include ethernet interface
+#if defined(ETHERNET_ENABLED)
+  #include <helpers/ethernet/EthernetInterface.h>
+  ETHERNET_CLASS ethernet_interface;
+#endif
+
+// include hardware serial interface
+#if defined(SERIAL_RX)
+  #include <helpers/ArduinoSerialInterface.h>
+  ArduinoSerialInterface hardware_serial_interface;
+  HardwareSerial companion_serial(1);
+#endif
+
+#if defined(SIM_PLATFORM)
+  // No real BLE/USB companion-app transport -- always reports "not
+  // connected". See variants/sim/SimSerialInterface.h.
   #include <SimSerialInterface.h>
-  SimSerialInterface serial_interface;
-#else
-  #error "need to define a serial interface"
+  SimSerialInterface sim_serial_interface;
 #endif
 
 /* GLOBAL OBJECTS */
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
-  UITask ui_task(&board, &serial_interface);
+  UITask ui_task(&board, &interface_manager);
 #endif
 
 StdRNG fast_rng;
@@ -181,9 +203,13 @@ static void resolveBLEPin(bool has_display) {
 }
 
 /* WIFI RECONNECT TRACKERS */
-#if defined(ESP32) && defined(WIFI_SSID)
+#ifdef ENABLE_WIFI_INTERFACE
   bool wifi_needs_reconnect = false;
   unsigned long last_wifi_reconnect_attempt = 0;
+  char wifi_ssid[33] = WIFI_SSID;   // replaced by stored prefs at boot, if set
+  char wifi_pwd[64] = WIFI_PWD;
+  bool wifi_was_connected = false;
+  bool wifi_enabled = false;   // set at boot from prefs; false also when the effective SSID is blank
 #endif
 
 void setup() {
@@ -239,14 +265,6 @@ void setup() {
     #endif
   );
 
-#ifdef DUAL_SERIAL
-  serial_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin(), Serial);
-#elif defined(BLE_PIN_CODE)
-  serial_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin());
-#else
-  serial_interface.begin(Serial);
-#endif
-  the_mesh.startInterface(serial_interface);
 #elif defined(RP2040_PLATFORM)
   LittleFS.begin();
   store.begin();
@@ -259,21 +277,6 @@ void setup() {
     #endif
   );
 
-  //#ifdef WIFI_SSID
-  //  WiFi.begin(WIFI_SSID, WIFI_PWD);
-  //  serial_interface.begin(TCP_PORT);
-  // #elif defined(BLE_PIN_CODE)
-  //   char dev_name[32+16];
-  //   sprintf(dev_name, "%s%s", BLE_NAME_PREFIX, the_mesh.getNodeName());
-  //   serial_interface.begin(dev_name, the_mesh.getBLEPin());
-  #if defined(SERIAL_RX)
-    companion_serial.setPins(SERIAL_RX, SERIAL_TX);
-    companion_serial.begin(115200);
-    serial_interface.begin(companion_serial);
-  #else
-    serial_interface.begin(Serial);
-  #endif
-    the_mesh.startInterface(serial_interface);
 #elif defined(ESP32)
   ESP32_FS.begin(true);
   store.begin();
@@ -286,34 +289,6 @@ void setup() {
     #endif
   );
 
-#ifdef WIFI_SSID
-  board.setInhibitSleep(true);   // prevent sleep when WiFi is active
-  WiFi.setAutoReconnect(true);
-
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info){
-      if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-          WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-          wifi_needs_reconnect = true;
-      } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-          WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
-          wifi_needs_reconnect = false;
-      }
-  });
-
-  WiFi.begin(WIFI_SSID, WIFI_PWD);
-  serial_interface.begin(TCP_PORT);
-#elif defined(DUAL_SERIAL)
-  serial_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin(), Serial);
-#elif defined(BLE_PIN_CODE)
-  serial_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin());
-#elif defined(SERIAL_RX)
-  companion_serial.setPins(SERIAL_RX, SERIAL_TX);
-  companion_serial.begin(115200);
-  serial_interface.begin(companion_serial);
-#else
-  serial_interface.begin(Serial);
-#endif
-  the_mesh.startInterface(serial_interface);
 #elif defined(SIM_PLATFORM)
   // sim_fs already exists/mkdir'd itself in its constructor above.
   store.begin();
@@ -325,11 +300,89 @@ void setup() {
         false
     #endif
   );
-  serial_interface.begin();
-  the_mesh.startInterface(serial_interface);
 #else
   #error "need to define filesystem"
 #endif
+
+// add bluetooth interface
+#if defined(BLE_PIN_CODE)
+  bluetooth_interface.begin(BLE_NAME_PREFIX, the_mesh.getNodePrefs()->node_name, the_mesh.getBLEPin());
+  interface_manager.addInterface(InterfaceType::Bluetooth, &bluetooth_interface);
+#endif
+
+// add wifi interface
+#ifdef ENABLE_WIFI_INTERFACE
+  // use wifi ssid and password from prefs if ssid is not empty, otherwise use the build flag defaults
+  if (the_mesh.getNodePrefs()->wifi_ssid[0]) {
+    strcpy(wifi_ssid, the_mesh.getNodePrefs()->wifi_ssid);
+    strcpy(wifi_pwd, the_mesh.getNodePrefs()->wifi_pwd);
+  }
+  // only start wifi if enabled and ssid is not empty
+  wifi_enabled = the_mesh.getNodePrefs()->wifi_enabled;
+  if (wifi_enabled && wifi_ssid[0]) {
+#if defined(ESP32)
+    board.setInhibitSleep(true);   // prevent sleep when WiFi is active
+    WiFi.setAutoReconnect(true);
+
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info){
+        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+            WIFI_DEBUG_PRINTLN("WiFi disconnected (reason=%s). Flagging for reconnect...",
+              WiFi.disconnectReasonName((wifi_err_reason_t)info.wifi_sta_disconnected.reason));
+            wifi_needs_reconnect = true;
+        } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+            WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
+            wifi_needs_reconnect = false;
+        }
+    });
+#endif
+
+    WIFI_DEBUG_PRINTLN("connecting to %s", wifi_ssid);
+
+#if defined(RP2040_PLATFORM)
+    // the join itself blocks inside the core (CYW43::begin busy-waits for the
+    // association), so every attempt stalls the mesh loop. beginNoBlock() only skips the
+    // extra DHCP wait. Give the first connect a full window, then bound the retries below.
+    WiFi.beginNoBlock(wifi_ssid, wifi_pwd);
+    last_wifi_reconnect_attempt = millis();   // let DHCP finish before the poll can retry
+#else
+    WiFi.begin(wifi_ssid, wifi_pwd);
+#endif
+    wifi_interface.begin(TCP_PORT);
+    interface_manager.addInterface(InterfaceType::WiFi, &wifi_interface);
+  } else {
+    WIFI_DEBUG_PRINTLN("wifi disabled");
+  }
+#endif
+
+// add usb interface
+#if defined(ENABLE_USB_INTERFACE)
+  usb_serial_interface.begin(Serial);
+  interface_manager.addInterface(InterfaceType::USB, &usb_serial_interface);
+#endif
+
+// add ethernet interface
+#if defined(ETHERNET_ENABLED)
+  ethernet_interface.begin();
+  interface_manager.addInterface(InterfaceType::Ethernet, &ethernet_interface);
+#endif
+
+// add hardware serial interface
+#if defined(SERIAL_RX)
+  companion_serial.setPins(SERIAL_RX, SERIAL_TX);
+  companion_serial.begin(115200);
+  hardware_serial_interface.begin(companion_serial);
+  interface_manager.addInterface(InterfaceType::HardwareSerial, &hardware_serial_interface);
+#endif
+
+#if defined(SIM_PLATFORM)
+  sim_serial_interface.begin();
+  interface_manager.addInterface(InterfaceType::USB, &sim_serial_interface);
+#endif
+
+  the_mesh.startInterface(interface_manager);
+  // Bluetooth as the user left it (Settings, the quick panel): off stays off
+  // after a restart; the other links stay on.
+  if (the_mesh.getNodePrefs()->ble_off) interface_manager.disableBluetooth();
 
   store.restoreRTCTime();
   sensors.begin();
@@ -367,6 +420,7 @@ void loop() {
   NRF_WDT->RR[0] = 0x6E524635UL;  // pet watchdog
 #endif
   the_mesh.loop();
+  interface_manager.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS
   ui_task.loop();
@@ -390,13 +444,34 @@ void loop() {
 #endif
   }
 
-#if defined(ESP32) && defined(WIFI_SSID)
-  // Safely attempt to reconnect every 10 seconds if flagged
-  if (wifi_needs_reconnect && (millis() - last_wifi_reconnect_attempt > 10000)) {
-    WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
-    WiFi.disconnect();
-    WiFi.reconnect();
-    last_wifi_reconnect_attempt = millis();
+#ifdef ENABLE_WIFI_INTERFACE
+  if (wifi_enabled) {
+    // RP2040 has no WiFi event callbacks, so poll the link state instead
+  #if defined(RP2040_PLATFORM)
+      wifi_needs_reconnect = (WiFi.status() != WL_CONNECTED);
+      if (wifi_was_connected == wifi_needs_reconnect) {   // link state changed
+        wifi_was_connected = !wifi_needs_reconnect;
+        if (wifi_was_connected) {
+          WIFI_DEBUG_PRINTLN("connected, listening on %s:%d", WiFi.localIP().toString().c_str(), TCP_PORT);
+        } else {
+          WIFI_DEBUG_PRINTLN("link lost");
+        }
+      }
+  #endif
+
+    // Safely attempt to reconnect if flagged. On RP2040 each attempt blocks the mesh loop
+    // for up to WIFI_RETRY_TIMEOUT, so retry less often and cap how long a join may stall.
+    if (wifi_needs_reconnect && (millis() - last_wifi_reconnect_attempt > WIFI_RETRY_INTERVAL)) {
+      WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect to %s (status %d)...", wifi_ssid, WiFi.status());
+    #if defined(RP2040_PLATFORM)
+        WiFi.setTimeout(WIFI_RETRY_TIMEOUT);
+        WiFi.beginNoBlock(wifi_ssid, wifi_pwd);   // no reconnect() on this platform
+    #else
+        WiFi.disconnect();
+        WiFi.reconnect();
+    #endif
+      last_wifi_reconnect_attempt = millis();
+    }
   }
 #endif
 }

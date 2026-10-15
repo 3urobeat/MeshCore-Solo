@@ -76,6 +76,49 @@ bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
     else { _prefs.tz_offset_hours = (int8_t)tz; savePrefs(); snprintf(reply, n, "OK"); }
     return true;
   }
+#ifdef ENABLE_WIFI_INTERFACE
+  // The app over WiFi (upstream's commands; applied at the next start).
+  if (memcmp(command, "set wifi.ssid ", 14) == 0) {
+    StrHelper::strncpy(_prefs.wifi_ssid, &command[14], sizeof(_prefs.wifi_ssid));
+    savePrefs();
+    snprintf(reply, n, "> wifi.ssid is now %s (set wifi.pwd too, then reboot)", _prefs.wifi_ssid);
+    return true;
+  }
+  if (memcmp(command, "set wifi.pwd ", 13) == 0) {
+    StrHelper::strncpy(_prefs.wifi_pwd, &command[13], sizeof(_prefs.wifi_pwd));
+    savePrefs();
+    snprintf(reply, n, "> wifi.pwd updated (reboot to apply)");
+    return true;
+  }
+  if (strcmp(command, "get wifi.pwd") == 0) { snprintf(reply, n, "> %s", _prefs.wifi_pwd); return true; }
+  if (strcmp(command, "set wifi.clear") == 0) {
+    _prefs.wifi_ssid[0] = 0;
+    _prefs.wifi_pwd[0] = 0;
+    savePrefs();
+    snprintf(reply, n, "> wifi config cleared (reboot to apply)");
+    return true;
+  }
+  if (strcmp(command, "get wifi.ssid") == 0) {
+    snprintf(reply, n, "> %s", _prefs.getWifiSSID()[0] ? _prefs.getWifiSSID() : "(not set)");
+    return true;
+  }
+  if (memcmp(command, "set wifi.enabled ", 17) == 0) {
+    _prefs.wifi_enabled = atoi(&command[17]) ? 1 : 0;
+    savePrefs();
+    snprintf(reply, n, "> wifi.enabled is now %d (reboot to apply)", _prefs.wifi_enabled);
+    return true;
+  }
+  if (strcmp(command, "get wifi.enabled") == 0) { snprintf(reply, n, "> %d", _prefs.wifi_enabled); return true; }
+  if (strcmp(command, "get wifi.status") == 0) {
+    snprintf(reply, n, WiFi.status() == WL_CONNECTED ? "> connected" : "> disconnected");
+    return true;
+  }
+  if (strcmp(command, "get wifi.ip") == 0) {
+    if (WiFi.status() == WL_CONNECTED) snprintf(reply, n, "> %s", WiFi.localIP().toString().c_str());
+    else snprintf(reply, n, "> (not connected)");
+    return true;
+  }
+#endif
   // The position adverts carry while the GPS is off (Settings > Privacy > Position).
   if (strcmp(command, "get lat") == 0) { snprintf(reply, n, "> %.6f", sensors.node_lat); return true; }
   if (strcmp(command, "get lon") == 0) { snprintf(reply, n, "> %.6f", sensors.node_lon); return true; }

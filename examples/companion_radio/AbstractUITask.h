@@ -4,7 +4,7 @@
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/ui/UIScreen.h>
 #include <helpers/SensorManager.h>
-#include <helpers/BaseSerialInterface.h>
+#include <helpers/MultiSerialInterface.h>
 #include <helpers/BaseChatMesh.h>   // MAX_TEXT_LEN
 #include <helpers/TxtDataHelpers.h>  // TXT_TYPE_*
 #include <Arduino.h>
@@ -32,10 +32,10 @@ enum class UIEventType {
 class UITaskBase {
 protected:
   mesh::MainBoard* _board;
-  BaseSerialInterface* _serial;
+  MultiSerialInterface* _serial;   // the interface manager (main.cpp)
   bool _connected;
 
-  UITaskBase(mesh::MainBoard* board, BaseSerialInterface* serial) : _board(board), _serial(serial) {
+  UITaskBase(mesh::MainBoard* board, MultiSerialInterface* serial) : _board(board), _serial(serial) {
     _connected = false;
   }
 
@@ -94,9 +94,10 @@ public:
   // open USB-CDC port). For app-connected behaviour like Auto buzzer mute.
   bool isClientConnected() const { return _serial->isClientConnected(); }
   uint16_t getBattMilliVolts() const { return _board->getBattMilliVolts(); }
-  bool isSerialEnabled() const { return _serial->isEnabled(); }
-  void enableSerial() { _serial->enable(); the_mesh.rememberBle(true); }
-  void disableSerial() { _serial->disable(); the_mesh.rememberBle(false); }
+  // Bluetooth alone (USB and the rest stay on), remembered over a restart.
+  bool isBluetoothEnabled() const { return _serial->isBluetoothEnabled(); }
+  void enableBluetooth() { _serial->enableBluetooth(); the_mesh.rememberBle(true); }
+  void disableBluetooth() { _serial->disableBluetooth(); the_mesh.rememberBle(false); }
   virtual void notify(UIEventType t = UIEventType::none) = 0;
   // Single choke point for every controlled power-down (low-battery auto-off,
   // long-press power-off, and every board.reboot() caller too): flush
@@ -122,7 +123,7 @@ class AbstractUITask : public MyMesh::Listener, public UITaskBase {
 protected:
   int  _queue_len = 0;   // last onQueueSizeChanged() -- newMsg()'s msgcount
 
-  AbstractUITask(mesh::MainBoard* board, BaseSerialInterface* serial) : UITaskBase(board, serial) { }
+  AbstractUITask(mesh::MainBoard* board, MultiSerialInterface* serial) : UITaskBase(board, serial) { }
 
 public:
   // An end-to-end ACK (CRC) arrived for one of our sent messages — drives the

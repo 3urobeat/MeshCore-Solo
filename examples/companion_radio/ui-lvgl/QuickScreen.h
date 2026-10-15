@@ -47,7 +47,7 @@ static void onQuickEditKb(lv_event_t* e)  { s_ui->quickEditDone(lv_event_get_cod
 static void onQuickList(lv_event_t* e)    { (void)e; s_ui->showQuickMsgs(); }
 static void onAdvertGo(lv_event_t* e)     { s_ui->advertSend((uintptr_t)lv_event_get_user_data(e) != 0); }
 static void bluetoothHint(char* sub, size_t n) {
-  if (!s_ui->isSerialEnabled()) snprintf(sub, n, "Off");
+  if (!s_ui->isBluetoothEnabled()) snprintf(sub, n, "Off");
   else if (s_ui->hasConnection()) snprintf(sub, n, "App connected");
   else if (the_mesh.getBLEPin()) snprintf(sub, n, "PIN %06lu", (unsigned long)the_mesh.getBLEPin());
   else snprintf(sub, n, "Waiting for the app");
@@ -202,12 +202,12 @@ static void bluetoothRow(lv_obj_t* body) {
   char sub[48];
   qview::bluetoothHint(sub, sizeof(sub));
   lv_obj_t* sw = switchRow(body, LV_SYMBOL_BLUETOOTH "  Bluetooth", sub, nullptr);
-  if (s_ui->isSerialEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
+  if (s_ui->isBluetoothEnabled()) lv_obj_add_state(sw, LV_STATE_CHECKED);
   lv_obj_add_event_cb(sw, qview::onBtSwitch, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 void UITask::setBluetooth(bool on) {
-  if (on) enableSerial(); else disableSerial();
+  if (on) enableBluetooth(); else disableBluetooth();
   if (!on) showToast("Bluetooth off - USB still works", 1500);
   refreshStatusBar();
 }

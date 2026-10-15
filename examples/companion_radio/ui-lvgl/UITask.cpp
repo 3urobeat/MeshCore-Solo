@@ -750,7 +750,7 @@ void UITask::refreshStatusBar() {
   struct Icon { const char* sym; uint32_t col; };
   Icon icons[11];
   int n = 0;
-  if (isSerialEnabled()) icons[n++] = { LV_SYMBOL_BLUETOOTH, hasConnection() ? theme::ACCENT : theme::TEXT_MUTED };
+  if (isBluetoothEnabled()) icons[n++] = { LV_SYMBOL_BLUETOOTH, hasConnection() ? theme::ACCENT : theme::TEXT_MUTED };
   if (lvport::wifiAllowed())   // WiFi switched on: accent while connected (map tiles, update)
     icons[n++] = { LV_SYMBOL_WIFI, lvport::netRadio() == lvport::NET_UP ? theme::ACCENT : theme::TEXT_MUTED };
   int32_t lat, lon;

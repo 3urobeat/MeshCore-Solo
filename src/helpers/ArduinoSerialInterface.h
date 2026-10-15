@@ -27,6 +27,9 @@ public:
   bool isEnabled() const override { return _isEnabled; }
 
   bool isConnected() const override;
+  // A host holding the port open: native USB tells (DTR), a UART bridge
+  // can't, so it never counts as an app being there.
+  bool isClientConnected() const override;
 
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;

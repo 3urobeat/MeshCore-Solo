@@ -131,6 +131,38 @@ public:
     return false;
   }
 
+  // A companion app on Bluetooth (the pairing PIN, the BT indicator).
+  bool isBLEConnected() const override {
+    for(auto iface : _interfaces){
+      if(iface.instance && iface.type == InterfaceType::Bluetooth && iface.instance->isEnabled() && iface.instance->isConnected()){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // A companion app on any of them (each says how it knows).
+  bool isClientConnected() const override {
+    if(!_enabled){
+      return false;
+    }
+    for(auto iface : _interfaces){
+      if(iface.instance && iface.instance->isEnabled() && iface.instance->isClientConnected()){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool hasPendingFrames() const override {
+    for(auto iface : _interfaces){
+      if(iface.instance && iface.instance->isEnabled() && iface.instance->hasPendingFrames()){
+        return true;
+      }
+    }
+    return false;
+  }
+
   // loop all interfaces
   void loop() override {
     for(auto iface : _interfaces){

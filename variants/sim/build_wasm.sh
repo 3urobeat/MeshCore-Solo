@@ -85,6 +85,7 @@ SRCS=(
   src/helpers/ClientACL.cpp
   src/helpers/CommonCLI.cpp
   src/helpers/ConfigSerializer.cpp
+  src/helpers/DynamicConfigSerializer.cpp
   src/helpers/DeviceDiag.cpp
   src/helpers/IdentityStore.cpp
   src/helpers/RegionMap.cpp
