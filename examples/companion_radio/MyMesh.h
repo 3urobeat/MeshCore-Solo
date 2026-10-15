@@ -4,6 +4,7 @@
 #include <Mesh.h>
 #include <helpers/ui/DisplayDriver.h>
 #include "Features.h"   // FEAT_RX_POWERSAVE, used by MyMesh.cpp
+#include <helpers/KeyValueStore.h>
 
 // Forward declaration for UITask
 class UITask;
@@ -83,6 +84,10 @@ class UITask;
 #define REQ_TYPE_KEEP_ALIVE             0x02
 #define REQ_TYPE_GET_TELEMETRY_DATA     0x03
 
+// Copied from simple_repeater
+#define CTL_TYPE_NODE_DISCOVER_REQ      0x80
+#define CTL_TYPE_NODE_DISCOVER_RESP     0x90
+
 struct AdvertPath {
   uint8_t pubkey_prefix[7];
   uint8_t path_len;
@@ -126,7 +131,7 @@ public:
       virtual void onACKRecv(uint32_t ack_crc) { }
       virtual uint8_t onUnhandledRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                                          uint8_t len, uint8_t *reply) { return 0; /* unknown request type */ }
-      virtual void onUnhandledResponse(const ContactInfo &from, uint32_t tag, const uint8_t* data, uint8_t len) { }
+      virtual bool onUnhandledResponse(const ContactInfo &from, uint32_t tag, const uint8_t* data, uint8_t len) { return false; /* not handled */ }
       virtual void onTraceRecv(mesh::Packet *pkt, uint32_t tag, uint32_t auth_code, uint8_t flags,
                                const uint8_t *path_snrs, const uint8_t *path_hashes, uint8_t path_len) { }
       virtual void onRawDataRecv(mesh::Packet *pkt) { }
@@ -316,6 +321,8 @@ protected:
                      const char *text) override;
   void onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                          const char *text) override;
+  void onCLICommandRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
+                         const char *text, char* reply) override;
   void onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                            const uint8_t *sender_prefix, const char *text) override;
   void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
@@ -448,7 +455,7 @@ public:
   // reply is a text frame (TXT_TYPE_CLI_DATA) delivered via onCommandDataRecv();
   // this just tracks which contact's reply AdminScreen is currently waiting on.
   bool sendAdminCommand(const ContactInfo& contact, const char* cmd_text, uint32_t& est_timeout) {
-    if (sendCommandData(contact, rtc_clock.getCurrentTime(), 0, cmd_text, est_timeout) == MSG_SEND_FAILED)
+    if (sendCommandData(contact, rtc_clock.getCurrentTime(), 0, TXT_TYPE_CLI_DATA, cmd_text, est_timeout) == MSG_SEND_FAILED)
       return false;
     memcpy(&ui_pending_admin_reply, contact.id.pub_key, 4);
     return true;
@@ -634,6 +641,7 @@ private:
 
   void checkCLIRescueCmd();
   bool cliRadioCommand(const char* command, char* reply, int n);
+  bool handleCommand(const char* text, uint32_t sender_timestamp, char* reply);
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
 #ifdef ENABLE_SCREENSHOT
@@ -690,6 +698,16 @@ private:
   uint32_t _last_relay_seq;    // seq of the most recent tracked send (for the UI to record)
   bool send_unscoped;   // force un-scoped flood (instead of using send_scope)
   char cli_command[80];
+  char reply_buf[166];
+  class BoardPrefs : public KeyValueStore {   // MyMesh.cpp
+    MyMesh* _mesh;
+    uint8_t* field(const char* key);
+  public:
+    BoardPrefs(MyMesh* mesh) : _mesh(mesh) { }
+    bool setByKey(const char* key, const char* value) override;
+    bool getByKey(const char* key, char* value, size_t max_len) override;
+  };
+  BoardPrefs _board_prefs;
   uint8_t app_target_ver;
   uint8_t *sign_data;
   uint32_t sign_data_len;

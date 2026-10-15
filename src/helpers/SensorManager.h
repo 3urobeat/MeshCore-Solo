@@ -35,6 +35,7 @@ public:
   // the GPS status icon.
   virtual bool isGpsDutySleeping() const { return false; }
   virtual int getAvailableLPPTypes(uint8_t* types, int max_count) const { return 0; }
+  virtual bool isGPSDetected() const { return false; }
 
   // Helper functions to manage setting by keys (useful in many places ...)
   const char* getSettingByKey(const char* key) {

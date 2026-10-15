@@ -21,6 +21,7 @@ bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
     command += 3;
   }
   if (cliRadioCommand(command, reply, n)) return true;
+  if (n >= 64 && board.handleCommand(command, 0, reply)) return true;   // the board's own (radio.fem.*); short replies
 
   if (strcmp(command, "reboot") == 0 || strcmp(command, "poweroff") == 0 || strcmp(command, "shutdown") == 0) {
     bool restart = command[0] == 'r';

@@ -15,6 +15,7 @@
 #include "soc/rtc.h"
 #include "esp_system.h"
 #include <driver/rtc_io.h>
+#include <helpers/KeyValueStore.h>
 
 class ESP32Board : public mesh::MainBoard {
 protected:
@@ -50,6 +51,8 @@ public:
     Wire.begin();
   #endif    
   }
+
+  void attachDynamicPrefs(KeyValueStore* prefs) { }  // no-op
 
   // Temperature from ESP32 MCU
   float getMCUTemperature() override {
@@ -216,7 +219,7 @@ public:
     if (_rtc_backup_magic == RTC_BACKUP_MAGIC && _rtc_backup_time > RTC_TIME_MIN) {
       tv.tv_sec = _rtc_backup_time;
     } else {
-      tv.tv_sec = 1772323200;  // 1 Mar 2026
+      tv.tv_sec = RTC_TIME_MIN;
     }
     tv.tv_usec = 0;
     settimeofday(&tv, NULL);

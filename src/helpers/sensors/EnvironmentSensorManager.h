@@ -55,6 +55,7 @@ public:
   bool isGpsDutySleeping() const override {
     return gps_master_enabled && gps_duty_sleep_sec > 0 && !_gps_keep_awake && !gps_active;
   }
+  bool isGPSDetected() const override { return gps_detected; }
   #else
   EnvironmentSensorManager(){};
   #endif

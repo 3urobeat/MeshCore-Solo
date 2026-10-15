@@ -52,6 +52,9 @@ uint32_t RadioLibWrapper::getRngSeed() {
 }
 
 void RadioLibWrapper::setTxPower(int8_t dbm) {
+#if defined(USE_LR2021)
+  idle();
+#endif
   _tx_dbm = dbm;   // logical/requested power -- what getTxPower(), the app and the CLI report
 #if defined(NUM_PA_POINTS) && defined(TX_GAIN_LORA)
   // Per-board external-PA gain curve (radio_dbm -> measured gain in dB, from

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <MeshCore.h>
+#include <helpers/KeyValueStore.h>
 #include <cstdio>
 #include <cstdlib>
 
@@ -20,6 +21,7 @@ class SimMainBoard : public mesh::MainBoard {
 
 public:
   void begin() { }
+  void attachDynamicPrefs(KeyValueStore* prefs) { }  // no-op, as the real boards without their own settings
 
   bool isExternalPowered() override { return externalPowerRef(); }
   static void setExternalPower(bool on) { externalPowerRef() = on; }

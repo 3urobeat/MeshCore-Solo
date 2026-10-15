@@ -4,6 +4,9 @@
 #include "Features.h"
 
 #include <Arduino.h> // needed for PlatformIO
+#ifdef ENABLE_WIFI_INTERFACE
+#include <WiFi.h>
+#endif
 #include <Mesh.h>
 
 #include <helpers/UTF8Helpers.h>
@@ -695,8 +698,7 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
     tryBotReplyDM(from, text, hops);
 }
 
-void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
-                               const char *text) {
+void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp, const char *text) {
   markConnectionActive(from); // in case this is from a server, and we have a connection
   queueMessage(from, TXT_TYPE_CLI_DATA, pkt, sender_timestamp, NULL, 0, text);
   // If the on-device Admin screen sent this command (not the BLE/USB app's CLI
@@ -711,6 +713,17 @@ void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint3
 
 // Oldest room post the bot still answers (see onSignedMessageRecv()).
 #define BOT_ROOM_MAX_AGE_SECS  300
+void MyMesh::onCLICommandRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
+                               const char *text, char* reply) {
+  markConnectionActive(from); // in case this is from a server, and we have a connection
+  if (from.isRemoteCLIAllowed()) {
+    if (!handleCommand(text, sender_timestamp, reply)) {
+      strcat(reply, "Unknown command");   // reply may have cmd prefix from 'text'
+    }
+  } else {
+    queueMessage(from, TXT_TYPE_CLI_COMMAND, pkt, sender_timestamp, NULL, 0, text);
+  }
+}
 
 void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                  const uint8_t *sender_prefix, const char *text) {
@@ -1008,8 +1021,21 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
     _serial->writeFrame(out_frame, i);
-  } else if (_listener && len > 4) {
-    _listener->onUnhandledResponse(contact, tag, &data[4], len - 4);
+  } else {
+    bool handled;
+    if (_listener && len > 4) {
+      handled = _listener->onUnhandledResponse(contact, tag, &data[4], len - 4);
+    } else {
+      handled = false;
+    }
+    if (!handled) {   // let the app know about unknown/unhandled responses (eg. push telemetry packets)
+      int i = 0;
+      out_frame[i++] = PUSH_CODE_BINARY_RESPONSE;
+      out_frame[i++] = 0; // reserved
+      memcpy(&out_frame[i], data, len);
+      i += len;
+      _serial->writeFrame(out_frame, i);
+    }
   }
 }
 
@@ -1290,6 +1316,29 @@ void MyMesh::onAckRecv(mesh::Packet* packet, uint32_t ack_crc) {
   if (_listener) _listener->onACKRecv(ack_crc);
 }
 
+// The board's own settings (upstream's dynamic prefs, a key-value store), over
+// the NodePrefs fields that hold them here: a board with a LoRa front end
+// reads "fem_rxgain" / "fem_txgain" at begin() and writes them from its CLI.
+bool MyMesh::BoardPrefs::getByKey(const char* key, char* value, size_t max_len) {
+  uint8_t* f = field(key);
+  if (!f || max_len < 2) return false;
+  value[0] = *f ? '1' : '0';
+  value[1] = 0;
+  return true;
+}
+bool MyMesh::BoardPrefs::setByKey(const char* key, const char* value) {
+  uint8_t* f = field(key);
+  if (!f) return false;
+  *f = strcmp(value, "1") == 0 ? 1 : 0;
+  _mesh->savePrefs();
+  return true;
+}
+uint8_t* MyMesh::BoardPrefs::field(const char* key) {
+  if (strcmp(key, "fem_rxgain") == 0) return &_mesh->_prefs.radio_fem_rxgain;
+  if (strcmp(key, "fem_txgain") == 0) return &_mesh->_prefs.radio_fem_txgain;
+  return nullptr;
+}
+
 MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
     // Sized to match simple_repeater's pool (32), not the old client-only 16: with the
     // on-device Repeater toggle, queued retransmits (adverts/channel flood from
@@ -1298,9 +1347,10 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
     // silently drops every incoming packet — DMs and channels included — until a slot
     // frees up.
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(32), tables),
-      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _listener(NULL), _iter(0) {
+      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _listener(NULL), _iter(0), _board_prefs(this) {
   _iter_started = false;
   _cli_rescue = false;
+  cli_command[0] = 0;
   for (int i = 0; i < RELAY_RING; i++) _relay[i].pending = false;
   _relay_head = 0;
   _relay_active = 0;
@@ -1356,7 +1406,11 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
   _prefs.radio_fem_rxgain = 1;
+#ifdef RADIO_FEM_TXGAIN
+  _prefs.radio_fem_txgain = RADIO_FEM_TXGAIN;   // board-specific default for PA
+#else
   _prefs.radio_fem_txgain = 0;
+#endif
 #ifdef DISPLAY_ROTATION
   _prefs.display_rotation = DISPLAY_ROTATION;
 #endif
@@ -1486,8 +1540,7 @@ void MyMesh::begin() {
 #else
   radio_driver.setPowerSaving(false);   // see Features.h FEAT_RX_POWERSAVE -- ignore any stale persisted rx_powersave byte
 #endif
-  board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
-  board.setLoRaFemPaGainEnabled(_prefs.radio_fem_txgain);
+  board.attachDynamicPrefs(&_board_prefs);   // FEM gains: the board reads them now, and its CLI sets them
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
 }
@@ -1631,16 +1684,16 @@ void MyMesh::handleCmdFrame(size_t len) {
     uint8_t *pub_key_prefix = &cmd_frame[i];
     i += 6;
     ContactInfo *recipient = lookupContactByPubKey(pub_key_prefix, 6);
-    if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA)) {
+    if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA || txt_type == TXT_TYPE_CLI_COMMAND)) {
       char *text = (char *)&cmd_frame[i];
       int tlen = len - i;
       uint32_t est_timeout;
       text[tlen] = 0; // ensure null
       int result;
       uint32_t expected_ack;
-      if (txt_type == TXT_TYPE_CLI_DATA) {
+      if (txt_type == TXT_TYPE_CLI_DATA || txt_type == TXT_TYPE_CLI_COMMAND) {
         msg_timestamp = getRTCClock()->getCurrentTimeUnique(); // Use node's RTC instead of app timestamp to avoid tripping replay protection
-        result = sendCommandData(*recipient, msg_timestamp, attempt, text, est_timeout);
+        result = sendCommandData(*recipient, msg_timestamp, attempt, txt_type, text, est_timeout);
         expected_ack = 0; // no Ack expected
       } else {
         result = sendMessage(*recipient, msg_timestamp, attempt, text, expected_ack, est_timeout);
@@ -1752,8 +1805,8 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
     } else if (data_type == DATA_TYPE_RESERVED) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (payload_len > MAX_CHANNEL_DATA_LENGTH) {
-      MESH_DEBUG_PRINTLN("CMD_SEND_CHANNEL_DATA payload too long: %d > %d", payload_len, MAX_CHANNEL_DATA_LENGTH);
+    } else if (payload_len > MAX_GROUP_DATA_LENGTH) {
+      MESH_DEBUG_PRINTLN("CMD_SEND_CHANNEL_DATA payload too long: %d > %d", payload_len, MAX_GROUP_DATA_LENGTH);
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else if (sendGroupData(channel.channel, path, path_len, data_type, payload, payload_len)) {
       writeOKFrame();
@@ -2670,6 +2723,14 @@ void MyMesh::enterCLIRescue() {
   Serial.println("========= CLI Rescue =========");
 }
 
+// Upstream's CLI entry (the rescue CLI, a remote contact's CLI message): our
+// companion CLI (MyMeshCli.h) answers, as it does CMD_RUN_CLI_COMMAND. `reply`
+// is upstream's buffer: 160 bytes free.
+bool MyMesh::handleCommand(const char* command, uint32_t sender_timestamp, char* reply) {
+  (void)sender_timestamp;
+  return handleCliCommand(command, reply, 160);
+}
+
 void MyMesh::checkCLIRescueCmd() {
   int len = strlen(cli_command);
   // `cli_command` must stay NUL-terminated within its bounds. If it ever isn't,
@@ -2695,15 +2756,10 @@ void MyMesh::checkCLIRescueCmd() {
   if (len > 0 && cli_command[len - 1] == '\r') {  // received complete line
     cli_command[len - 1] = 0;  // replace newline with C string null terminator
 
-    if (memcmp(cli_command, "set ", 4) == 0) {
-      const char* config = &cli_command[4];
-      if (memcmp(config, "pin ", 4) == 0) {
-        _prefs.ble_pin = atoi(&config[4]);
-        savePrefs();
-        Serial.printf("  > pin is now %06d\n", _prefs.ble_pin);
-      } else {
-        Serial.printf("  Error: unknown config: %s\n", config);
-      }
+    reply_buf[0] = 0;
+    if (handleCommand(cli_command, 0, reply_buf)) {
+      // command was handled, print reply output
+      Serial.print("  "); Serial.print(reply_buf); Serial.println();
     } else if (strcmp(cli_command, "rebuild") == 0) {
       bool success = _store->formatFileSystem();
       if (success) {
@@ -2907,6 +2963,11 @@ void MyMesh::loop() {
     checkCLIRescueCmd();
   } else {
     checkSerialInterface();
+#if defined(ENABLE_WIFI_INTERFACE) && defined(RP2040_PLATFORM) && !defined(ENABLE_USB_INTERFACE)
+    // RP2040 WiFi builds are headless and have no way into the rescue CLI (that needs a
+    // display + long-press), so serve config commands on the otherwise unused USB serial
+    checkCLIRescueCmd();
+#endif
   }
 
   // is there are pending dirty contacts write needed?

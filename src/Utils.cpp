@@ -147,8 +147,6 @@ int Utils::encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const uin
 int Utils::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
   if (src_len <= CIPHER_MAC_SIZE) return 0;  // invalid src bytes
 
-  // decrypt() works in whole blocks: an unaligned length would write past
-  // the caller's buffer (upstream 9c9a2ba2 / b74ba545).
   int enc_len = src_len - CIPHER_MAC_SIZE;
   if (enc_len % CIPHER_BLOCK_SIZE != 0) return 0;  // reject non-block-aligned ciphertext
 
@@ -206,6 +204,15 @@ static uint8_t hexVal(char c) {
 
 bool Utils::isHexChar(char c) {
   return c == '0' || hexVal(c) > 0;
+}
+
+bool Utils::isZeroes(const uint8_t* buf, size_t len) {
+  while (len > 0) {
+    if (*buf != 0) return false;
+    buf++;
+    len--;
+  }
+  return true;
 }
 
 bool Utils::fromHex(uint8_t* dest, int dest_size, const char *src_hex) {
