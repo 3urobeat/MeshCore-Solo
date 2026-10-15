@@ -320,6 +320,14 @@ static void flowLegendRefresh() {
   lv_obj_remove_flag(s_flow_legend, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void flowPx(int32_t lat, int32_t lon, int32_t& x, int32_t& y);
+// Point k of a flow on the layer, where its node and you are now (PacketFlow::pointNow).
+static void flowPt(const PacketFlow::Flow& f, int k, int32_t& x, int32_t& y) {
+  int32_t lat, lon;
+  s_flow->pointNow(f, k, lat, lon);
+  flowPx(lat, lon, x, y);
+}
+
 static void flowPx(int32_t lat, int32_t lon, int32_t& x, int32_t& y) {
   double fx = lonToTileX(lon / 1e6, s_view_z) * TILE_PX - s_view_left;
   double fy = latToTileY(lat / 1e6, s_view_z) * TILE_PX - s_view_top;
@@ -337,7 +345,7 @@ static bool flowArea(lv_area_t& r) {
     if (now - f.t_fade >= FLOW_LIFE) continue;   // (an older one may live on with a newer copy)
     for (int k = 0; k < f.n; k++) {
       int32_t x, y;
-      flowPx(f.lat[k], f.lon[k], x, y);
+      flowPt(f, k, x, y);
       if (!any) { r = { x, y, x, y }; any = true; }
       r.x1 = min(r.x1, x); r.y1 = min(r.y1, y); r.x2 = max(r.x2, x); r.y2 = max(r.y2, y);
     }
@@ -366,7 +374,7 @@ static void drawFlowNodes(lv_layer_t* layer, const lv_area_t& a, uint32_t now) {
       if (j < nn) { if (opa > nodes[j].opa) nodes[j].opa = opa; continue; }
       if (nn == (int)(sizeof(nodes) / sizeof(nodes[0]))) continue;
       int32_t x, y;
-      flowPx(f.lat[k], f.lon[k], x, y);
+      flowPt(f, k, x, y);
       nodes[nn++] = { f.node[k], opa, a.x1 + x, a.y1 + y, f.kind };
     }
   }
@@ -435,7 +443,7 @@ static void drawFlows(lv_layer_t* layer, const lv_area_t& a) {
     if (fade >= FLOW_LIFE) continue;
     const lv_color_t col = lv_color_hex(flowColour(f.kind));
     int32_t px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
-    for (int k = 0; k < f.n; k++) { flowPx(f.lat[k], f.lon[k], px[k], py[k]); px[k] += a.x1; py[k] += a.y1; }
+    for (int k = 0; k < f.n; k++) { flowPt(f, k, px[k], py[k]); px[k] += a.x1; py[k] += a.y1; }
     if (f.n == 1) {   // a pulse
       if (age >= PULSE_MS) continue;
       ring.color = col;

@@ -988,13 +988,8 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       if (millis() - f.t_ms > FLOW_SHOW_MS) break;   // newest first
       float px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
       for (int k = 0; k < f.n; k++) {
-        int32_t la = f.lat[k], lo = f.lon[k];
-        ContactInfo c;
-        if (f.node[k] >= 0) {   // a contact: where its dot is now
-          if (the_mesh.getContactByIdx(f.node[k], c) && (c.gps_lat || c.gps_lon)) { la = c.gps_lat; lo = c.gps_lon; }
-        } else if (me && k == f.n - 1) {   // the last point, no contact: here
-          la = mla; lo = mlo;
-        }
+        int32_t la, lo;
+        fl.pointNow(f, k, la, lo);
         projectF(la, lo, px[k], py[k]);
       }
       if (f.n == 1) {   // a packet nothing of which could be placed: a ring here, briefly

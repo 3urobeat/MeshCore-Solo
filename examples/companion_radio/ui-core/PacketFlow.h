@@ -88,6 +88,20 @@ public:
   int count() const { return _n; }
   // i = 0 is the newest.
   const Flow& at(int i) const { return _flows[(_head + MAX_FLOWS - 1 - i) % MAX_FLOWS]; }
+  // Where point k of a flow is now: a contact where it is now, the end here
+  // (no contact) where you are now -- not where they were when it was heard,
+  // so the lines meet the map's marks after a node moved or the GPS wandered.
+  void pointNow(const Flow& f, int k, int32_t& lat, int32_t& lon) const {
+    lat = f.lat[k]; lon = f.lon[k];
+    if (f.node[k] >= 0) {
+      ContactInfo c;
+      if (the_mesh.getContactByIdx(f.node[k], c) && (c.gps_lat || c.gps_lon)) { lat = c.gps_lat; lon = c.gps_lon; }
+    } else if (k == f.n - 1) {
+      int32_t a, b;
+      if (ownPosition(a, b)) { lat = a; lon = b; }
+    }
+  }
+
   // Anything younger than `life_ms`?
   bool active(uint32_t life_ms) const { return _n > 0 && millis() - at(0).t_ms < life_ms; }
 
