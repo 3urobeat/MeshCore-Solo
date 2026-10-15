@@ -287,7 +287,9 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   bool    _nav = false;     // full-screen navigate-to-node view (over detail)
   bool    _map = false;     // the nodes with a position on a map (under detail)
   static const uint32_t FLOW_SHOW_MS = 60000;   // packet flow lines stay this long
-  static const uint32_t FLOW_HERE_MS = 3000;    // and a ring here, for one placed nowhere else
+  // and a ring here, for one placed nowhere else: on e-ink longer, each
+  // change being a refresh
+  static const uint32_t FLOW_HERE_MS = Features::IS_EINK ? 15000 : 3000;
   uint32_t _flow_seen = 0;
   int     _map_zoom = 0;    // 0: all of them in view; each step halves it, on the selected
   navview::EtaTracker _nav_eta;  // closing-speed/ETA for the navigate view
@@ -904,8 +906,12 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       if (la < mnla) mnla = la;  if (la > mxla) mxla = la;
       if (lo < mnlo) mnlo = lo;  if (lo > mxlo) mxlo = lo;
     };
+    // You: the GPS, else the position set in Privacy -- where the packet
+    // flow's lines end too.
+    int32_t mla = _own_lat, mlo = _own_lon;
+    const bool me = _own_gps || _task->core().fixedPosition(mla, mlo);
     for (int i = 0; i < _count; i++) if (hasPos(_entries[i])) fold(_entries[i].lat_e6, _entries[i].lon_e6);
-    if (_own_gps) fold(_own_lat, _own_lon);
+    if (me) fold(mla, mlo);
     if (!init || _sel >= _count || !hasPos(_entries[_sel])) {
       d.drawTextCentered(W / 2, H / 2 - lh / 2, "No node positions");
       return;
@@ -922,9 +928,14 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     float scale = fh / span_la < fw / span_lo ? fh / span_la : fw / span_lo;
     float cla = (mnla + mxla) / 2.0f, clo = (mnlo + mxlo) / 2.0f;
     if (_map_zoom > 0) { scale *= (float)(1 << _map_zoom); cla = sel.lat_e6; clo = sel.lon_e6; }
-    auto project = [&](int32_t la, int32_t lo, int& x, int& y) {
-      x = ax + aw / 2 + (int)(((float)lo - clo) * kx * scale);
-      y = ay + ah / 2 - (int)(((float)la - cla) * scale);
+    auto projectF = [&](int32_t la, int32_t lo, float& x, float& y) {   // unrounded, for far ends
+      x = ax + aw / 2 + ((float)lo - clo) * kx * scale;
+      y = ay + ah / 2 - ((float)la - cla) * scale;
+    };
+    auto project = [&](int32_t la, int32_t lo, int& x, int& y) {   // clamped far off the screen, never past an int
+      float fx, fy; projectF(la, lo, fx, fy);
+      x = (int)lroundf(fx < -30000 ? -30000 : fx > 30000 ? 30000 : fx);   // rounded as the lines are
+      y = (int)lroundf(fy < -30000 ? -30000 : fy > 30000 ? 30000 : fy);
     };
     auto inside = [&](int x, int y) { return x >= ax && x < ax + aw && y >= ay && y < ay + ah; };
 
@@ -938,29 +949,51 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       miniIconDrawCentered(d, x, y, _entries[i].is_live ? ICON_MAP_CONTACT : ICON_MAP_DOT);
     }
     // Packet flow (ui-core/PacketFlow.h): the lines of the packets heard in
-    // the last minute, the newest drawn twice as thick; a ring for a packet
-    // sent, or heard on its way to a repeater.
+    // the last minute, the newest two drawn three strokes wide, centred on
+    // the line; a ring for a packet sent, or heard on its way to a repeater.
+    // Its points are drawn where the contacts and you are now, not where they
+    // were when it was heard, so the lines meet on the marks.
     const PacketFlow& fl = _task->core().flow;
-    for (int i = 0; fl.enabled() && i < fl.count(); i++) {
+    const int t = d.sepH();
+    for (int i = 0, lines = 0; fl.enabled() && i < fl.count(); i++) {
       const PacketFlow::Flow& f = fl.at(i);
       if (millis() - f.t_ms > FLOW_SHOW_MS) break;   // newest first
-      int px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
-      for (int k = 0; k < f.n; k++) project(f.lat[k], f.lon[k], px[k], py[k]);
+      float px[PacketFlow::MAX_PTS], py[PacketFlow::MAX_PTS];
+      for (int k = 0; k < f.n; k++) {
+        int32_t la = f.lat[k], lo = f.lon[k];
+        ContactInfo c;
+        if (f.node[k] >= 0) {   // a contact: where its dot is now
+          if (the_mesh.getContactByIdx(f.node[k], c) && (c.gps_lat || c.gps_lon)) { la = c.gps_lat; lo = c.gps_lon; }
+        } else if (me && k == f.n - 1) {   // the last point, no contact: here
+          la = mla; lo = mlo;
+        }
+        projectF(la, lo, px[k], py[k]);
+      }
       if (f.n == 1) {   // a packet nothing of which could be placed: a ring here, briefly
         if (f.here && millis() - f.t_ms > FLOW_HERE_MS) continue;
-        if (inside(px[0], py[0])) gfx::drawCircle(d, px[0], py[0], 6 * s);
+        if (fabsf(px[0]) < 30000 && fabsf(py[0]) < 30000)
+          gfx::drawCircleClipped(d, (int)lroundf(px[0]), (int)lroundf(py[0]), 6 * s, ax, ay, aw, ah);
         continue;
       }
-      const bool bold = i < 2;
+      const bool bold = lines++ < 2;
       for (int k = 1; k < f.n; k++) {
         gfx::drawLineClipped(d, px[k - 1], py[k - 1], px[k], py[k], ax, ay, aw, ah);
-        if (bold) gfx::drawLineClipped(d, px[k - 1] + 1, py[k - 1], px[k] + 1, py[k], ax, ay, aw, ah);
+        if (!bold) continue;
+        // a stroke either side of the first, across the line's run
+        const bool flat = fabsf(px[k] - px[k - 1]) >= fabsf(py[k] - py[k - 1]);
+        const float ox = flat ? 0 : t, oy = flat ? t : 0;
+        gfx::drawLineClipped(d, px[k - 1] + ox, py[k - 1] + oy, px[k] + ox, py[k] + oy, ax, ay, aw, ah);
+        gfx::drawLineClipped(d, px[k - 1] - ox, py[k - 1] - oy, px[k] - ox, py[k] - oy, ax, ay, aw, ah);
       }
     }
-    if (_own_gps) { int x, y; project(_own_lat, _own_lon, x, y); if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_CURRENT); }
-    if (target)   { int x, y; project(tla, tlo, x, y);           if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_TARGET); }
+    if (me)     { int x, y; project(mla, mlo, x, y);   if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_CURRENT); }
+    if (target) { int x, y; project(tla, tlo, x, y);   if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_TARGET); }
     const int r = 4 * s;
     d.drawRect(sx - r, sy - r, 2 * r + 1, 2 * r + 1);
+    // The north mark and the scale stay readable over the lines.
+    d.setColor(UIColor::window_bkg);
+    d.fillRect(ax + aw - ICON_MAP_NORTH.w * s - 2, ay, ICON_MAP_NORTH.w * s + 2, ICON_MAP_NORTH.h * s + 1);
+    d.setColor(UIColor::primary_txt);
     miniIconDrawTop(d, ax + aw - ICON_MAP_NORTH.w * s - 1, ay, ICON_MAP_NORTH);
 
     // The scale: a round distance about a quarter of the width, bottom right.
@@ -972,7 +1005,11 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     char sc[12];
     geo::fmtDist(sc, sizeof(sc), m / 1000.0f, useImperial());
     if (len > 2 && len < aw) {
-      const int ly = ay + ah - 2, lx = ax + aw - len - 1;
+      const int ly = ay + ah - 2, lx = ax + aw - len - 1, tw = d.getTextWidth(sc);
+      d.setColor(UIColor::window_bkg);
+      d.fillRect(lx + len - tw - 1, ly - lh - 1, tw + 2, lh + 1);
+      d.fillRect(lx - 1, ly - 1, len + 2, s + 2);
+      d.setColor(UIColor::primary_txt);
       d.fillRect(lx, ly, len, s);
       d.setCursor(lx + len - d.getTextWidth(sc), ly - lh);
       d.print(sc);

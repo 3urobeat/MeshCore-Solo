@@ -6,6 +6,7 @@
 
 #include <helpers/ui/DisplayDriver.h>
 #include <stdlib.h>   // abs
+#include <math.h>     // lroundf
 #include "../Trail.h"
 
 namespace gfx {
@@ -26,19 +27,21 @@ static inline void drawLine(DisplayDriver& d, int x0, int y0, int x1, int y1) {
 }
 
 // The part of a line inside a box (x, y, w, h), Liang-Barsky; nothing when
-// it misses the box. For lines whose ends may lie far off the screen.
-static inline void drawLineClipped(DisplayDriver& d, int x0, int y0, int x1, int y1, int bx, int by, int bw, int bh) {
+// it misses the box. For lines whose ends may lie far off the screen: the
+// ends are floats, so a point projected thousands of screens away (a map
+// zoomed in) neither overflows an int nor turns the line around.
+static inline void drawLineClipped(DisplayDriver& d, float x0, float y0, float x1, float y1, int bx, int by, int bw, int bh) {
   float t0 = 0, t1 = 1;
-  const float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+  const float dx = x1 - x0, dy = y1 - y0;
   const float p[4] = { -dx, dx, -dy, dy };
-  const float q[4] = { (float)(x0 - bx), (float)(bx + bw - 1 - x0), (float)(y0 - by), (float)(by + bh - 1 - y0) };
+  const float q[4] = { x0 - bx, bx + bw - 1 - x0, y0 - by, by + bh - 1 - y0 };
   for (int i = 0; i < 4; i++) {
     if (p[i] == 0) { if (q[i] < 0) return; continue; }
     float r = q[i] / p[i];
     if (p[i] < 0) { if (r > t1) return; if (r > t0) t0 = r; }
     else          { if (r < t0) return; if (r < t1) t1 = r; }
   }
-  drawLine(d, x0 + (int)(t0 * dx), y0 + (int)(t0 * dy), x0 + (int)(t1 * dx), y0 + (int)(t1 * dy));
+  drawLine(d, (int)lroundf(x0 + t0 * dx), (int)lroundf(y0 + t0 * dy), (int)lroundf(x0 + t1 * dx), (int)lroundf(y0 + t1 * dy));
 }
 
 // Midpoint-circle outline.
@@ -49,6 +52,24 @@ static inline void drawCircle(DisplayDriver& d, int cx, int cy, int r) {
     d.fillRect(cx - y, cy + x, 1, 1); d.fillRect(cx - x, cy + y, 1, 1);
     d.fillRect(cx - x, cy - y, 1, 1); d.fillRect(cx - y, cy - x, 1, 1);
     d.fillRect(cx + y, cy - x, 1, 1); d.fillRect(cx + x, cy - y, 1, 1);
+    y++;
+    if (err < 0) err += 2 * y + 1;
+    else { x--; err += 2 * (y - x) + 1; }
+  }
+}
+
+// The same outline, only the part inside a box (x, y, w, h), as thick as a
+// line (sepH: 2px on a doubled panel).
+static inline void drawCircleClipped(DisplayDriver& d, int cx, int cy, int r, int bx, int by, int bw, int bh) {
+  const int t = d.sepH();
+  auto dot = [&](int x, int y) {
+    if (x - t / 2 >= bx && y - t / 2 >= by && x - t / 2 + t <= bx + bw && y - t / 2 + t <= by + bh)
+      d.fillRect(x - t / 2, y - t / 2, t, t);
+  };
+  int x = r, y = 0, err = 1 - r;
+  while (x >= y) {
+    dot(cx + x, cy + y); dot(cx + y, cy + x); dot(cx - y, cy + x); dot(cx - x, cy + y);
+    dot(cx - x, cy - y); dot(cx - y, cy - x); dot(cx + y, cy - x); dot(cx + x, cy - y);
     y++;
     if (err < 0) err += 2 * y + 1;
     else { x--; err += 2 * (y - x) + 1; }
