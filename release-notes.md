@@ -44,7 +44,7 @@ Built on MeshCore 1.18. This page lists everything new since 1.28. Testers comin
 - **Alerts drop in from the top** as a banner and slide away. **Message alert** in Settings › Display picks the banner, a small envelope with a count beside the battery, or no alert.
 - **Popups, alerts and bubbles** share one soft-cornered frame. Tab bars glide, and the page below slides in. The screen redraws only the parts that changed.
 - **A bolt beside the battery** while USB power is connected (nRF52 boards and the L2).
-- **Nearby › Map**: the nodes with a position and you on one view.
+- **Nearby › Map**: the nodes with a position and you on one view. On e-ink it also writes the nodes' names beside their dots and draws your trail and waypoints. On the 4.2" and 4.26" the selected node sits beside the map, with a compass pointing at it.
 - **Clock tools**: a calendar with today and the alarm's days.
 - **Tools › Satellites**: a sky plot and a signal bar for each satellite.
 - **Tools › System › Flashlight**: the whole screen lit (not on e-ink).
@@ -77,7 +77,7 @@ Built on MeshCore 1.18. This page lists everything new since 1.28. Testers comin
 ### Navigation and the map
 
 - **Pointers to other nodes**: Nodes shows an arrow to each node beside its distance. Node detail shows how many repeaters a message takes to reach it. The L2 and the e-ink also draw a compass.
-- **Packet flow**: every packet the radio hears is drawn as a line from its origin, through the repeaters, to you, in a colour for each kind, with a legend. Off by default: **Flow** in the Nodes map's options, Map options › On the map › **Packet flow** on the L2.
+- **Packet flow**: every packet the radio hears is drawn as a line from its origin, through the repeaters, to you, with a legend counting each kind over the last minute. Kinds have their own colours on the L2 and their own dashes on the 4.2" and 4.26" e-ink. Off by default: **Flow** in the Nodes map's options, Map options › On the map › **Packet flow** on the L2.
 - **Trails record altitude**, with a height profile showing the climb and the highest and lowest points. GPX exports carry the altitude.
 - **Live location sharing has its own scope**, and each session ends by itself after 1–12 h.
 
@@ -123,6 +123,7 @@ Built on MeshCore 1.18. This page lists everything new since 1.28. Testers comin
 - **Settings are saved in `/prefs.json`** (see the warning above).
 - **The app on Bluetooth and USB at the same time.**
 - **Path and trace**, **packet flow**, **flashlight**, **channel order**, gliding tab bars, and the lettering clock on the portrait e-ink.
+- **The e-ink Nodes map**: names beside the dots, your trail and waypoints, a clearer scale bar, and on the 4.2" and 4.26" a pane beside it with the selected node and the flow legend.
 - **Console**: `txdelay`, `direct.txdelay` and `agc.reset.interval`.
 - **Wio Tracker L2:**
   - A light theme and map layers.
