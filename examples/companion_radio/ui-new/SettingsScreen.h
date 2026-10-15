@@ -618,7 +618,7 @@ class SettingsScreen : public UIScreen {
   uint8_t   _reset_stage = 0;
 
   int renderScopeMgmt(DisplayDriver& display) {
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Scope", -1, 0, true, _scope_action_menu.active);
     const ScopeList& sl = the_mesh.scopeList();
     int total = sl.totalCount() + 1;   // +1 synthetic "+ Add scope" row
@@ -632,7 +632,7 @@ class SettingsScreen : public UIScreen {
         if ((uint8_t)idx == sl.default_idx)
           display.drawTextRightAlign(display.width() - reserve - 2, y, "default");
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     });
     if (_scope_action_menu.active) _scope_action_menu.render(display);
     return _scope_action_menu.active ? 50 : 500;
@@ -692,7 +692,7 @@ public:
       // Section header: disclosure mark + name
       [&](int sec, int y, bool sel, int reserve, bool collapsed) {
         _reserve = reserve;
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         drawRowSelection(display, y, sel, reserve);
         drawDisclosure(display, 2, y, !collapsed);
         display.setCursor(2 + 2 * display.getCharWidth(), y);

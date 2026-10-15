@@ -148,9 +148,9 @@ inline void rose(DisplayDriver& d, int cx, int cy, int r, int deg) {
   d.fillRect(cx - s / 2, cy + r - t, s, t);   // S
   d.fillRect(cx + r - t, cy - s / 2, t, s);   // E
   d.fillRect(cx - r, cy - s / 2, t, s);       // W
-  d.setColor(DisplayDriver::DARK);            // N, on a gap in the ring
+  d.setColor(UIColor::window_bkg);            // N, on a gap in the ring
   d.fillRect(cx - cw / 2 - 1, cy - r - lh / 2, cw + 2, lh);
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   d.setCursor(cx - cw / 2, cy - r - lh / 2);
   d.print("N");
   if (deg >= 0) {
@@ -173,10 +173,10 @@ inline int chip(DisplayDriver& d, int x, int y, const char* t, bool filled = fal
   const int w = chipW(d, t), h = d.getLineHeight() + 2;
   if (filled) d.fillSoftRect(x, y, w, h);
   else        d.drawSoftRect(x, y, w, h);
-  if (filled) d.setColor(DisplayDriver::DARK);
+  if (filled) d.setColor(UIColor::window_bkg);
   d.setCursor(x + 3, y + 1);
   d.print(t);
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   return x + w + 3;
 }
 
@@ -203,7 +203,7 @@ inline int bigH(DisplayDriver& d) { return 2 * d.getLineHeight(); }
 // the light bar).
 inline int switchW(DisplayDriver& d) { return d.getTextWidth("Off"); }
 inline void toggle(DisplayDriver& d, int x_right, int y, bool on, bool inv = false) {
-  d.setColor(inv ? DisplayDriver::DARK : DisplayDriver::LIGHT);
+  d.setColor(inv ? UIColor::window_bkg : UIColor::primary_txt);
   d.drawTextRightAlign(x_right, y, on ? "On" : "Off");
 }
 
@@ -323,9 +323,9 @@ inline void chart(DisplayDriver& d, int x, int y, int w, int h, const History<N>
   const int ix = x + 2, iy = y + 2, iw = w - 4, ih = h - 4;
   if (empty) {   // nothing to draw yet: say so over the line
     const int tw = d.getTextWidth("no data"), tx = x + (w - tw) / 2, ty = y + (h - lh) / 2;
-    d.setColor(DisplayDriver::DARK);
+    d.setColor(UIColor::window_bkg);
     d.fillRect(tx - 2, ty, tw + 4, lh);
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     d.setCursor(tx, ty);
     d.print("no data");
   } else {

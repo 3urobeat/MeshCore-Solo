@@ -140,7 +140,7 @@ class WaypointsView {
   }
 
   void renderAddForm(DisplayDriver& display) {
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Add waypoint");
     const int top  = display.listStart();
     const int step = display.lineStep();
@@ -169,14 +169,14 @@ class WaypointsView {
         else       snprintf(val, sizeof(val), "%s", _add_label[0] ? _add_label : "(auto)");
         info::valueRow(display, y, label, val, sel, 0);
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
   }
 
   // GPS-averaging progress screen. Sampling itself happens in poll(); this only
   // reports remaining time and the running sample count.
   void renderAvg(DisplayDriver& display) {
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Averaging GPS");
     const int top  = display.listStart();
     const int step = display.lineStep();
@@ -192,7 +192,7 @@ class WaypointsView {
   // keep a marquee animation going (see DisplayDriver::drawTextEllipsized).
   int renderWpList(DisplayDriver& display) {
     int mq_delay = 0;
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     char title[24];
     snprintf(title, sizeof(title), "Waypoints %d/%d",
              _task->waypoints().count(), WaypointStore::CAPACITY);
@@ -207,7 +207,7 @@ class WaypointsView {
 
       if (row == n) {                     // the synthetic "Add" row
         display.setCursor(2, y); display.print("+ Add by coords");
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         return;
       }
 
@@ -223,7 +223,7 @@ class WaypointsView {
       int mqr = display.drawTextEllipsized(2, y, display.width() - 2 - bw - reserve, nm, sel);
       if (sel && mqr > 0) mq_delay = mqr;
       if (dist[0]) { display.setCursor(display.width() - bw + 1 - reserve, y); display.print(dist); }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     });
     return mq_delay;
   }
@@ -337,7 +337,7 @@ public:
   // Only called while active().
   int render(DisplayDriver& display) {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     if (_kb_active) return _task->keyboard().render(display);  // keyboard owns the screen
     if (_mode == ADD) { renderAddForm(display); return 1000; }
     if (_mode == AVG) { renderAvg(display);     return display.isEink() ? 1000 : 300; }

@@ -355,13 +355,13 @@ private:
     const int x0 = tall ? (W - px) / 2 : 0;
     const int y0 = tall ? (H - px - lh / 2 - lines * lh) / 2 : (H - px) / 2;
     const bool eink = d.isEink();
-    if (!eink) { d.setColor(DisplayDriver::LIGHT); d.fillRect(x0, y0, px, px); }
-    d.setColor(eink ? DisplayDriver::LIGHT : DisplayDriver::DARK);
+    if (!eink) { d.setColor(UIColor::primary_txt); d.fillRect(x0, y0, px, px); }
+    d.setColor(eink ? UIColor::primary_txt : UIColor::window_bkg);
     const int q = x0 + siteqr::QUIET * s, r = y0 + siteqr::QUIET * s;
     for (int y = 0; y < n; y++)
       for (int x = 0; x < n; x++)
         if (dark(x, y)) d.fillRect(q + x * s, r + y * s, s, s);
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     int ty = tall ? y0 + px + lh / 2 : (H - lines * lh) / 2;
     for (int i = 0; i < lines; i++) {
       int w = d.getTextWidth(cap[i]);
@@ -434,7 +434,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     if (_qr) { renderQr(display); return 1000; }
     tabbar::draw(display, _labels, _count, _cur);
     const int top = display.listStart(), bottom = display.height();
@@ -457,7 +457,7 @@ public:
       if (rsv) drawScrollIndicatorPx(display, top, view, f.total_px, view, f.skipped_px);
     }
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     if (_reset_menu.active) { _reset_menu.render(display); return 50; }
     return next;
   }

@@ -5,7 +5,7 @@
 
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
-  static UITask ui_task(display);
+  static UITask ui_task(board, display);
 #endif
 
 #ifdef ETHERNET_ENABLED

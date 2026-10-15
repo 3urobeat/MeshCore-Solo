@@ -29,7 +29,7 @@ inline void draw(DisplayDriver& d, int x, int y, int w, const struct tm& t, uint
   static const char* const INITIALS[] = { "M", "T", "W", "T", "F", "S", "S" };
   const int lh = d.getLineHeight(), step = tight ? lh : lh + 2, cw = w / 7;
   const int x0 = x + (w - 7 * cw) / 2;
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   for (int c = 0; c < 7; c++) d.drawTextCentered(x0 + c * cw + cw / 2, y, (tight ? INITIALS : NAMES)[c]);
   info::rule(d, x0, y + (tight ? lh - 1 : lh + 1), 7 * cw);
   const int top = y + (tight ? lh + 1 : step + 3), col0 = firstCol(t), n = daysIn(t.tm_year, t.tm_mon);
@@ -40,17 +40,17 @@ inline void draw(DisplayDriver& d, int x, int y, int w, const struct tm& t, uint
     if (today && day == t.tm_mday) {
       if (tight) d.fillSoftRect(cx, cy - 1, cw, lh);
       else d.fillSoftRect(cx + 1, cy - 1, cw - 2, lh + 2);
-      d.setColor(DisplayDriver::DARK);
+      d.setColor(UIColor::window_bkg);
       d.drawTextCentered(cx + cw / 2, cy, buf);
-      d.setColor(DisplayDriver::LIGHT);
+      d.setColor(UIColor::primary_txt);
     } else {
       d.drawTextCentered(cx + cw / 2, cy, buf);
     }
     if (marked & (1UL << (day - 1))) {   // under the number, in the gap below it
       const int uw = d.getTextWidth(buf);
-      d.setColor(today && day == t.tm_mday ? DisplayDriver::DARK : DisplayDriver::LIGHT);
+      d.setColor(today && day == t.tm_mday ? UIColor::window_bkg : UIColor::primary_txt);
       d.fillRect(cx + (cw - uw) / 2, cy + (tight ? lh - 2 : lh), uw, d.sepH());
-      d.setColor(DisplayDriver::LIGHT);
+      d.setColor(UIColor::primary_txt);
     }
   }
 }

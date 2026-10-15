@@ -1486,7 +1486,7 @@ inline void drawScrollIndicatorPx(DisplayDriver& d, int right_x, int top_y, int 
   if (thumb_h > track_h) thumb_h = track_h;
   const int thumb_y = top_y + (int)((long)(track_h - thumb_h) * scroll_px / span);
 
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   for (int y = top_y; y < top_y + track_h; y += 2)
     if (y < thumb_y - 1 || y > thumb_y + thumb_h) d.fillRect(mid, y, 1, 1);
   d.fillSoftRect(x, thumb_y, bar_w, thumb_h);
@@ -1573,7 +1573,7 @@ inline int drawLoadingDots(DisplayDriver& d, int cx, int y_bottom) {
   const int dot = 3 * s, pitch = 9 * s, lift_max = 3 * s;
   const bool anim = !d.isEink();
   const unsigned long t = millis();
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   for (int i = 0; i < 3; i++) {
     int lift = 0;
     if (anim) {
@@ -1643,7 +1643,7 @@ inline void drawPageDots(DisplayDriver& d, int x_right, int cy, int page, int pa
 inline void drawScreenHeader(DisplayDriver& d, const char* title, int page = -1, int pages = 0,
                              bool menu_hint = false, bool menu_open = false) {
   const int s = miniIconScale(d);
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   const int hint = menu_hint ? d.menuHintWidth() : 0;
   const int dots = pages > 1 ? pageDotsWidth(d, pages) + 3 * s : 0;
   const int reserve = hint + dots;
@@ -1660,7 +1660,7 @@ inline void drawScreenHeader(DisplayDriver& d, const char* title, int page = -1,
   }
   d.fillRect(0, d.headerH() - d.sepH(), d.width(), d.sepH());
   if (pages > 1) drawPageDots(d, d.width() - hint - s, (d.headerH() - d.sepH()) / 2, page, pages);
-  if (menu_hint) d.drawContextMenuHint(DisplayDriver::LIGHT, menu_open);
+  if (menu_hint) d.drawContextMenuHint(UIColor::primary_txt, menu_open);
 }
 
 // An accordion section's disclosure mark, one character wide: a triangle
@@ -1676,11 +1676,11 @@ inline void drawDisclosure(DisplayDriver& d, int x, int y, bool open) {
 inline int buttonWidth(DisplayDriver& d, const char* label) { return d.getTextWidth(label) + 6; }
 inline int drawButton(DisplayDriver& d, int x, int y, const char* label, bool sel) {
   const int w = buttonWidth(d, label), h = d.getLineHeight();
-  d.setColor(DisplayDriver::LIGHT);
-  if (sel) { d.fillSoftRect(x, y, w, h); d.setColor(DisplayDriver::DARK); }
+  d.setColor(UIColor::primary_txt);
+  if (sel) { d.fillSoftRect(x, y, w, h); d.setColor(UIColor::window_bkg); }
   else       d.drawSoftRect(x, y, w, h);
   d.setCursor(x + 3, y);
   d.print(label);
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   return w;
 }

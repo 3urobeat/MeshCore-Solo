@@ -78,7 +78,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     const int lh            = display.getLineHeight();
     const int cw            = display.getCharWidth();
@@ -117,21 +117,21 @@ public:
           label[2] = '\0';
         }
         if (sel) {
-          display.setColor(DisplayDriver::LIGHT);
+          display.setColor(UIColor::primary_txt);
           display.fillSoftRect(cx, notes_y, cell_w - 1, cell_h);
-          display.setColor(DisplayDriver::DARK);
+          display.setColor(UIColor::window_bkg);
         } else {
-          display.setColor(DisplayDriver::LIGHT);
+          display.setColor(UIColor::primary_txt);
           display.drawRect(cx, notes_y, cell_w - 1, cell_h);
         }
         display.setCursor(cx + (cell_w - cw * 2) / 2, notes_y + 3);
         display.print(label);
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
       } else if (ni == _len && _len < MAX_NOTES) {
         display.drawSelectionRow(cx, notes_y, cell_w - 1, cell_h, sel);
         display.setCursor(cx + (cell_w - cw) / 2, notes_y + 3);
         display.print("+");
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
       }
     }
 
@@ -168,7 +168,7 @@ public:
     const int h = y1 - y0, W = _visible_notes * cell_w;
     if (h < steps * 2) return;
     const int bar_h = h / steps > 5 ? 5 : h / steps > 2 ? h / steps : 2;
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     for (int o = 0; o <= soundctl::OCT_MAX - soundctl::OCT_MIN; o++) {
       const int y = y1 - (o * 7) * h / steps;
       for (int x = 0; x < W; x += 3) d.fillRect(x, y, 1, 1);

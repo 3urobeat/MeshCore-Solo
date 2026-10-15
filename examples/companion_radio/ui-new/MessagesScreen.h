@@ -499,10 +499,10 @@ class MessagesScreen : public UIScreen {
   // Spans exactly [box_x, box_x+box_w) — the caller sizes/positions the bubble
   // (see computeBubbleBox below), this just draws whatever box it's given.
   static void drawHistRowFrame(DisplayDriver& d, int box_x, int box_w, int y, int bh, int lh, bool sel) {
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     if (sel) {
       d.fillSoftRect(box_x, y, box_w, bh);
-      d.setColor(DisplayDriver::DARK);
+      d.setColor(UIColor::window_bkg);
     } else {
       d.drawSoftRect(box_x, y, box_w, bh);
     }
@@ -1076,7 +1076,7 @@ public:
     const char* t = "New";
     int tw = d.getTextWidth(t);
     int tx = (w - tw) / 2, mid = y + lh / 2;
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     d.fillRect(1, mid, tx - 4, d.sepH());
     d.fillRect(tx + tw + 3, mid, w - 1 - (tx + tw + 3), d.sepH());
     d.setCursor(tx, y + 1);
@@ -1313,7 +1313,7 @@ public:
   int render(DisplayDriver& display) override {
     int mq_delay = 0;   // >0 while a selected row's text is marquee-scrolling
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     // Channel Add/Edit form owns the screen while active.
     if (_ch_view.active()) {
@@ -1358,7 +1358,7 @@ public:
         if (badges[i] > 0)
           display.drawUnreadBadge(display.width() - 1, y, badges[i], sel, overflow[i]);
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       // Fold the popup's own suggested redraw delay into mq_delay -- otherwise
       // a marquee inside it (see PopupMenu::render()) only ever advances at
       // whatever slower cadence this phase's own return statement below picks,
@@ -1422,7 +1422,7 @@ public:
         drawRowSelection(display, y, sel, reserve);
         if (list_idx == _num_channels) {                 // the synthetic "Add" row
           display.setCursor(2, y); display.print("+ Add channel");
-          display.setColor(DisplayDriver::LIGHT);
+          display.setColor(UIColor::primary_txt);
           return;
         }
         ChannelDetails ch;
@@ -1470,10 +1470,10 @@ public:
                                   _dm_hist_sel < dm_count - 1,
                                   _dm_hist_sel > 0);
           if (e.outgoing) {  // delivery marker in the (inverted) header bar
-            display.setColor(DisplayDriver::DARK);
+            display.setColor(UIColor::window_bkg);
             drawAckGlyph(display, 2 + display.getTextWidth(sender) + 3, 1,
                          _history.dmEffectiveStatus(e), e.attempt + 1);
-            display.setColor(DisplayDriver::LIGHT);
+            display.setColor(UIColor::primary_txt);
           }
           // Fold the popup's own suggested redraw delay into mq_delay -- otherwise
       // a marquee inside it (see PopupMenu::render()) only ever advances at
@@ -1669,7 +1669,7 @@ public:
       if (div_y >= 0) drawNewDivider(display, div_y, display.width() - reserve, lh);
 
       if (dm_count == 0) {
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         display.drawTextCentered(display.width()/2, display.height()/2, "No messages yet");
       }
 
@@ -1717,10 +1717,10 @@ public:
           // plus the distinct-echoing-repeater count as tiny digits (path_len's
           // hop_count -- see markChannelRelayed/showPathDetail's "Relayed by").
           if (strcmp(fsender, "Me") == 0 && _history.chAtPos(ring_pos).relay_status == ACK_OK) {
-            display.setColor(DisplayDriver::DARK);
+            display.setColor(UIColor::window_bkg);
             int relay_count = _history.chAtPos(ring_pos).path_len & 63;
             drawAckGlyph(display, 2 + display.getTextWidth(fsender) + 3, 1, ACK_OK, 1, relay_count);
-            display.setColor(DisplayDriver::LIGHT);
+            display.setColor(UIColor::primary_txt);
           }
           // Fold the popup's own suggested redraw delay into mq_delay -- otherwise
       // a marquee inside it (see PopupMenu::render()) only ever advances at
@@ -1858,7 +1858,7 @@ public:
       if (div_y >= 0) drawNewDivider(display, div_y, display.width() - reserve, lh);
 
       if (ch_hist_count == 0) {
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         display.drawTextCentered(display.width()/2, display.height()/2, "No messages yet");
       }
 

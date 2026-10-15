@@ -22,8 +22,8 @@
   #define EINK_LARGE_GFXFONT MiscFixed8x13
 #endif
 
-EinkGfxDisplay::EinkGfxDisplay(int w, int h, Adafruit_GFX& gfx, uint16_t ink, uint16_t paper)
-    : DisplayDriver(w, h), _gfx(gfx), _ink(ink), _paper(paper), _curr(ink), _font(&MiscFixed) {
+EinkGfxDisplay::EinkGfxDisplay(int w, int h, Adafruit_GFX& gfx)
+    : DisplayDriver(w, h), _gfx(gfx), _curr(UIColor::primary_txt), _font(&MiscFixed) {
   updateLayout();
 }
 
@@ -38,9 +38,9 @@ void EinkGfxDisplay::updateLayout() {
   _force = true;
 }
 
-void EinkGfxDisplay::startFrame(Color bkg) {
-  _gfx.fillScreen(_paper);
-  _curr = _ink;
+void EinkGfxDisplay::startFrame(ColorVal bkg) {
+  _gfx.fillScreen(bkg);
+  _curr = UIColor::primary_txt;
   _text_sz = 1;
   _hash = 2166136261u;
 }
@@ -51,9 +51,9 @@ void EinkGfxDisplay::setTextSize(int sz) {
   mix<int>(sz);
 }
 
-void EinkGfxDisplay::setColor(Color c) {
-  mix<Color>(c);
-  _curr = (c == DARK) ? _paper : _ink;   // DARK is the paper, LIGHT the ink
+void EinkGfxDisplay::setColor(ColorVal c) {
+  mix<ColorVal>(c);
+  _curr = c;
 }
 
 void EinkGfxDisplay::setCursor(int x, int y) {

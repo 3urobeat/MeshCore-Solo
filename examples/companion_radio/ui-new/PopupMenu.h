@@ -179,14 +179,14 @@ struct PopupMenu {
       int idx = _scroll + i;
       int py  = list_y + i * item_h + 1;
       if (idx == _sel) {
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         // Stops short of the scroll-indicator gutter, like every other list's
         // selection bar (e.g. drawList's row width - reserve) — otherwise the
         // bar paints over the indicator's column instead of framing it.
         display.fillSoftRect(bx + 2, py - 1, bw - 4 - arrow_w, item_h);
-        display.setColor(DisplayDriver::DARK);
+        display.setColor(UIColor::window_bkg);
       } else {
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
       }
       // Return value not needed here: this popup already redraws every 50ms
       // (below), faster than any marquee step, so the animation is already smooth.
@@ -196,14 +196,14 @@ struct PopupMenu {
       else
         display.drawTextEllipsized(bx + pad, py, text_w, _items[idx], idx == _sel);
       if (_has_checkboxes) drawCheckbox(display, bx + bw - arrow_w - pad - checkboxWidth(display), py, isChecked(idx));
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
 
     // Same proportional track + thumb indicator the rest of the UI uses,
     // anchored to the box's own right edge (a couple px clear of the border)
     // instead of the screen edge since this box floats centred on screen.
     drawScrollIndicator(display, bx + bw - 2, list_y, vis * item_h, _count, vis, _scroll);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     return 50;
   }
 

@@ -26,7 +26,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     int item_h  = display.lineStep();
     int start_y = display.listStart();
     int val_x   = display.valCol();
@@ -43,7 +43,7 @@ public:
       display.setCursor(val_x, y);
       uint8_t f = _prefs->dashboard_fields[i];
       display.print(telemetry::COMPACT[f < telemetry::COUNT ? f : telemetry::NONE]);
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
     return 500;
   }

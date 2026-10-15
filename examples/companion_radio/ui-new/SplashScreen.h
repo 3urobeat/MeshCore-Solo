@@ -48,7 +48,7 @@ public:
     const bool anim = !display.isEink();
     const unsigned long t = anim ? millis() - _start : 100000UL;   // e-ink: the settled frame
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     const int lh = display.getLineHeight();
     const int cx = display.width() / 2;
 

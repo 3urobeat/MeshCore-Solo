@@ -230,7 +230,7 @@ void setup() {
   #endif
     // Three dots mid-screen: no words, so no orientation (the settings aren't read yet).
     const int dot = disp->width() >= 240 ? 6 : 3;
-    disp->setColor(DisplayDriver::LIGHT);
+    disp->setColor(UIColor::primary_txt);
     for (int i = -1; i <= 1; i++)
       disp->fillRect(disp->width() / 2 + i * 3 * dot - dot / 2, disp->height() / 2 - dot / 2, dot, dot);
     disp->endFrame();

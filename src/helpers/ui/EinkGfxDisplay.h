@@ -25,8 +25,7 @@ class Adafruit_GFX;
 
 class EinkGfxDisplay : public DisplayDriver {
   Adafruit_GFX& _gfx;
-  const uint16_t _ink, _paper;   // LIGHT and DARK in the panel's colours
-  uint16_t _curr;
+  ColorVal _curr;
   const GFXfont* _font;
   int _cell_w = 6, _cell_h = 9;  // the font's cell, before _px and the text size
   int _px = 1;                   // pixel multiplier (landscape: EINK_FONT_PX, or Text size)
@@ -43,7 +42,7 @@ class EinkGfxDisplay : public DisplayDriver {
   template <class T> void mix(T v) { mix(&v, sizeof(v)); }
 
 protected:
-  EinkGfxDisplay(int w, int h, Adafruit_GFX& gfx, uint16_t ink, uint16_t paper);
+  EinkGfxDisplay(int w, int h, Adafruit_GFX& gfx);
 
   // After a size or rotation change: picks the font for the new shape.
   void updateLayout();
@@ -83,9 +82,9 @@ public:
     updateLayout();
   }
 
-  void startFrame(Color bkg = DARK) override;
+  void startFrame(ColorVal bkg = UIColor::window_bkg) override;
   void setTextSize(int sz) override;
-  void setColor(Color c) override;
+  void setColor(ColorVal c) override;
   void setCursor(int x, int y) override;
   void print(const char* str) override;
   void fillRect(int x, int y, int w, int h) override;

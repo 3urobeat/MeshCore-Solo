@@ -387,8 +387,8 @@ class HomeScreen : public UIScreen {
     for (int i = 0; i < n; i++, y += step) {
       const QRow& r = rows[i];
       const bool sel = i == _quick_sel;
-      d.setColor(DisplayDriver::LIGHT);
-      if (sel) { d.fillSoftRect(m - 3, y - 1, W - 2 * m + 6, lh + 1); d.setColor(DisplayDriver::DARK); }
+      d.setColor(UIColor::primary_txt);
+      if (sel) { d.fillSoftRect(m - 3, y - 1, W - 2 * m + 6, lh + 1); d.setColor(UIColor::window_bkg); }
       switch (r.kind) {
         case Q_SWITCH: info::switchRow(d, y, r.label, r.n != 0, sel, reserve, m); break;
         case Q_BAR: {
@@ -424,7 +424,7 @@ class HomeScreen : public UIScreen {
             if (q > 0) mq = q;
           }
       }
-      d.setColor(DisplayDriver::LIGHT);
+      d.setColor(UIColor::primary_txt);
     }
     return mq;
   }
@@ -545,7 +545,7 @@ class HomeScreen : public UIScreen {
     uint8_t mode = battery::mode(_node_prefs ? _node_prefs->batt_display_mode : 0);
 
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     const int lh      = display.getLineHeight();
     const int cw      = display.getCharWidth();
@@ -726,7 +726,7 @@ public:
     if (!init) return false;
 
     // North marker — top-right, the same mini-icon as the full Trail map.
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     {
       const int ns = miniIconScale(display);
       miniIconDrawTop(display, ax + aw - ICON_MAP_NORTH.w * ns - 1, ay + 1, ICON_MAP_NORTH);
@@ -771,7 +771,7 @@ public:
     // status line below instead (see statusDistanceKm() / render()), so this
     // corner is free for it.
     {
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       int ty = ay + ah - display.getLineHeight();
       static const float M_PER_1E6 = 0.11132f;            // metres per 1e-6° lat
       float ppm = scale / M_PER_1E6;                       // pixels per metre
@@ -835,7 +835,7 @@ public:
     const int rows_h = tall ? 4 * (lh + lh / 2) : 0;
     const int ph = H - top - rows_h;
     const int pw = tall ? W : wide ? (ph < W * 3 / 5 ? ph : W * 3 / 5) : W / 2;   // map panel
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     d.drawSoftRect(0, top, pw, ph);
     if (!drawMapPreview(d, 2, top + 2, pw - 4, ph - 4)) {
       // An empty sheet: a sparse dot grid with the reason over it.
@@ -843,9 +843,9 @@ public:
         for (int gx = 4; gx < pw - 2; gx += 6 * s) d.fillRect(gx, gy, s, s);
       const char* why = "No fix";
       const int tw = d.getTextWidth(why), tx = (pw - tw) / 2, ty = top + (ph - lh) / 2;
-      d.setColor(DisplayDriver::DARK);
+      d.setColor(UIColor::window_bkg);
       d.fillRect(tx - 2, ty - 1, tw + 4, lh + 2);
-      d.setColor(DisplayDriver::LIGHT);
+      d.setColor(UIColor::primary_txt);
       d.setCursor(tx, ty);
       d.print(why);
     }
@@ -995,7 +995,7 @@ public:
     const bool h12 = _node_prefs && _node_prefs->clock_12h;
     const bool show_sec = !Features::IS_EINK && (!_node_prefs || !_node_prefs->clock_hide_seconds);
     const int W = d.width(), H = d.height();
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     d.setTextSize(1);
     const int lh = d.getLineHeight();
 
@@ -1066,7 +1066,7 @@ public:
   // seconds (UITask::lockHintShown); e-ink keeps it up, it has no glance.
   void drawLockPage(DisplayDriver& d) {
     const int W = d.width(), H = d.height();
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     d.setTextSize(1);
     const int lh = d.getLineHeight(), top = statusBarH(d) + 3;
     const bool hint = Features::IS_EINK || _task->lockHintShown();
@@ -1145,9 +1145,9 @@ public:
     if (!pill[0]) return;
     const int pw = d.getTextWidth(pill) + 6;
     d.fillSoftRect((W - pw) / 2, pill_y, pw, lh + 3);
-    d.setColor(DisplayDriver::DARK);
+    d.setColor(UIColor::window_bkg);
     d.drawTextCentered(W / 2, pill_y + 2, pill);
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
   }
 
   // Under the lock clock on a tall or a 4.2" screen, between y and bottom: the month,
@@ -1195,7 +1195,7 @@ public:
     const int mid_x = W / 2, mid_y = top + H / 2;
     const bool roomy = H / 2 >= 7 * lh;   // three lines and a chart a tile
     StatusScreen* st = (StatusScreen*)_task->statusScreen();
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     info::vrule(d, mid_x, top, H);
     info::rule(d, 0, mid_y, W);
     // The tile's box, inside the rules.
@@ -1312,12 +1312,12 @@ public:
     // Title bar displaying node name (except on lock screen), status icons and battery.
     // Hidden on fullscreen pages (CLOCK).
     if (_page != CLOCK) {
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       // The lock page has nothing on the left of the bar (its clock sits
       // below it), so the status icons may use the whole row.
       const int lock_reserve = _page == LOCK ? 0 : -1;
       int rightEdge = renderBatteryIndicator(display, _task->getBattMilliVolts(), lock_reserve);
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
 
       if (_page != LOCK) {
         const int bar_ty = (statusBarH(display) - lh) / 2;   // text centred in a tall bar (STATUS_ICON_SCALE)
@@ -1382,24 +1382,24 @@ public:
         for (int i = 0; i < n; i++)
           if (order[i] == _slide_from) { pill_x = x + pitch * i + (int)((pill_x - x - pitch * i) * slide + 0.5f); break; }
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       display.fillSoftRect(pill_x - pw / 2, dots_y - pg_half - pad, pw, pg_half * 2 + 1 + 2 * pad);
       for (int i = 0; i < n; i++) {
         const MiniIcon* ic = pageIcon(order[i]);
         const int d2 = 2 * (x - pill_x < 0 ? pill_x - x : x - pill_x);
-        if (d2 <= pw - icon_w)       display.setColor(DisplayDriver::DARK);   // inside the pill
+        if (d2 <= pw - icon_w)       display.setColor(UIColor::window_bkg);   // inside the pill
         else if (d2 < pw + icon_w) { x += pitch; continue; }                   // half under the gliding pill
-        else                         display.setColor(DisplayDriver::LIGHT);
+        else                         display.setColor(UIColor::primary_txt);
         if (ic) miniIconDrawCenteredScaled(display, x, dots_y, *ic, s);
         x += pitch;
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
 
     if (_page == HomePage::CLOCK) {
       uint32_t unix_ts = _rtc->getCurrentTime();
       if (unix_ts < 1000000000UL) {
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         display.setTextSize(1);
         int mid_y = display.height() / 2 - step;
         display.drawTextCentered(display.width() / 2, mid_y, "! No time sync");
@@ -1413,7 +1413,7 @@ public:
     } else if (_page == HomePage::STATUS) {
       drawStatusTiles(display, content_y);
     } else if (isQuickPage(_page) && !(_page == HomePage::SHUTDOWN && _shutdown_init)) {
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       display.setTextSize(1);
       QRow rows[QUICK_MAX];
       const int n = buildQuick(_page, rows);
@@ -1427,7 +1427,7 @@ public:
       // landscape → 3×2, portrait → 2×3. The selected card is filled.
       // No title — node name + battery (top bar) and the page-dots indicator above
       // serve as the page identity.
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       display.setTextSize(1);
 
       const int cols    = favCols(display);
@@ -1451,8 +1451,8 @@ public:
         // Each slot a card: a soft frame round a pinned one, a dotted outline
         // round a free one, filled while selected.
         const int tx = cx + 1, ty = cy, tw = cell_w - 2, th = cell_h - 2;
-        display.setColor(DisplayDriver::LIGHT);
-        if (sel)         { display.fillSoftRect(tx, ty, tw, th); display.setColor(DisplayDriver::DARK); }
+        display.setColor(UIColor::primary_txt);
+        if (sel)         { display.fillSoftRect(tx, ty, tw, th); display.setColor(UIColor::window_bkg); }
         else if (prefix)   display.drawSoftRect(tx, ty, tw, th);
         else {
           const int t = display.sepH();   // dot size: 2px on a doubled panel
@@ -1533,7 +1533,7 @@ public:
           // the newest message under the name, how long ago and how far along
           // the bottom.
           if (th >= 6 * line_h && display.width() >= 40 * display.getCharWidth()) {
-            display.setColor(sel ? DisplayDriver::DARK : DisplayDriver::LIGHT);
+            display.setColor(sel ? UIColor::window_bkg : UIColor::primary_txt);
             const int by = ty + th - line_h - 3;   // the bottom line
             const uint32_t now = rtc_clock.getCurrentTime();
             char buf[16];
@@ -1564,7 +1564,7 @@ public:
               for (int k = 0; k < n; k++) display.drawTextEllipsized(tx + 3, my + k * line_h, tw - 6, lines[k]);
             }
           } else if (tall) {
-            display.setColor(sel ? DisplayDriver::DARK : DisplayDriver::LIGHT);   // the badge leaves its own
+            display.setColor(sel ? UIColor::window_bkg : UIColor::primary_txt);   // the badge leaves its own
             const int s = miniIconScale(display), gap = line_h / 3;
             int y = name_y + line_h + gap;
             auto detail = [&](const MiniIcon& ic, const char* text) {
@@ -1590,7 +1590,7 @@ public:
         } else {
           display.drawTextCentered(tx + tw / 2, ty + (th - line_h) / 2, "+");
         }
-        if (sel) display.setColor(DisplayDriver::LIGHT);
+        if (sel) display.setColor(UIColor::primary_txt);
       }
       // Persist any pruned slots once, outside the loop — a render pass can clear
       // several gone tiles but only one flash write is needed. Self-healing: once
@@ -1598,7 +1598,7 @@ public:
       if (fav_changed) the_mesh.savePrefs();
       if (_tile_menu.active) _tile_menu.render(display);
     } else if (_page == HomePage::SHUTDOWN) {
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       display.setTextSize(1);
       display.drawTextCentered(display.width() / 2, content_y + step, "hibernating...");   // the panel's Hibernate row
     }

@@ -81,7 +81,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Tools");
 
     const int cw = display.getCharWidth();

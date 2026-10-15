@@ -110,7 +110,7 @@ public:
   int render(DisplayDriver& display) override {
     buildItems();
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "GPIO");
 
     bool any_live = false;
@@ -128,7 +128,7 @@ public:
       } else {   // indented: reads as GPIOn's sub-row
         info::switchRow(display, y, "  State", gpioModeOf(it.pin) == 3, sel, reserve);
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     });
     return any_live ? 500 : 2000;   // faster refresh only while a row needs a live reading
   }

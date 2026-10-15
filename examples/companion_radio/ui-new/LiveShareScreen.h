@@ -100,7 +100,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Live share");
 
     int mq_delay = 0;

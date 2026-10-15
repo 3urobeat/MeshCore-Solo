@@ -31,7 +31,7 @@ public:
   // cycles, Back saves) instead of a screen of its own with typed hints.
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Auto-advert");
     int sel = 0, scroll = 0;
     drawList(display, 1, sel, scroll, [&](int, int y, bool is_sel, int reserve) {

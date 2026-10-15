@@ -134,9 +134,9 @@ struct FullscreenMsgView {
     const int startY   = header_h + 2;
     const int visible  = (display.height() - startY - lineH) / lineH;
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     display.fillRect(0, 0, display.width(), header_h);
-    display.setColor(DisplayDriver::DARK);
+    display.setColor(UIColor::window_bkg);
     display.drawTextEllipsized(2, 1, display.width() - 4, sender);
     if (to_nick[0]) {
       char trans_nick[32], to_label[36];
@@ -144,7 +144,7 @@ struct FullscreenMsgView {
       snprintf(to_label, sizeof(to_label), "To: %s", trans_nick);
       display.drawTextEllipsized(2, lineH + 3, display.width() - 4, to_label);
     }
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     display.translateUTF8ToBlocks(s_wrap_trans, body, sizeof(s_wrap_trans));
     int lcount = wrapLines(display, s_wrap_trans, max_px, s_wrap_lines, 12);

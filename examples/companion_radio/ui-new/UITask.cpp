@@ -703,9 +703,9 @@ void UITask::renderAlertOverlay() {
     k = 100 - (100 - k) * (100 - k) / 100;
   }
   const int y = -h + h * k / 100;
-  _display->setColor(DisplayDriver::DARK);
+  _display->setColor(UIColor::window_bkg);
   _display->fillRect(0, y, W, h);
-  _display->setColor(DisplayDriver::LIGHT);
+  _display->setColor(UIColor::primary_txt);
   _display->drawRect(0, y, W, h);
   for (int i = 0; i < nl; i++)
     _display->drawTextCentered(W / 2, y + pad + i * lh, s_wrap_lines[i]);
@@ -720,9 +720,9 @@ void UITask::renderMsgBadge() {
   DisplayDriver& d = *_display;
   const int s = miniIconScale(d), h = d.headerH() - d.sepH(), w = mailCountWidth(d, _alert_count);
   const int x = d.width() - w - 2 * s;
-  d.setColor(DisplayDriver::DARK);
+  d.setColor(UIColor::window_bkg);
   d.fillRect(x - 2 * s, 0, w + 4 * s, h);
-  d.setColor(DisplayDriver::LIGHT);
+  d.setColor(UIColor::primary_txt);
   if (msgBadgeLit()) drawMailCount(d, x, 0, h, _alert_count);
 }
 
@@ -1488,7 +1488,7 @@ void UITask::loop() {
       if (_display != NULL) {
         _display->startFrame();
         _display->setTextSize(1);
-        _display->setColor(DisplayDriver::LIGHT);
+        _display->setColor(UIColor::primary_txt);
         int mid = _display->height() / 2;
         int step = _display->lineStep();
         _display->drawTextCentered(_display->width() / 2, mid - step, "Low Battery");

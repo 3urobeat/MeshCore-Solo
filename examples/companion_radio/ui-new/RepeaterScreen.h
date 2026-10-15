@@ -149,7 +149,7 @@ public:
     NodePrefs* p = _task->getNodePrefs();
     buildItems(p);
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Repeater");
 
     // Config only — live forwarding stats live on Status › Mesh.
@@ -165,9 +165,9 @@ public:
         itemValue(item, p, val, sizeof(val));
         info::listRow(display, y, itemLabel(item), val, sel, reserve);
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     });
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     if (_picker.menu.active) _picker.menu.render(display);
     if (_scope_picker_active) _scope_menu.render(display);
     return (_picker.menu.active || _editor.active() || _scope_picker_active) ? 50 : 500;

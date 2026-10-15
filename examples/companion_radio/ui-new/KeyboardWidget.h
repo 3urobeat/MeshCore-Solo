@@ -589,7 +589,7 @@ struct KeyboardWidget {
     // Single UI font (misc-fixed 5x7) covers Latin/Greek/Cyrillic — the keyboard
     // renders in it directly, no per-render font switching or headroom padding.
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     const int rows = gridRows();
     const int cols = gridCols();
@@ -703,10 +703,10 @@ struct KeyboardWidget {
             char one[5], one_t[8];
             kbUtf8CharAt(buf + cursor_pos, 0, one);
             display.translateUTF8ToBlocks(one_t, one, sizeof(one_t));
-            display.setColor(DisplayDriver::DARK);
+            display.setColor(UIColor::window_bkg);
             display.setCursor(bx, by);
             display.print(one_t);
-            display.setColor(DisplayDriver::LIGHT);
+            display.setColor(UIColor::primary_txt);
           }
         } else {
           display.fillRect(bx, by + lh - display.sepH(), cw - display.sepH(), display.sepH());
@@ -718,11 +718,11 @@ struct KeyboardWidget {
       const int tw = display.getTextWidth(count), y = (prev_lines - 1) * lh;
       if (count[0] == '-') {   // over (a placeholder grew): inverted
         display.fillRect(display.width() - tw - 2, y, tw + 2, lh);
-        display.setColor(DisplayDriver::DARK);
+        display.setColor(UIColor::window_bkg);
       }
       display.setCursor(display.width() - tw - (count[0] == '-' ? 1 : 0), y);
       display.print(count);
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     } else if (!isPin()) {
       // Bottom-right of the preview: what the field is, or near the limit how
       // much room is left. Only when it clears the text on that line.
@@ -795,7 +795,7 @@ struct KeyboardWidget {
     // instead of/alongside CardKB) still drive row/col/page as normal; it
     // just won't be visible on this screen which cell is selected.
     if (compact_ui) {
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       if (cursor_mode) {
         display.drawTextCentered(display.width() / 2, chars_y, "<> char  ^v word");
       } else {
@@ -889,7 +889,7 @@ struct KeyboardWidget {
           // ink colour is the one that shows against it.
           if (i == 0 && caps_lock) display.fillRect(sx + 2, spec_y + cell_h - 3, spec_w - 5, display.sepH());
         }
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
       }
       }
     }
@@ -919,17 +919,17 @@ struct KeyboardWidget {
         char shown[5]; kbApplyCapsUtf8(one, caps, shown, sizeof(shown));
         int x = bx + i * seg_w;
         if (i == accent_sel) {
-          display.setColor(DisplayDriver::LIGHT);
+          display.setColor(UIColor::primary_txt);
           display.fillSoftRect(x + 1, by + 1, seg_w - 1, bh - 2);
-          display.setColor(DisplayDriver::DARK);
+          display.setColor(UIColor::window_bkg);
         } else {
-          display.setColor(DisplayDriver::LIGHT);
+          display.setColor(UIColor::primary_txt);
         }
         int tw = display.getTextWidth(shown);
         display.setCursor(x + (seg_w - tw) / 2, by + 1);
         display.print(shown);
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
 
     // placeholder picker overlay (drawn on top of keyboard)

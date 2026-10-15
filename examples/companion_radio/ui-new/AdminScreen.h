@@ -172,7 +172,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     if (_login_kb) return kb().render(display);
     AdminSession::State st = S().state();

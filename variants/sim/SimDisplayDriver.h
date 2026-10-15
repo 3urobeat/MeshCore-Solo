@@ -34,7 +34,7 @@ class SimDisplayDriver : public DisplayDriver {
 
   bool _on = false;
   int _cursor_x = 0, _cursor_y = 0;
-  Color _color = LIGHT;
+  ColorVal _color = UIColor::primary_txt;
   bool _filled[ROWS][COLS];
   char _text[ROWS][COLS];     // 0 = no character placed
   bool _dirty = false;
@@ -59,14 +59,14 @@ public:
   void turnOff() override { _on = false; }
   void clear() override { clearBuffers(); }
 
-  void startFrame(Color bkg = DARK) override {
+  void startFrame(ColorVal bkg = UIColor::window_bkg) override {
     clearBuffers();
-    _color = LIGHT;
+    _color = UIColor::primary_txt;
   }
 
   void setTextSize(int sz) override { /* one fixed size in ASCII output */ }
 
-  void setColor(Color c) override { _color = c; }
+  void setColor(ColorVal c) override { _color = c; }
 
   void setCursor(int x, int y) override { _cursor_x = x; _cursor_y = y; }
 
@@ -124,7 +124,7 @@ public:
 
 private:
   void markRect(int x, int y, int w, int h) {
-    bool lit = (_color != DARK);
+    bool lit = (_color != UIColor::window_bkg);
     int cx0, cy0, cx1, cy1;
     cellOf(x, y, cx0, cy0);
     cellOf(x + w - 1, y + h - 1, cx1, cy1);
@@ -195,7 +195,7 @@ private:
 class SimDisplayDriverCanvas : public DisplayDriver {
   bool _on = false;
   int _cursor_x = 0, _cursor_y = 0;
-  Color _color = LIGHT;
+  ColorVal _color = UIColor::primary_txt;
   int _text_sz = 1;
 
 public:
@@ -226,8 +226,8 @@ public:
   }
   void clear() override { turnOff(); _on = true; }
 
-  void startFrame(Color bkg = DARK) override {
-    _color = LIGHT;
+  void startFrame(ColorVal bkg = UIColor::window_bkg) override {
+    _color = UIColor::primary_txt;
     EM_ASM({
       if (!Module.__simCtx) return;
       Module.__simCtx.fillStyle = '#000';
@@ -236,7 +236,7 @@ public:
   }
 
   void setTextSize(int sz) override { _text_sz = sz; }
-  void setColor(Color c) override { _color = c; }
+  void setColor(ColorVal c) override { _color = c; }
   void setCursor(int x, int y) override { _cursor_x = x; _cursor_y = y; }
 
   // MiscFixed's real metrics (6px advance, 9px row height -- see
@@ -258,12 +258,9 @@ public:
   // real board it's mirroring.
   bool isSingleFont() const override { return true; }
 
-  // White-on-black palette (matches a real monochrome SSD1306/SH1106 OLED)
-  // for LIGHT/DARK; the other Color enumerators (RED/GREEN/BLUE/YELLOW/
-  // ORANGE) aren't used on the real monochrome OLED boards this sim mirrors
-  // either (DisplayDriver.h's own comment: "on b/w screen, colors will be
-  // !=0 synonym of light").
-  static const char* jsColor(Color c) { return c == DARK ? "#000" : "#fff"; }
+  // White-on-black palette (matches a real monochrome SSD1306/SH1106 OLED):
+  // the sim's UIColor palette (target.cpp) is 0 for background, 1 for ink.
+  static const char* jsColor(ColorVal c) { return c == 0 ? "#000" : "#fff"; }
 
   // Real bitmap-font rendering (byte-identical glyphs to a real MeshCore-Solo
   // board with OLED_MISC_FIXED_FONT=1 -- see solo/heltec_v3/platformio.ini),
@@ -298,7 +295,7 @@ public:
       if (!Module.__simCtx) return;
       Module.__simCtx.fillStyle = UTF8ToString($4) === 'L' ? '#fff' : '#000';
       Module.__simCtx.fillRect($0, $1, $2, $3);
-    }, x, y, w, h, (_color != DARK) ? "L" : "D");
+    }, x, y, w, h, (_color != UIColor::window_bkg) ? "L" : "D");
   }
 
   void drawRect(int x, int y, int w, int h) override {
@@ -308,7 +305,7 @@ public:
       ctx.strokeStyle = UTF8ToString($4) === 'L' ? '#fff' : '#000';
       ctx.lineWidth = 1;
       ctx.strokeRect($0 + 0.5, $1 + 0.5, $2 - 1, $3 - 1);
-    }, x, y, w, h, (_color != DARK) ? "L" : "D");
+    }, x, y, w, h, (_color != UIColor::window_bkg) ? "L" : "D");
   }
 
   // Real XBM bit-unpacking (row-major, MSB-first, rows padded to whole
@@ -338,7 +335,7 @@ public:
           if (HEAPU8[byteOff] & mask) ctx.fillRect(x0 + rx, y0 + ry, 1, 1);
         }
       }
-    }, x, y, w, h, bits, (_color != DARK) ? "L" : "D");
+    }, x, y, w, h, bits, (_color != UIColor::window_bkg) ? "L" : "D");
   }
 
   // Measured off the real MiscFixed glyph table, per CODEPOINT -- not
@@ -450,9 +447,9 @@ public:
     }, W, H);
   }
   void clear() override { }
-  void startFrame(Color bkg = DARK) override { (void)bkg; }
+  void startFrame(ColorVal bkg = UIColor::window_bkg) override { (void)bkg; }
   void setTextSize(int sz) override { (void)sz; }
-  void setColor(Color c) override { (void)c; }
+  void setColor(ColorVal c) override { (void)c; }
   void setCursor(int x, int y) override { (void)x; (void)y; }
   void print(const char* str) override { (void)str; }
   void fillRect(int x, int y, int w, int h) override { (void)x; (void)y; (void)w; (void)h; }

@@ -63,9 +63,9 @@ namespace skyview {
     info::circle(d, cx, cy, r);         // the horizon
     info::circle(d, cx, cy, r / 2, 2);  // 45 degrees up, dotted
     dot(d, cx, cy);                  // straight up
-    d.setColor(DisplayDriver::DARK);   // north, on a gap in the rim
+    d.setColor(UIColor::window_bkg);   // north, on a gap in the rim
     d.fillRect(cx - cw / 2 - 1, cy - r - lh / 2, cw + 2, lh);
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     d.setCursor(cx - cw / 2, cy - r - lh / 2);
     d.print("N");
 
@@ -80,9 +80,9 @@ namespace skyview {
         if (used) {
           d.fillRect(x - s, y - s, 2 * s + 1, 2 * s + 1);
         } else if (sat.snr >= 0) {
-          d.setColor(DisplayDriver::DARK);   // clear inside, over a ring
+          d.setColor(UIColor::window_bkg);   // clear inside, over a ring
           d.fillRect(x - s, y - s, 2 * s + 1, 2 * s + 1);
-          d.setColor(DisplayDriver::LIGHT);
+          d.setColor(UIColor::primary_txt);
           d.drawRect(x - s, y - s, 2 * s + 1, 2 * s + 1);
         } else if (s > 1) {   // in view, no signal: a small point
           d.fillRect(x - 1, y - 1, 3, 3);
@@ -197,9 +197,9 @@ namespace skyview {
       int h = snr < 0 ? 1 : (H * snr / 50 > 2 ? H * snr / 50 : 2);
       if (g.used(sat) || h <= 2) d.fillRect(x, y1 - h + 1, bw, h);
       else {
-        d.setColor(DisplayDriver::DARK);   // over the dotted line
+        d.setColor(UIColor::window_bkg);   // over the dotted line
         d.fillRect(x, y1 - h + 1, bw, h);
-        d.setColor(DisplayDriver::LIGHT);
+        d.setColor(UIColor::primary_txt);
         d.drawRect(x, y1 - h + 1, bw, h);
       }
     }

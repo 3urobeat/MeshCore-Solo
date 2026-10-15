@@ -111,7 +111,7 @@ public:
 
   int render(DisplayDriver& display) {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     if (_kb_active) return kb().render(display);
 
     const int top  = display.listStart();
@@ -124,7 +124,7 @@ public:
         int y = top + i * step;
         display.drawSelectionRow(0, y - 1, display.width(), step - 1, i == _type_sel);
         display.drawTextEllipsized(2, y, display.width() - 4, TYPE_LABELS[i]);
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
       }
       return 1000;
     }
@@ -139,7 +139,7 @@ public:
         display.drawSelectionRow(0, y - 1, display.width(), step - 1, sel);
         int r = info::valueRow(display, y, "Topic", _topic[0] ? _topic : "(none)", sel, 0);
         if (r > 0) mq_delay = r;
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
       }
       return (mq_delay > 0 && mq_delay < 1000) ? mq_delay : 1000;
     }
@@ -157,7 +157,7 @@ public:
                      : info::valueRow(display, y, _hex_mode ? "Secret (hex)" : "Secret (phrase)",
                                       _secret_text[0] ? _secret_text : "(none)", sel, 0);
       if (r > 0) mq_delay = r;
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
     return (mq_delay > 0 && mq_delay < 1000) ? mq_delay : 1000;
   }

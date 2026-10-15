@@ -76,16 +76,16 @@ struct DigitEditor {
     for (int k = 0; buf[k]; k++) {
       int cx = x + k * cw;
       if (k == char_idx) {
-        d.setColor(DisplayDriver::DARK);
+        d.setColor(UIColor::window_bkg);
         d.fillSoftRect(cx, y - 1, cw, d.getLineHeight() + 1);
-        d.setColor(DisplayDriver::LIGHT);
+        d.setColor(UIColor::primary_txt);
       } else {
-        d.setColor(DisplayDriver::DARK);
+        d.setColor(UIColor::window_bkg);
       }
       char one[2] = { buf[k], '\0' };
       d.setCursor(cx, y);
       d.print(one);
     }
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
   }
 };

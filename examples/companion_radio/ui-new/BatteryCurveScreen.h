@@ -35,7 +35,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     drawScreenHeader(display, "Battery curve");
     const int mv = _task->getBattMilliVolts();
     const bool custom = _prefs && battery::validCurve(_prefs->batt_curve_mv);

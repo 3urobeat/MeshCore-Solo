@@ -92,7 +92,7 @@ class GxEPDDisplay : private GxEPDPanel, public EinkGfxDisplay {
   }
 
 public:
-  GxEPDDisplay() : EinkGfxDisplay(EINK_DISP_W, EINK_DISP_H, display, GxEPD_BLACK, GxEPD_WHITE) {}
+  GxEPDDisplay() : EinkGfxDisplay(EINK_DISP_W, EINK_DISP_H, display) {}
 
 #ifdef ENABLE_SCREENSHOT
   const uint8_t* getBuffer() override { return display.getBuffer(); }

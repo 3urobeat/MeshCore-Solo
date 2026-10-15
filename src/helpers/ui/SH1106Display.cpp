@@ -11,6 +11,17 @@ bool SH1106Display::i2c_probe(TwoWire &wire, uint8_t addr)
   return (error == 0);
 }
 
+// Color scheme
+ColorVal UIColor::window_bkg = SH110X_BLACK;
+ColorVal UIColor::title_bkg = SH110X_BLACK;
+ColorVal UIColor::title_txt = SH110X_WHITE;
+ColorVal UIColor::primary_txt = SH110X_WHITE;
+ColorVal UIColor::secondary_txt = SH110X_WHITE;
+ColorVal UIColor::warning_txt = SH110X_WHITE;
+ColorVal UIColor::popup_bkg = SH110X_BLACK;
+ColorVal UIColor::popup_txt = SH110X_WHITE;
+ColorVal UIColor::corp_blue = SH110X_WHITE;
+
 bool SH1106Display::begin()
 {
   // Wire must already be initialised by board.begin() before this is called.
@@ -55,7 +66,7 @@ void SH1106Display::clear()
   _force_redraw = true;   // next endFrame() must flush even if its CRC matches a pre-clear frame
 }
 
-void SH1106Display::startFrame(Color bkg)
+void SH1106Display::startFrame(ColorVal bkg)
 {
   display.clearDisplay(); // TODO: apply 'bkg'
   _color = SH110X_WHITE;
@@ -102,9 +113,9 @@ void SH1106Display::setTextSize(int sz)
   display.setTextSize(sz);
 }
 
-void SH1106Display::setColor(Color c)
+void SH1106Display::setColor(ColorVal c)
 {
-  _color = (c != 0) ? SH110X_WHITE : SH110X_BLACK;
+  _color = c;
   display.setTextColor(_color);
 }
 

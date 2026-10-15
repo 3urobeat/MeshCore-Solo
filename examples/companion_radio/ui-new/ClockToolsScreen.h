@@ -133,17 +133,17 @@ class ClockToolsScreen : public UIScreen {
     for (int k = 0; buf[k]; k++) {
       int cx = valx + k * cw;
       if (k == char_idx) {
-        d.setColor(DisplayDriver::DARK);
+        d.setColor(UIColor::window_bkg);
         d.fillSoftRect(cx, y - 1, cw, d.getLineHeight() + 1);
-        d.setColor(DisplayDriver::LIGHT);
+        d.setColor(UIColor::primary_txt);
       } else {
-        d.setColor(DisplayDriver::DARK);
+        d.setColor(UIColor::window_bkg);
       }
       char one[2] = { buf[k], '\0' };
       d.setCursor(cx, y);
       d.print(one);
     }
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
   }
 
   // ── Sub-renders ───────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     switch (_view) {
       case V_ALARM:     return renderAlarm(display);
       case V_TIMER:     return renderTimer(display);

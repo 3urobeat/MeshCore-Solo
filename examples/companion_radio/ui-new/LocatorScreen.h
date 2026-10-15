@@ -108,7 +108,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     if (_picking) { int mq = renderPicker(display); return (mq > 0 && mq < 400) ? mq : 400; }
     drawScreenHeader(display, "Locator");
 

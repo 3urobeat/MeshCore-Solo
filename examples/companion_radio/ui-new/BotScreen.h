@@ -84,7 +84,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     if (_kb_row >= 0) {
       return _kb->render(display);
@@ -103,7 +103,7 @@ public:
     if (sent > 0) {
       display.setCursor(display.width() - cw - 1, 0);
       display.print(cbuf);
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     }
 
     int n = botcfg::rowCount(_tab);
@@ -138,7 +138,7 @@ public:
       }
       int mqr = info::listRow(display, y, r.label, shown, sel, reserve);
       if (mqr > 0) mq_delay = mqr;
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
     });
     return 2000;
   }

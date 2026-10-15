@@ -162,7 +162,7 @@ public:
       const int rw = right[0] ? display.getTextWidth(right) + display.getCharWidth() : 0;
       display.drawTextEllipsized(2, y, display.width() - reserve - 4 - rw, left, sel);
       if (right[0]) {
-        display.setColor(sel ? DisplayDriver::DARK : DisplayDriver::LIGHT);
+        display.setColor(sel ? UIColor::window_bkg : UIColor::primary_txt);
         display.drawTextRightAlign(display.width() - reserve - 2, y, right);
       }
     });
@@ -894,7 +894,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   void renderMap(DisplayDriver& d) {
     const int W = d.width(), H = d.height(), lh = d.getLineHeight(), s = miniIconScale(d);
     const int bar_y = H - lh - 1, ax = 1, ay = 1, aw = W - 2, ah = bar_y - 3;
-    d.setColor(DisplayDriver::LIGHT);
+    d.setColor(UIColor::primary_txt);
     int32_t tla = 0, tlo = 0;
     const bool target = _task->activeTargetPos(tla, tlo);
     int32_t mnla = 0, mxla = 0, mnlo = 0, mxlo = 0;
@@ -1048,7 +1048,7 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   // matching the wrap-around LEFT/RIGHT cycle.
   void drawFilterTabs(DisplayDriver& display) {
     tabbar::draw(display, filterLabels(), F_COUNT, _filter, display.menuHintWidth());
-    display.drawContextMenuHint(DisplayDriver::LIGHT, ctxMenuOpen());   // Nodes list has a Hold-Enter menu
+    display.drawContextMenuHint(UIColor::primary_txt, ctxMenuOpen());   // Nodes list has a Hold-Enter menu
   }
 
 public:
@@ -1159,7 +1159,7 @@ public:
     const bool arrows = _source == SRC_STORED && _sort != SORT_TIME;
     int dist_col = lw - display.getCharWidth() * (arrows ? 9 : 7);
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     const char* flt = (_filter != F_ALL) ? filterLabel(_filter) : nullptr;
     if (_source == SRC_SCAN) {
       char title[28];
@@ -1227,7 +1227,7 @@ public:
         int mqr = display.drawTextEllipsized(tx, y, dist_col - tx - 2, filt, sel);
         if (sel && mqr > 0) mq_delay = mqr;
 
-        display.setColor(sel ? DisplayDriver::DARK : DisplayDriver::LIGHT);
+        display.setColor(sel ? UIColor::window_bkg : UIColor::primary_txt);
         char right[10];
         if (_source == SRC_SCAN) {   // live scan: how well we hear it, as bars
           drawSignalBars(display, lw - reserve - 2, y, e.snr_x4);
@@ -1249,7 +1249,7 @@ public:
       }, lw);
       if (split && _sel < _count) {
         const int top = display.listStart();
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::primary_txt);
         display.fillRect(lw + 2, top, display.sepH(), display.height() - top);
         drawStoredFields(display, _entries[_sel], lw + 2 + display.sepH() + 2, top,
                          display.width() - lw - 4 - display.sepH(), display.height());

@@ -120,7 +120,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
 
     // Waypoint management UI owns the screen while active.
     if (_wp.active()) return _wp.render(display);

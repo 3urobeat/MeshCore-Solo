@@ -4,6 +4,15 @@
 #include <string.h>
 #include <Arduino.h>
 
+using ColorVal = uint16_t;
+
+// Colours by element type, in the display's own native values. Each display
+// driver's .cpp defines the palette (mono panels: background 0, ink 1).
+class UIColor {
+public:
+  static ColorVal window_bkg, title_bkg, title_txt, primary_txt, secondary_txt, warning_txt, popup_bkg, popup_txt, corp_blue;
+};
+
 class DisplayDriver {
   int _w, _h;
 protected:
@@ -39,8 +48,6 @@ protected:
   void* _busy_pump_ctx = nullptr;
   void callBusyPump() { if (_busy_pump_fn) _busy_pump_fn(_busy_pump_ctx); }
 public:
-  enum Color { DARK=0, LIGHT, RED, GREEN, BLUE, YELLOW, ORANGE }; // on b/w screen, colors will be !=0 synonym of light
-
   int width() const { return _w; }
   int height() const { return _h; }
 
@@ -50,9 +57,9 @@ public:
   virtual void turnOn() = 0;
   virtual void turnOff() = 0;
   virtual void clear() = 0;
-  virtual void startFrame(Color bkg = DARK) = 0;
+  virtual void startFrame(ColorVal bkg = UIColor::window_bkg) = 0;
   virtual void setTextSize(int sz) = 0;
-  virtual void setColor(Color c) = 0;
+  virtual void setColor(ColorVal c) = 0;
   virtual void setCursor(int x, int y) = 0;
   virtual void print(const char* str) = 0;
   virtual void printWordWrap(const char* str, int max_width) { print(str); }   // fallback to basic print() if no override
@@ -186,15 +193,15 @@ public:
   }
 
   // Common selection-row pattern: when sel, fills (x,y,w,h) with ink and sets
-  // colour to DARK so the next text render appears inverted; when not sel,
-  // just sets ink colour to LIGHT. Replaces the 5-line if/else copy-paste
+  // colour to window_bkg so the next text render appears inverted; when not sel,
+  // just sets ink colour to primary_txt. Replaces the 5-line if/else copy-paste
   // present in every list-style screen.
   void drawSelectionRow(int x, int y, int w, int h, bool sel) {
-    setColor(LIGHT);
+    setColor(UIColor::primary_txt);
     if (sel) {
       if (w > 2 && h > 2) fillSoftRect(x, y, w, h);   // soft corners, like every box
       else fillRect(x, y, w, h);
-      setColor(DARK);
+      setColor(UIColor::window_bkg);
     }
   }
 
@@ -217,11 +224,11 @@ public:
   }
   // A box floating over the screen (alert, popup, hint): clears a 1 px moat
   // around it so lines of the view below stop short of the border instead of
-  // running into it, fills it dark and draws the soft border. Leaves ink LIGHT.
+  // running into it, fills it dark and draws the soft border. Leaves ink primary_txt.
   void drawPanel(int x, int y, int w, int h) {
-    setColor(DARK);
+    setColor(UIColor::window_bkg);
     fillRect(x - 1, y - 1, w + 2, h + 2);
-    setColor(LIGHT);
+    setColor(UIColor::primary_txt);
     drawSoftRect(x, y, w, h);
   }
 
@@ -262,15 +269,15 @@ public:
   // too (paper capsule + ink digits) and stays visible. The four corners are
   // knocked back to the surrounding colour for a rounded-capsule look.
   // overflow: see fmtBadgeCount -- appends "+" for a ring-capped, understated count.
-  // Restores ink to LIGHT. Returns the pill width.
+  // Restores ink to primary_txt. Returns the pill width.
   int drawUnreadBadge(int right_x, int y, int count, bool sel, bool overflow = false) {
     char buf[5]; fmtBadgeCount(buf, count, overflow);
     int pad = sepH() + 1;
     int pw = getTextWidth(buf) - textWidthTrailingGap() + pad * 2;
     int ph = getLineHeight();
     int px = right_x - pw;
-    Color body = sel ? DARK : LIGHT;
-    Color ink  = sel ? LIGHT : DARK;
+    ColorVal body = sel ? UIColor::window_bkg : UIColor::primary_txt;
+    ColorVal ink  = sel ? UIColor::primary_txt : UIColor::window_bkg;
     setColor(body);
     fillRect(px, y, pw, ph);
     setColor(ink);
@@ -280,56 +287,56 @@ public:
     fillRect(px + pw - 1, y + ph - 1, 1, 1);
     setCursor(px + pad, y);
     print(buf);
-    setColor(LIGHT);
+    setColor(UIColor::primary_txt);
     return pw;
   }
 
   // Inverted title bar: light background, dark ellipsized label, then the
   // standard separator line. The label is UTF-8 translated by
-  // drawTextEllipsized. Leaves ink colour LIGHT for following content.
+  // drawTextEllipsized. Leaves ink colour primary_txt for following content.
   // Pixel width the ≡ context-menu hint reserves at the header's right edge.
   int menuHintWidth() const { return getCharWidth() + 3; }
 
   // Small ≡ glyph at the header's top-right, signalling the screen has a
-  // Hold-Enter context menu. Three stacked bars, drawn in colour c (LIGHT on a
-  // plain header, DARK on an inverted bar). When active (the menu is open) the
+  // Hold-Enter context menu. Three stacked bars, drawn in colour c (primary_txt on a
+  // plain header, window_bkg on an inverted bar). When active (the menu is open) the
   // corner cell is highlighted and the bars knocked out, tying the glyph to the
   // popup it spawned. Call after the header body.
-  void drawContextMenuHint(Color c = LIGHT, bool active = false) {
+  void drawContextMenuHint(ColorVal c = UIColor::primary_txt, bool active = false) {
     int gw = getCharWidth() + 1;
     int gx = width() - gw - 1;
     int th = sepH();
     int gy = (getLineHeight() - (th * 3 + 4)) / 2;
     if (gy < 0) gy = 0;
-    Color bars = c;
+    ColorVal bars = c;
     if (active) {
       setColor(c);
       fillRect(gx - 1, 0, gw + 2, headerH() - sepH());
-      bars = (c == LIGHT) ? DARK : LIGHT;
+      bars = (c == UIColor::primary_txt) ? UIColor::window_bkg : UIColor::primary_txt;
     }
     setColor(bars);
     for (int i = 0; i < 3; i++) fillRect(gx, gy + i * (th + 2), gw, th);
-    setColor(LIGHT);
+    setColor(UIColor::primary_txt);
   }
 
   void drawInvertedHeader(const char* label, bool menu_hint = false, bool menu_open = false) {
     int hdr = headerH();
-    setColor(LIGHT);
+    setColor(UIColor::primary_txt);
     fillRect(0, 0, width(), hdr - 1);
     int reserve = menu_hint ? menuHintWidth() : 0;
-    setColor(DARK);
+    setColor(UIColor::window_bkg);
     drawTextEllipsized(2, 1, width() - 4 - reserve, (label && label[0]) ? label : "");
-    if (menu_hint) drawContextMenuHint(DARK, menu_open);
-    setColor(LIGHT);
+    if (menu_hint) drawContextMenuHint(UIColor::window_bkg, menu_open);
+    setColor(UIColor::primary_txt);
     fillRect(0, hdr - 1, width(), sepH());
   }
 
   // Centred screen title + bottom separator line — the standard top bar for
-  // full-screen list/detail views. Leaves ink LIGHT; callers can draw extra
+  // full-screen list/detail views. Leaves ink primary_txt; callers can draw extra
   // header content (counters, etc.) afterwards. menu_hint adds the ≡ glyph;
   // menu_open highlights it while the context menu is on screen.
   void drawCenteredHeader(const char* title, bool menu_hint = false, bool menu_open = false) {
-    setColor(LIGHT);
+    setColor(UIColor::primary_txt);
     int reserve = menu_hint ? menuHintWidth() : 0;
     char buf[96];
     translateUTF8ToBlocks(buf, (title && title[0]) ? title : "", sizeof(buf));
@@ -345,7 +352,7 @@ public:
       drawTextEllipsized(2, 0, avail, buf);
     }
     fillRect(0, headerH() - sepH(), width(), sepH());
-    if (menu_hint) drawContextMenuHint(LIGHT, menu_open);
+    if (menu_hint) drawContextMenuHint(UIColor::primary_txt, menu_open);
   }
 
   // Advance a UTF-8 pointer by one codepoint, returning the decoded value.

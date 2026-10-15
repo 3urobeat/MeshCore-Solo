@@ -17,6 +17,17 @@ SimSensorManager sensors;
 
 #ifdef DISPLAY_CLASS
 DISPLAY_CLASS display;
+
+// Color scheme: every sim panel is 1-bit (0 = background, 1 = ink)
+ColorVal UIColor::window_bkg = 0;
+ColorVal UIColor::title_bkg = 0;
+ColorVal UIColor::title_txt = 1;
+ColorVal UIColor::primary_txt = 1;
+ColorVal UIColor::secondary_txt = 1;
+ColorVal UIColor::warning_txt = 1;
+ColorVal UIColor::popup_bkg = 0;
+ColorVal UIColor::popup_txt = 1;
+ColorVal UIColor::corp_blue = 1;
 #endif
 
 // SimSensorManager's methods (see that header's comment on why they're
@@ -147,7 +158,7 @@ void SimDisplayDriverCanvas::print(const char* str) {
           if (HEAPU8[buf + y * 128 + x]) ctx.fillRect(x, y, 1, 1);
         }
       }
-    }, gfx.px, gfx.dx0, gfx.dy0, gfx.dx1, gfx.dy1, (_color != DARK) ? "L" : "D");
+    }, gfx.px, gfx.dx0, gfx.dy0, gfx.dx1, gfx.dy1, (_color != UIColor::window_bkg) ? "L" : "D");
   }
 
   // Same external contract as every other DisplayDriver backend here (see
@@ -169,7 +180,7 @@ Adafruit_GFX& SimEinkDisplay::canvas() {
 
 SimEinkDisplay::SimEinkDisplay()
     : EinkGfxDisplay((DISPLAY_ROTATION & 1) ? PANEL_H : PANEL_W,
-                     (DISPLAY_ROTATION & 1) ? PANEL_W : PANEL_H, canvas(), 1, 0) {
+                     (DISPLAY_ROTATION & 1) ? PANEL_W : PANEL_H, canvas()) {
   canvas().setRotation(DISPLAY_ROTATION);
 }
 

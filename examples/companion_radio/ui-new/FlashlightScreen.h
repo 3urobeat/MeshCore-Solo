@@ -13,7 +13,7 @@ public:
 
   int render(DisplayDriver& display) override {
     display.setBrightness(4);
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     display.fillRect(0, 0, display.width(), display.height());
     return 1000;
   }

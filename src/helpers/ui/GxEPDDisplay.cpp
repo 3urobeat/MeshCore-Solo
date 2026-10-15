@@ -22,6 +22,17 @@
   #define EINK_SPI_HZ 4000000
 #endif
 
+// Color scheme
+ColorVal UIColor::window_bkg = GxEPD_WHITE;
+ColorVal UIColor::title_bkg = GxEPD_WHITE;
+ColorVal UIColor::title_txt = GxEPD_BLACK;
+ColorVal UIColor::primary_txt = GxEPD_BLACK;
+ColorVal UIColor::secondary_txt = GxEPD_BLACK;
+ColorVal UIColor::warning_txt = GxEPD_BLACK;
+ColorVal UIColor::popup_bkg = GxEPD_WHITE;
+ColorVal UIColor::popup_txt = GxEPD_BLACK;
+ColorVal UIColor::corp_blue = GxEPD_BLACK;
+
 bool GxEPDDisplay::begin() {
   display.epd2.selectSPI(SPI1, SPISettings(EINK_SPI_HZ, MSBFIRST, SPI_MODE0));
 #ifdef ESP32

@@ -61,21 +61,21 @@ inline bool endFrame(DisplayDriver& d) {
 inline void drawPill(DisplayDriver& display, int x, int w, const char* label, bool active) {
   int lh = display.getLineHeight();
   if (active) {
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
     display.fillSoftRect(x, 0, w, lh + 1);
-    display.setColor(DisplayDriver::DARK);
+    display.setColor(UIColor::window_bkg);
   } else {
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::primary_txt);
   }
   display.drawTextCentered(x + w / 2, 0, label);
-  display.setColor(DisplayDriver::LIGHT);
+  display.setColor(UIColor::primary_txt);
 }
 
 // Small solid triangle pointing left (dir < 0) or right, 3 px wide and 5
 // tall (times sepH()), centred on row y_mid: "more tabs this way".
 inline void drawEdgeArrow(DisplayDriver& display, int x, int y_mid, int dir) {
   const int t = display.sepH();
-  display.setColor(DisplayDriver::LIGHT);
+  display.setColor(UIColor::primary_txt);
   for (int c = 0; c < 3; c++) {
     int h = (dir < 0 ? c * 2 + 1 : 5 - c * 2) * t;
     display.fillRect(x + c * t, y_mid - h / 2, t, h);
@@ -151,14 +151,14 @@ inline void draw(DisplayDriver& display, const char* const* labels, int count, i
       Fit f = layout(0, false);
       if (f.shown < count && f.left_free < arr + 1 && f.right_free < arr + 1) f = layout(arr + 2, false);
       const int bh = display.headerH() - display.sepH(), y_mid = display.getLineHeight() / 2;
-      display.setColor(DisplayDriver::DARK);
+      display.setColor(UIColor::window_bkg);
       display.fillRect(0, 0, f.left_free, bh);
       display.fillRect(rx_limit - f.right_free, 0, f.right_free + right_reserve, bh);
       if (f.shown < count) {
         if (f.left_free >= arr + 1)  drawEdgeArrow(display, 0, y_mid, -1);
         if (f.right_free >= arr + 1) drawEdgeArrow(display, rx_limit - arr, y_mid, +1);
       }
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::primary_txt);
       display.fillRect(0, display.headerH() - display.sepH(), display.width(), display.sepH());
       return;
     }
@@ -175,7 +175,7 @@ inline void draw(DisplayDriver& display, const char* const* labels, int count, i
     if (f.left_free >= arr + 1)  drawEdgeArrow(display, 0, y_mid, -1);
     if (f.right_free >= arr + 1) drawEdgeArrow(display, rx_limit - arr, y_mid, +1);
   }
-  display.setColor(DisplayDriver::LIGHT);
+  display.setColor(UIColor::primary_txt);
   display.fillRect(0, display.headerH() - display.sepH(), display.width(), display.sepH());
 }
 
