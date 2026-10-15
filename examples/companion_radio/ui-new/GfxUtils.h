@@ -11,14 +11,20 @@
 
 namespace gfx {
 
+// A dash pattern: bit i of `bits` says whether step i of every `len` is
+// drawn (steps of a line's width, so a doubled panel doubles the dashes).
+// len 0: solid.
+struct Dash { uint16_t bits; uint8_t len; };
+static const Dash DASH_SOLID = { 0, 0 };
+
 // Bresenham line between two points.
-static inline void drawLine(DisplayDriver& d, int x0, int y0, int x1, int y1) {
+static inline void drawLine(DisplayDriver& d, int x0, int y0, int x1, int y1, Dash dash = DASH_SOLID) {
   int dx =  abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
   int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
   int err = dx + dy;
   const int t = d.sepH();   // 2px on a doubled panel
-  while (true) {
-    d.fillRect(x0 - t / 2, y0 - t / 2, t, t);
+  for (int i = 0; ; i++) {
+    if (!dash.len || (dash.bits >> ((i / t) % dash.len) & 1)) d.fillRect(x0 - t / 2, y0 - t / 2, t, t);
     if (x0 == x1 && y0 == y1) break;
     int e2 = err * 2;
     if (e2 >= dy) { err += dy; x0 += sx; }
@@ -30,7 +36,8 @@ static inline void drawLine(DisplayDriver& d, int x0, int y0, int x1, int y1) {
 // it misses the box. For lines whose ends may lie far off the screen: the
 // ends are floats, so a point projected thousands of screens away (a map
 // zoomed in) neither overflows an int nor turns the line around.
-static inline void drawLineClipped(DisplayDriver& d, float x0, float y0, float x1, float y1, int bx, int by, int bw, int bh) {
+static inline void drawLineClipped(DisplayDriver& d, float x0, float y0, float x1, float y1, int bx, int by, int bw, int bh,
+                                   Dash dash = DASH_SOLID) {
   float t0 = 0, t1 = 1;
   const float dx = x1 - x0, dy = y1 - y0;
   const float p[4] = { -dx, dx, -dy, dy };
@@ -41,7 +48,7 @@ static inline void drawLineClipped(DisplayDriver& d, float x0, float y0, float x
     if (p[i] < 0) { if (r > t1) return; if (r > t0) t0 = r; }
     else          { if (r < t0) return; if (r < t1) t1 = r; }
   }
-  drawLine(d, (int)lroundf(x0 + t0 * dx), (int)lroundf(y0 + t0 * dy), (int)lroundf(x0 + t1 * dx), (int)lroundf(y0 + t1 * dy));
+  drawLine(d, (int)lroundf(x0 + t0 * dx), (int)lroundf(y0 + t0 * dy), (int)lroundf(x0 + t1 * dx), (int)lroundf(y0 + t1 * dy), dash);
 }
 
 // Midpoint-circle outline.

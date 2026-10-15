@@ -41,6 +41,15 @@ the map gives its name and distance, with **+n** when others sit on the same
 spot. **Left / Right** selects the next node, **Up / Down** zooms in on it and
 back out, **Enter** opens its details and **Hold Enter** its options.
 
+On e-ink the map also writes the nodes' names beside their dots (where they
+don't cover each other) and draws your trail, dotted, and your waypoints. On
+the 4.2" and 4.26" panels the selected node sits beside the map: its
+distance and direction, type, when it was last heard, its path and a compass
+pointing at it. Under it, with Flow on, a legend counts each kind of packet
+heard in the last minute, and the kinds are told apart by their lines:
+adverts solid, direct messages long dashes, channels short dashes, the rest
+dash and dot.
+
 > [!NOTE]
 > **Wio Tracker L2:** **Packet flow** is in the map's options (On the map).
 > Every packet heard shows. One that can be placed runs along its line as a

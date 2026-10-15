@@ -446,6 +446,20 @@ void UITask::simNodes() {
   setCurrScreen(nearby_screen);
 }
 
+// Sim tests: a walked trail ending at the GPS fix of simNodes(), and two
+// waypoints beside it, for the maps.
+void UITask::simTrail() {
+  TrailStore& tr = _core->trail.store();
+  const uint32_t now = rtc_clock.getCurrentTime();
+  for (int i = 0; i <= 12; i++) {
+    const float f = (12 - i) / 12.0f;
+    tr.addPoint((int32_t)((50.0614f - 0.010f * f + 0.002f * (i % 3)) * 1e6f),
+                (int32_t)((19.9372f - 0.018f * f * f) * 1e6f), now - (12 - i) * 60, 1);
+  }
+  waypoints().add((int32_t)(50.0560f * 1e6f), (int32_t)(19.9250f * 1e6f), now, "Car");
+  waypoints().add((int32_t)(50.0680f * 1e6f), (int32_t)(19.9600f * 1e6f), now, "Hut");
+}
+
 void UITask::simDisplay(bool on) {
   if (!_display) return;
   if (on) _display->turnOn(); else _display->turnOff();
@@ -926,6 +940,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void sim_unread(int which) {
 
 extern "C" EMSCRIPTEN_KEEPALIVE void sim_nodes() {
   if (g_sim_ui_task_for_js) g_sim_ui_task_for_js->simNodes();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void sim_trail() {
+  if (g_sim_ui_task_for_js) g_sim_ui_task_for_js->simTrail();
 }
 
 // Sim tests: the display off (0) or on (1), as the auto-off and a key press do.

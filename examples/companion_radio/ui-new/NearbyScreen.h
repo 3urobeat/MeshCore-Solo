@@ -893,9 +893,15 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
   // Every node with a position (and you) fitted in; zoomed in, centred on the
   // selected one. Dots, the selected one boxed, live shares as diamonds;
   // under the map its name and distance, "+n" for others under the same spot.
+  // E-ink has the room for more: the nodes' names beside their dots, your
+  // trail (dotted) and waypoints; a screen 40 characters wide (4.2", 4.26")
+  // keeps the map to the left and shows the selected node and the packet
+  // flow's legend beside it, the flow's kinds then told apart by their dashes.
   void renderMap(DisplayDriver& d) {
-    const int W = d.width(), H = d.height(), lh = d.getLineHeight(), s = miniIconScale(d);
-    const int bar_y = H - lh - 1, ax = 1, ay = 1, aw = W - 2, ah = bar_y - 3;
+    const int W = d.width(), H = d.height(), lh = d.getLineHeight(), cw = d.getCharWidth(), s = miniIconScale(d);
+    const bool eink = Features::IS_EINK, wide = eink && W >= 40 * cw;
+    const int bar_y = H - lh - 1, mw = wide ? W * 3 / 5 : W;   // the map's right edge
+    const int ax = 1, ay = 1, aw = mw - 2, ah = wide ? H - 2 : bar_y - 3;
     d.setColor(UIColor::primary_txt);
     int32_t tla = 0, tlo = 0;
     const bool target = _task->activeTargetPos(tla, tlo);
@@ -922,8 +928,9 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     float span_la = (float)(mxla - mnla), span_lo = (float)(mxlo - mnlo) * kx;
     if (span_la < 2000.0f) span_la = 2000.0f;   // ~200 m: one node alone still has a scale
     if (span_lo < 2000.0f) span_lo = 2000.0f;
-    // Fitted inside a margin clear of the north mark and the scale's label.
-    const int mx = ICON_MAP_NORTH.w * s + 2, my = lh + 2;
+    // Fitted inside a margin clear of the north mark and the scale's label,
+    // and on e-ink of a name beside a dot at the edge.
+    const int mx = ICON_MAP_NORTH.w * s + 2 + (eink ? 2 * cw : 0), my = lh + 2 + (eink ? 2 * (lh / 3) + d.sepH() : 0);
     const float fw = (float)(aw - 2 * mx), fh = (float)(ah - 2 * my);
     float scale = fh / span_la < fw / span_lo ? fh / span_la : fw / span_lo;
     float cla = (mnla + mxla) / 2.0f, clo = (mnlo + mxlo) / 2.0f;
@@ -938,6 +945,28 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
       y = (int)lroundf(fy < -30000 ? -30000 : fy > 30000 ? 30000 : fy);
     };
     auto inside = [&](int x, int y) { return x >= ax && x < ax + aw && y >= ay && y < ay + ah; };
+    const int t = d.sepH();
+
+    // E-ink: your trail, dotted, and the waypoints, under everything else.
+    if (eink) {
+      const TrailStore& tr = _task->core().trail.store();
+      float x0 = 0, y0 = 0;
+      for (int i = 0; i < tr.count(); i++) {
+        float x1, y1; projectF(tr.at(i).lat_1e6, tr.at(i).lon_1e6, x1, y1);
+        if (i > 0 && !(tr.at(i).flags & TRAIL_FLAG_SEG_START)) gfx::drawLineClipped(d, x0, y0, x1, y1, ax, ay, aw, ah, trailDash());
+        x0 = x1; y0 = y1;
+      }
+      TrailPoint pend;
+      if (tr.count() > 0 && tr.pendingPoint(pend)) {
+        float x1, y1; projectF(pend.lat_1e6, pend.lon_1e6, x1, y1);
+        gfx::drawLineClipped(d, x0, y0, x1, y1, ax, ay, aw, ah, trailDash());
+      }
+      const WaypointStore& wps = _task->waypoints();
+      for (int i = 0; i < wps.count(); i++) {
+        int x, y; project(wps.at(i).lat_1e6, wps.at(i).lon_1e6, x, y);
+        if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_WAYPOINT);
+      }
+    }
 
     int sx, sy, near = 0;
     project(sel.lat_e6, sel.lon_e6, sx, sy);
@@ -954,7 +983,6 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     // Its points are drawn where the contacts and you are now, not where they
     // were when it was heard, so the lines meet on the marks.
     const PacketFlow& fl = _task->core().flow;
-    const int t = d.sepH();
     for (int i = 0, lines = 0; fl.enabled() && i < fl.count(); i++) {
       const PacketFlow::Flow& f = fl.at(i);
       if (millis() - f.t_ms > FLOW_SHOW_MS) break;   // newest first
@@ -975,28 +1003,30 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
           gfx::drawCircleClipped(d, (int)lroundf(px[0]), (int)lroundf(py[0]), 6 * s, ax, ay, aw, ah);
         continue;
       }
+      const gfx::Dash dash = wide ? flowDash(f.kind) : gfx::DASH_SOLID;
       const bool bold = lines++ < 2;
       for (int k = 1; k < f.n; k++) {
-        gfx::drawLineClipped(d, px[k - 1], py[k - 1], px[k], py[k], ax, ay, aw, ah);
+        gfx::drawLineClipped(d, px[k - 1], py[k - 1], px[k], py[k], ax, ay, aw, ah, dash);
         if (!bold) continue;
         // a stroke either side of the first, across the line's run
         const bool flat = fabsf(px[k] - px[k - 1]) >= fabsf(py[k] - py[k - 1]);
         const float ox = flat ? 0 : t, oy = flat ? t : 0;
-        gfx::drawLineClipped(d, px[k - 1] + ox, py[k - 1] + oy, px[k] + ox, py[k] + oy, ax, ay, aw, ah);
-        gfx::drawLineClipped(d, px[k - 1] - ox, py[k - 1] - oy, px[k] - ox, py[k] - oy, ax, ay, aw, ah);
+        gfx::drawLineClipped(d, px[k - 1] + ox, py[k - 1] + oy, px[k] + ox, py[k] + oy, ax, ay, aw, ah, dash);
+        gfx::drawLineClipped(d, px[k - 1] - ox, py[k - 1] - oy, px[k] - ox, py[k] - oy, ax, ay, aw, ah, dash);
       }
     }
     if (me)     { int x, y; project(mla, mlo, x, y);   if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_CURRENT); }
     if (target) { int x, y; project(tla, tlo, x, y);   if (inside(x, y)) miniIconDrawCentered(d, x, y, ICON_MAP_TARGET); }
     const int r = 4 * s;
     d.drawRect(sx - r, sy - r, 2 * r + 1, 2 * r + 1);
-    // The north mark and the scale stay readable over the lines.
+
+    // The north mark and the scale, on a background so they stay readable
+    // over the lines; their boxes are kept clear of the names below.
+    const int nw = ICON_MAP_NORTH.w * s + 2, nh = ICON_MAP_NORTH.h * s + 1;
     d.setColor(UIColor::window_bkg);
-    d.fillRect(ax + aw - ICON_MAP_NORTH.w * s - 2, ay, ICON_MAP_NORTH.w * s + 2, ICON_MAP_NORTH.h * s + 1);
+    d.fillRect(ax + aw - nw, ay, nw, nh);
     d.setColor(UIColor::primary_txt);
     miniIconDrawTop(d, ax + aw - ICON_MAP_NORTH.w * s - 1, ay, ICON_MAP_NORTH);
-
-    // The scale: a round distance about a quarter of the width, bottom right.
     const float m_px = 0.111f / scale;   // 1e-6 degree of latitude is 0.111 m
     static const float STEPS[] = { 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000 };
     float m = STEPS[0];
@@ -1004,26 +1034,176 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     const int len = (int)(m / m_px);
     char sc[12];
     geo::fmtDist(sc, sizeof(sc), m / 1000.0f, useImperial());
-    if (len > 2 && len < aw) {
-      const int ly = ay + ah - 2, lx = ax + aw - len - 1, tw = d.getTextWidth(sc);
+    const bool scale_on = len > 2 && len < aw;
+    const int ly = ay + ah - 2, lx = ax + aw - len - 1 - (wide ? 2 * t : 0), stw = d.getTextWidth(sc);
+    // On e-ink a map's scale bar: a framed bar, its left half filled, ticks
+    // up at the ends, the distance over its middle -- the OLED keeps a line.
+    const int bh = lh / 3 + t, tick = lh / 3;   // e-ink: the bar's height, the ticks above it
+    if (scale_on && eink) {
+      const int by = ay + ah - bh - 1, ty = by - tick - lh;
+      int tx = lx + (len - stw) / 2;
+      if (tx + stw > ax + aw) tx = ax + aw - stw;
       d.setColor(UIColor::window_bkg);
-      d.fillRect(lx + len - tw - 1, ly - lh - 1, tw + 2, lh + 1);
+      d.fillRect(tx - 2, ty - 1, stw + 4, lh + 1);
+      d.fillRect(lx - t - 1, by - tick - 1, len + 2 * t + 2, bh + tick + 2);
+      d.setColor(UIColor::primary_txt);
+      for (int k = 0; k < t; k++) d.drawRect(lx + k, by + k, len - 2 * k, bh - 2 * k);
+      d.fillRect(lx, by, len / 2, bh);
+      d.fillRect(lx, by - tick, t, tick);
+      d.fillRect(lx + len - t, by - tick, t, tick);
+      d.setCursor(tx, ty);
+      d.print(sc);
+    } else if (scale_on) {
+      d.setColor(UIColor::window_bkg);
+      d.fillRect(lx + len - stw - 1, ly - lh - 1, stw + 2, lh + 1);
       d.fillRect(lx - 1, ly - 1, len + 2, s + 2);
       d.setColor(UIColor::primary_txt);
       d.fillRect(lx, ly, len, s);
-      d.setCursor(lx + len - d.getTextWidth(sc), ly - lh);
+      d.setCursor(lx + len - stw, ly - lh);
       d.print(sc);
     }
 
-    d.fillRect(0, bar_y - 1, W, d.sepH());
-    char right[16] = "";
-    if (sel.dist_km >= 0.0f) geo::fmtDist(right, sizeof(right), sel.dist_km, useImperial(), true);
+    // E-ink: names beside the dots, the selected one first, then the others in
+    // the list's order, each where it covers no other name, dot or the marks
+    // (right of the dot, else left); one that fits nowhere is left out.
+    if (eink) {
+      struct Box { int16_t x, y, w, h; };
+      Box taken[NEARBY_MAX * 2 + 4];   // ~0.5 KB of stack, only while drawing
+      int nt = 0;
+      auto hit = [&](const Box& b) {
+        if (b.x < ax || b.y < ay || b.x + b.w > ax + aw || b.y + b.h > ay + ah) return true;
+        for (int k = 0; k < nt; k++)
+          if (b.x < taken[k].x + taken[k].w && taken[k].x < b.x + b.w && b.y < taken[k].y + taken[k].h && taken[k].y < b.y + b.h) return true;
+        return false;
+      };
+      const int half = ICON_MAP_DOT.w * s / 2 + 1;
+      auto box = [](int x, int y, int w, int h) { return Box{ (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h }; };
+      taken[nt++] = box(ax + aw - nw, ay, nw, nh);
+      if (scale_on) taken[nt++] = box(lx - t - 1, ay + ah - bh - tick - lh - 2, len + 2 * t + 2, bh + tick + lh + 3);
+      for (int i = 0; i < _count && nt < NEARBY_MAX + 2; i++) {
+        if (!hasPos(_entries[i])) continue;
+        int x, y; project(_entries[i].lat_e6, _entries[i].lon_e6, x, y);
+        if (inside(x, y)) taken[nt++] = box(x - half, y - half, 2 * half + 1, 2 * half + 1);
+      }
+      const int maxw = (wide ? 12 : 8) * cw;
+      for (int n = 0; n < _count && nt < (int)(sizeof(taken) / sizeof(taken[0])); n++) {
+        const int i = n == 0 ? _sel : (n <= _sel ? n - 1 : n);   // the selected one first
+        const Entry& e = _entries[i];
+        if (!hasPos(e) || !e.name[0]) continue;
+        int x, y; project(e.lat_e6, e.lon_e6, x, y);
+        if (!inside(x, y)) continue;
+        int tw = d.getTextWidth(e.name);
+        if (tw > maxw) tw = maxw;
+        const int off = i == _sel ? r + 2 : half + 1;
+        Box b = box(x + off, y - lh / 2, tw + 2, lh);
+        if (hit(b)) { b.x = (int16_t)(x - off - tw - 2); if (hit(b)) continue; }
+        taken[nt++] = b;
+        d.setColor(UIColor::window_bkg);
+        d.fillRect(b.x, b.y, b.w, b.h);
+        d.setColor(UIColor::primary_txt);
+        d.drawTextEllipsized(b.x + 1, b.y, tw, e.name);
+      }
+    }
+
+    // The selected node: in a pane beside the map (wide), else on a bar under it.
+    char dist[16] = "";
+    float dkm = sel.dist_km;
+    if (dkm < 0.0f && me) dkm = geo::haversineKm(mla, mlo, sel.lat_e6, sel.lon_e6);
+    if (dkm >= 0.0f) geo::fmtDist(dist, sizeof(dist), dkm, useImperial(), true);
     char name[40];
     if (near > 0) snprintf(name, sizeof(name), "%s +%d", sel.name, near);
     else          snprintf(name, sizeof(name), "%s", sel.name);
-    const int rw = right[0] ? d.getTextWidth(right) + d.getCharWidth() : 0;
+    if (wide) {
+      renderMapPane(d, sel, name, dist, me ? geo::bearingDeg(mla, mlo, sel.lat_e6, sel.lon_e6) : -1, mw);
+      return;
+    }
+    d.fillRect(0, bar_y - 1, W, d.sepH());
+    const int rw = dist[0] ? d.getTextWidth(dist) + d.getCharWidth() : 0;
     d.drawTextEllipsized(1, bar_y + 1, W - 2 - rw, name);
-    if (right[0]) { d.setCursor(W - 1 - d.getTextWidth(right), bar_y + 1); d.print(right); }
+    if (dist[0]) { d.setCursor(W - 1 - d.getTextWidth(dist), bar_y + 1); d.print(dist); }
+  }
+
+  // The map's dashes (wide e-ink): each kind of packet its own, the trail dotted.
+  static gfx::Dash trailDash() { return { 0x1, 3 }; }
+  static gfx::Dash flowDash(uint8_t kind) {
+    switch (kind) {
+      case PacketFlow::K_ADVERT: return gfx::DASH_SOLID;
+      case PacketFlow::K_MSG:    return { 0x3F, 9 };    // long dashes
+      case PacketFlow::K_GROUP:  return { 0x07, 6 };    // short dashes
+      default:                   return { 0x5F, 9 };    // dash and dot: requests, acks, the rest
+    }
+  }
+
+  // Beside the map on a wide screen: the selected node (name, distance and
+  // bearing, type, last heard, path) and, with the packet flow on, its legend:
+  // a sample of each kind's dashes and how many were heard in the last minute.
+  void renderMapPane(DisplayDriver& d, const Entry& e, const char* name, const char* dist, int deg, int mw) {
+    const int W = d.width(), H = d.height(), lh = d.getLineHeight(), cw = d.getCharWidth(), t = d.sepH();
+    const int px = mw + t + 3, pw = W - px - 2, step = d.lineStep();
+    d.setColor(UIColor::primary_txt);
+    d.fillRect(mw, 0, t, H);
+    int y = 1;
+    d.drawTextEllipsized(px, y, pw, name);
+    y += lh + 1;
+    d.fillRect(px, y, pw, t);
+    y += t + 2;
+    char buf[32];
+    if (dist[0]) {
+      if (deg >= 0) snprintf(buf, sizeof(buf), "%s %s", dist, geo::bearingCardinal(deg));
+      else          snprintf(buf, sizeof(buf), "%s", dist);
+      d.drawTextEllipsized(px, y, pw, buf); y += step;
+    }
+    snprintf(buf, sizeof(buf), "%s", typeName(e.type));
+    d.drawTextEllipsized(px, y, pw, buf); y += step;
+    char age[16];
+    fmtAge(age, sizeof(age), e.lastmod);
+    snprintf(buf, sizeof(buf), "%s %s", e.is_live ? "Sharing" : "Seen", age);
+    d.drawTextEllipsized(px, y, pw, buf); y += step;
+    ContactInfo ci;
+    if (e.contact_idx >= 0 && the_mesh.getContactByIdx(e.contact_idx, ci)) {
+      if (ci.out_path_len == 0xFF) snprintf(buf, sizeof(buf), "Path: flood");
+      else if ((ci.out_path_len & 63) == 0) snprintf(buf, sizeof(buf), "Path: direct");
+      else snprintf(buf, sizeof(buf), "Path: %d hop%s", ci.out_path_len & 63, (ci.out_path_len & 63) == 1 ? "" : "s");
+      d.drawTextEllipsized(px, y, pw, buf); y += step;
+    }
+
+    // The legend, from the bottom up as far as it fits; between it and the
+    // node, a compass rose pointing at the node when there is the room.
+    const PacketFlow& fl = _task->core().flow;
+    const bool trail = _task->core().trail.store().count() > 1;
+    struct Row { const char* label; int n; gfx::Dash dash; bool ring; };
+    Row rows[7];
+    int nr = 0;
+    if (fl.enabled()) {
+      rows[nr++] = { "Advert",  fl.count(PacketFlow::K_ADVERT), flowDash(PacketFlow::K_ADVERT), false };
+      rows[nr++] = { "DM",      fl.count(PacketFlow::K_MSG),    flowDash(PacketFlow::K_MSG),    false };
+      rows[nr++] = { "Channel", fl.count(PacketFlow::K_GROUP),  flowDash(PacketFlow::K_GROUP),  false };
+      rows[nr++] = { "Other",   fl.count(PacketFlow::K_REQ) + fl.count(PacketFlow::K_ACK) + fl.count(PacketFlow::K_OTHER),
+                     flowDash(PacketFlow::K_OTHER), false };
+      rows[nr++] = { "Sent",    fl.count(PacketFlow::K_SENT),   gfx::DASH_SOLID, true };
+    }
+    if (trail) rows[nr++] = { "Trail", -1, trailDash(), false };
+    const int head = fl.enabled() ? 1 : 0;
+    int top = nr ? H - (nr + head) * step - 1 : H;
+    if (top < y + step / 2) { top = H; nr = 0; }   // no room for it under the node
+    const int room = top - y - lh / 2, size = room < pw ? room : pw;
+    if (deg >= 0 && size >= 5 * lh) info::rose(d, px + pw / 2, y + room / 2, size / 2 - lh, deg);
+    if (!nr) return;
+    int ry = top;
+    if (head) { d.setCursor(px, ry); d.print("Last minute"); ry += step; }
+    const int sw = 3 * cw;   // the sample line
+    for (int i = 0; i < nr; i++, ry += step) {
+      const int cy = ry + lh / 2;
+      if (rows[i].ring) gfx::drawCircleClipped(d, px + sw / 2, cy, lh / 3, px, ry, sw, lh);
+      else              gfx::drawLine(d, px, cy, px + sw - 1, cy, rows[i].dash);
+      d.setCursor(px + sw + cw, ry);
+      d.print(rows[i].label);
+      if (rows[i].n >= 0) {
+        snprintf(buf, sizeof(buf), "%d", rows[i].n);
+        d.setCursor(px + pw - d.getTextWidth(buf), ry);
+        d.print(buf);
+      }
+    }
   }
 
   void renderScanDetail(DisplayDriver& display) {
