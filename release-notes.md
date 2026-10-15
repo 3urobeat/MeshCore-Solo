@@ -1,3 +1,154 @@
+## MeshCore Solo Companion Firmware v2.0
+
+The biggest Solo release so far:
+- the Wio Tracker L2 with a colour touch interface;
+- four e-ink builds for the Wio Tracker L1;
+- a new interface on the OLED;
+- the settings the phone app used to keep to itself, now on the device.
+
+Built on MeshCore 1.18. This page lists everything new since 1.28. Testers coming from a release candidate will find what changed since rc3 at the end.
+
+> [!WARNING]
+> **Coming from 1.x: your settings start again from the defaults**, apart from the node's name and position, its radio settings (frequency, bandwidth, spreading factor, coding rate, TX power), the Bluetooth PIN and the default scope, which carry over.
+>
+> **Coming from rc1, rc2 or rc3: every setting starts again from the defaults**, including the **device name, the radio settings and the Bluetooth PIN**. 2.0 saves its settings in a new file, `/prefs.json`, and doesn't read the release candidates' file. **Set your radio first** (Settings › Radio, or the app), or the device won't hear your mesh.
+>
+> Either way, your identity, contacts, channels, scope list, messages, waypoints and trails stay as they are, and you don't need to erase the flash.
+
+> [!NOTE]
+> **Wio Tracker L2:** from rc1 or later, Settings › Firmware update finds 2.0 and installs it over WiFi.
+
+### New devices and builds
+
+- **Wio Tracker L2**, with a colour touch interface built for its 320 × 240 screen:
+  - **Home**: a phone-style home screen with the clock, telemetry, a small map and the apps, which you can arrange. Pull down from the status bar for the quick panel: Bluetooth, WiFi, GPS, sound, trail and live sharing switches, advert, lock and brightness.
+  - **Map**: an offline map from the microSD card, downloaded on the device over WiFi, with hiking trails, a grid, a scale bar and saved trails. **Layers**: Topo, Light, Dark, Satellite and Esri Topo.
+  - **Messages**: history kept on the SD card.
+  - **GPS** on three tabs: Sky, Signal and Details.
+  - **Diagnostics**: an RF noise tab, and charts with a readout under your finger.
+  - **Clock**: alarm, timer, stopwatch, calendar, and a big clock in the splash's lettering.
+  - **A dark and a light theme**, with an accent colour.
+  - **Flashlight** app.
+  - Also: a screen PIN, screenshots, the SD card as a USB drive, and firmware updates from GitHub over WiFi.
+- **Four Wio Tracker L1 E-ink builds:**
+  - **2.13" landscape**, with a larger 8 × 13 font.
+  - **2.13" portrait**: the tall screen fits whole message bubbles, a trail map with a height profile, the clock, the calendar and charts.
+  - **4.2" 400 × 300** (`WioTrackerL1Eink42`): a 9 × 15 font, its own icons, and screens laid out for the room: status tiles, a node list with a detail pane, charts and the sky view.
+  - **4.26" 800 × 480** (`WioTrackerL1Eink426`, Good Display GDEQ0426T82), laid out like the 4.2", with **Text size** and **Icon size** in Settings › Display. Contributed by @pmow.
+
+### A new interface on the OLED and e-ink
+
+- **Home pages slide sideways**, with quick panels and a map page. Each panel's first row is the way into the full screen ("All settings", "All messages", "All tools"); the rows after it are shortcuts.
+- **One Status page and screen** replace the Radio, GPS and Sensors pages and Diagnostics.
+- **Settings** use one list style throughout, with switches for on / off values.
+- **Alerts drop in from the top** as a banner and slide away. **Message alert** in Settings › Display picks the banner, a small envelope with a count beside the battery, or no alert.
+- **Popups, alerts and bubbles** share one soft-cornered frame. Tab bars glide, and the page below slides in. The screen redraws only the parts that changed.
+- **A bolt beside the battery** while USB power is connected (nRF52 boards and the L2).
+- **Nearby › Map**: the nodes with a position and you on one view.
+- **Clock tools**: a calendar with today and the alarm's days.
+- **Tools › Satellites**: a sky plot and a signal bar for each satellite.
+- **Tools › System › Flashlight**: the whole screen lit (not on e-ink).
+- **The keyboard's cursor mode** marks the place between letters, and Up / Down move a word.
+
+### The phone app's settings on the device
+
+- **Privacy**: whether your adverts carry your position, and how exactly: **Exact**, or rounded to about 100 m, 500 m or 1 km on a fixed grid. A fixed position, typed in or taken from a waypoint. Who may ask for your status, location and sensors. The Bluetooth PIN. Precision contributed by @pmow.
+- **Adding contacts**: all heard nodes or only some types, up to how many hops, and whether to replace the oldest when the list is full.
+- **Advanced radio**, at the end of Radio: path hash size, double ACK, listen before talk, interference threshold, RX boost, RX delay and airtime.
+- **Per contact**: who may ask for its telemetry, reset its path, share it with the nodes nearby.
+- **Factory reset** in Settings › System, asked twice.
+- **A console**: the phone app's console and the site's USB tools take upstream MeshCore's companion commands, plus a key for every setting (`keys`, `get`, `set`).
+- **The app on Bluetooth and USB at the same time.** A Bluetooth connection no longer shuts the USB link, and turning Bluetooth off leaves USB on.
+
+### Messages and contacts
+
+- **A conversation opens at its first unread message**, under a "New" line. Messages that arrive while the screen is dark or locked stay unread until you see them.
+- **The bytes a message has left**, counted as it will go out, shown over the last 40 bytes. Nothing past the limit can be typed or sent.
+- **Path and trace**: **Path / trace** in a contact's options (**Route** in a node's card on the L2):
+  - Edit the repeaters a message goes through.
+  - Trace the path out and back, with the signal in dB for every hop.
+  - **Find where** shows where the path stops.
+  - **Keep** a route, so a path heard from the node doesn't replace it.
+- **Channel order** in Settings › Contacts: by slot, newest message first, or by name. A channel's scope can be **Default**, which follows the scope the list marks as default.
+- **QR codes**: of this manual, and of your contact for another phone to add (Status › System; Settings › About on the L2).
+- **Unread counts show a "+"** when a full history has dropped older messages.
+- **Quiet hours** mute the device on a schedule and keep the screen dark for new messages. The alarm still rings.
+
+### Navigation and the map
+
+- **Pointers to other nodes**: Nodes shows an arrow to each node beside its distance. Node detail shows how many repeaters a message takes to reach it. The L2 and the e-ink also draw a compass.
+- **Packet flow**: every packet the radio hears is drawn as a line from its origin, through the repeaters, to you, in a colour for each kind, with a legend. Off by default: **Flow** in the Nodes map's options, Map options › On the map › **Packet flow** on the L2.
+- **Trails record altitude**, with a height profile showing the climb and the highest and lowest points. GPX exports carry the altitude.
+- **Live location sharing has its own scope**, and each session ends by itself after 1–12 h.
+
+### Device
+
+- **A screen-lock PIN**, including at boot. The radio and the app keep working while the screen is locked. Contributed by @3urobeat.
+- **Battery curve**: set your cell's voltage at each 10 % step.
+- **The clock survives a power loss**: it is saved every 30 minutes and restored on the next start.
+
+### Fixes
+
+- **Pwr save (RX duty-cycle) is disabled.** With it on, the radio missed every packet from a sender with a different preamble length, such as a repeater on firmware before 1.16.
+- **Signing from the app failed on the L1**: the device promised a buffer it couldn't allocate.
+- **GPS power saving never updated the position**: it put the receiver back to sleep before a new fix.
+- **Sending no longer stutters** while the contact list is saved.
+- **Each packet heard could hold the device up for up to 300 ms** when no app was connected over USB.
+- **Settings were lost on restart on a device that had run Meshtastic.**
+- **Settings, contacts, channels, trails and waypoints could be lost** if the power went at the wrong moment while saving.
+- **The radio stays serviced while the e-ink screen refreshes**, so a long refresh no longer misses packets.
+- **ESP32 boards stay findable over Bluetooth** after the Bluetooth stack restarts.
+- **Bluetooth switched off stays off** over a reboot or hibernation.
+- **Messages:**
+  - A flood DM's acknowledgement folded into the return path now reaches the screen.
+  - A late acknowledgement for an earlier attempt marks the message delivered.
+  - A direct message's last retry drops the direct path and floods.
+  - A failed send keeps the text you typed.
+  - A message from someone named "Me" is no longer shown as yours.
+- **Scopes:** removing a scope moves its channels to the default, not to unscoped, and adverts use the default scope too.
+- **Channels:** joining a #channel trims spaces and keeps the case, as the app does.
+- **The room bot** no longer answers the old posts a room replays after login.
+- **The alarm** follows a change of time zone.
+- **A new auto-advert interval** counts from the last advert.
+- **The nRF52 builds queue up to 128 messages** for the app while it is disconnected.
+- **Wio Tracker L2:**
+  - WiFi could fail to start or join after opening the map.
+  - Fast typing: a second finger is a new tap, not a slide.
+  - The SD card isn't remounted while it's a USB drive.
+- **Upstream MeshCore 1.18 fixes**, among them security fixes (a buffer overflow in decryption, console buffers), the ESP32 clock reading 1970 after a crash, and the TX power on LR1121 radios.
+
+<details>
+<summary><b>Changes since rc3</b></summary>
+
+- **Settings are saved in `/prefs.json`** (see the warning above).
+- **The app on Bluetooth and USB at the same time.**
+- **Path and trace**, **packet flow**, **flashlight**, **channel order**, gliding tab bars, and the lettering clock on the portrait e-ink.
+- **Console**: `txdelay`, `direct.txdelay` and `agc.reset.interval`.
+- **Wio Tracker L2:**
+  - A light theme and map layers.
+  - A title bar with the clock on screens with a title, controls in one shape, and the Nodes filters in one row.
+  - The quick panel no longer stalls or tears when pulled.
+  - The GPS sky plot is no longer cut off.
+- **4.26" e-ink**: lines and outlines are drawn at the panel's scale, and a conversation no longer jumps on opening.
+- **Fixes**:
+  - GPS power saving.
+  - The 300 ms USB hold-up.
+  - Saving when the power goes.
+  - Scopes and the room bot.
+  - DM retries and late ACKs.
+  - #channel names.
+  - The alarm and the time zone.
+  - The auto-advert interval.
+  - "Me".
+  - `nan` in the console.
+  - Auto pwr after a TX power change.
+  - WiFi, fast typing and the SD card on the L2.
+  - Upstream 1.18.
+
+</details>
+
+---
+
 ## MeshCore Solo Companion Firmware v2.0-rc3
 
 The third release candidate for 2.0. Settings carry over from rc1 and rc2; coming from 1.x, read the rc1 notes below first.

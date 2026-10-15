@@ -1,14 +1,30 @@
 <p align="center"><img src="./docs/solo/img/hero.png" alt="MeshCore Solo" width="640"></p>
 
-# MeshCore Solo Companion Firmware
+<h1 align="center">MeshCore Solo Companion Firmware</h1>
 
-A fork of the official [MeshCore](https://github.com/meshcore-dev/MeshCore) companion radio firmware with a full standalone on-device UI — messages, contacts, GPS navigation and tools without a phone.
+<p align="center">
+  A fork of the official <a href="https://github.com/meshcore-dev/MeshCore">MeshCore</a> companion radio firmware with a full standalone on-device UI:<br>
+  messages, contacts, GPS navigation and tools without a phone.
+</p>
 
-**Try it live in your browser: [solo.marekzegarek.com](https://solo.marekzegarek.com)**
+<p align="center">
+  <a href="https://github.com/MarekZegare4/MeshCore-Solo/releases/latest"><img src="https://img.shields.io/github/v/release/MarekZegare4/MeshCore-Solo?label=release&color=2ea44f" alt="Latest release"></a>
+  <a href="https://solo.marekzegarek.com"><img src="https://img.shields.io/badge/try%20it-in%20your%20browser-0a84ff" alt="Try it in your browser"></a>
+  <a href="./docs/solo/README.md"><img src="https://img.shields.io/badge/docs-read-555" alt="Documentation"></a>
+  <a href="https://discord.gg/sdhYArU2jr"><img src="https://img.shields.io/badge/Discord-MeshCore-5865F2?logo=discord&logoColor=white" alt="MeshCore Discord"></a>
+</p>
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/MarekZegarek)
+<p align="center">
+  <img src="./docs/solo/img/oled-status.png" alt="Status page on the OLED" height="150">
+  &nbsp;
+  <img src="./docs/solo/img/eink-channel.png" alt="A channel on the e-ink" height="150">
+  &nbsp;
+  <img src="./docs/solo/img/l2-home.png" alt="Home screen on the Wio Tracker L2" height="150">
+</p>
 
-Discussion: [MeshCore Discord](https://discord.gg/sdhYArU2jr) — [Solo firmware thread](https://discord.com/channels/1495203904898728149/1505294337884553447)
+<p align="center">
+  <a href="https://buymeacoffee.com/MarekZegarek"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="44"></a>
+</p>
 
 ---
 
@@ -17,7 +33,9 @@ Discussion: [MeshCore Discord](https://discord.gg/sdhYArU2jr) — [Solo firmware
 | Device | MCU | Display | Firmware file |
 | ------ | --- | ------- | ------------- |
 | Seeed Wio Tracker L1 (OLED) | nRF52840 | SSD1306 / SH1106 128 × 64 | `solo-<version>-WioTrackerL1.uf2` |
-| Seeed Wio Tracker L1 (E-ink) | nRF52840 | GxEPD2 250 × 122, 4.2" 400 × 300 or 4.26" 800 × 480 | `solo-<version>-WioTrackerL1Eink-landscape.uf2`, `-portrait.uf2`, `solo-<version>-WioTrackerL1Eink42.uf2` or `solo-<version>-WioTrackerL1Eink426.uf2` |
+| Seeed Wio Tracker L1 (E-ink 2.13") | nRF52840 | 250 × 122, landscape or portrait | `solo-<version>-WioTrackerL1Eink-landscape.uf2` or `-portrait.uf2` |
+| Seeed Wio Tracker L1 (E-ink 4.2") | nRF52840 | 400 × 300 | `solo-<version>-WioTrackerL1Eink42.uf2` |
+| Seeed Wio Tracker L1 (E-ink 4.26") | nRF52840 | 800 × 480 | `solo-<version>-WioTrackerL1Eink426.uf2` |
 | Seeed Wio Tracker L2 | ESP32-S3 | 320 × 240 touch LCD | `solo-<version>-Wio-Tracker-L2-merged.bin` |
 | GAT562 30S Mesh Kit | nRF52840 | SSD1306 128 × 64 | `solo-<version>-GAT562-30S-Mesh-Kit.uf2` |
 | GAT562 Mesh Watch13 *(experimental)* | nRF52840 | SSD1306 128 × 64 | `solo-<version>-GAT562-Mesh-Watch13.uf2` |
@@ -27,7 +45,7 @@ Discussion: [MeshCore Discord](https://discord.gg/sdhYArU2jr) — [Solo firmware
 | LilyGO T-Echo Lite + KeyShield *(experimental)* | nRF52840 | GxEPD2 250 × 122 | `solo-<version>-LilyGo-T-Echo-Lite-keyshield.uf2` |
 | ProMicro *(experimental)* | nRF52840 | SSD1306 128 × 64 | `solo-<version>-ProMicro.uf2` |
 
-Firmware files are on the [releases page](https://github.com/MarekZegare4/MeshCore-Solo/releases). Every binary serves the companion app over both BLE and USB serial.
+Firmware files are on the [releases page](https://github.com/MarekZegare4/MeshCore-Solo/releases). Every binary serves the companion app over Bluetooth and USB serial at the same time.
 
 Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo/hardware.md#wiring-on-the-heltec-v3--v4); ProMicro needs a CardKB; the T-Echo Lite needs the KeyShield. The rest work out of the box.
 
@@ -41,9 +59,6 @@ Heltec V3/V4 need [a keyboard or joystick wired up](./docs/solo/hardware.md#wiri
 **nRF52840 boards** — press reset twice quickly; the device shows up as a USB drive. Copy the `.uf2` onto it.
 
 **ESP32-S3 boards** — flash the `-merged.bin` at offset `0x0` with the [MeshCore Flasher](https://meshcore.io/flasher) or `esptool.py --chip esp32s3 write_flash 0x0 <file>-merged.bin`. The Wio Tracker L2 then updates itself over WiFi (Settings › System › Firmware update).
-
-> [!IMPORTANT]
-> BLE has priority over USB serial: while a BLE connection is active the USB protocol is suspended.
 
 ---
 
@@ -68,8 +83,14 @@ This README is protected from upstream merges via `.gitattributes`; after clonin
 
 ---
 
+## Community
+
+Questions and feedback: the [Solo firmware thread](https://discord.com/channels/1495203904898728149/1505294337884553447) on the [MeshCore Discord](https://discord.gg/sdhYArU2jr), or an [issue](https://github.com/MarekZegare4/MeshCore-Solo/issues).
+
+---
+
 ## Contributors
 
-Big thanks to [vanous](https://github.com/vanous), [marczykm](https://github.com/marczykm), [tchellow](https://github.com/tchellow) and [3urobeat](https://github.com/3urobeat).
+Big thanks to [vanous](https://github.com/vanous), [marczykm](https://github.com/marczykm), [tchellow](https://github.com/tchellow), [3urobeat](https://github.com/3urobeat) and [pmow](https://github.com/pmow).
 
 Built on upstream [MeshCore](https://github.com/meshcore-dev/MeshCore) and its [community](https://github.com/meshcore-dev/MeshCore/graphs/contributors).
